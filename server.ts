@@ -107,6 +107,16 @@ let platformFareSettings: PlatformFareSettings = {
   updatedBy: 'Administração Municipal',
 };
 
+let dynamicPricingSettings: DynamicPricingSettings = {
+  isEnabled: true,
+  minMultiplier: 0.8,
+  maxMultiplier: 2.5,
+  idealDriverPassengerRatio: 3.0, // 3 motoristas para cada 1 passageiro solicitando
+  minDriversThreshold: 2,
+  activeZoneIds: [], // Empty means all zones
+  surgeIcon: '⚡',
+};
+
 // --- IN-MEMORY RELATIONAL DATABASE STORES (INITIAL CLEAN STATE: WITH APPROVED MOTORISTA DE BASE) ---
 const approvedDriver: Driver = {
   id: 'drv-carlos',
@@ -208,6 +218,46 @@ function createDemoData(approved: boolean = false) {
 }
 
 // --- DISTANCE & PRICE CALCULATION HELPER ---
+function calculateCurrentDynamicMultiplier(zoneId?: string): { multiplier: number; isActive: boolean } {
+  if (!dynamicPricingSettings.isEnabled) return { multiplier: 1.0, isActive: false };
+
+  // Calculate supply: Online approved drivers in this zone (or total if no zone)
+  const onlineDrivers = driversStore.filter(d => 
+    d.isOnline && 
+    d.regulatoryStatus === 'APPROVED' &&
+    (!zoneId || d.operatingZones.includes(zoneId))
+  ).length;
+
+  // Calculate demand: Active requests (not yet picked up) in this zone
+  const activeRequests = ridesStore.filter(r => 
+    ['REQUESTED', 'ACCEPTED', 'DRIVER_ARRIVING'].includes(r.status) &&
+    (!zoneId || r.originZoneId === zoneId)
+  ).length;
+
+  if (onlineDrivers < dynamicPricingSettings.minDriversThreshold) {
+    return { multiplier: 1.0, isActive: false };
+  }
+
+  // Safe division: ratio = drivers / requests
+  // If no requests, ratio is infinite (oversupply) -> price goes down
+  // If many requests and few drivers, ratio is low (undersupply) -> price goes up
+  const currentRatio = activeRequests === 0 ? 10 : onlineDrivers / activeRequests;
+  
+  // Inverse relationship: multiplier = idealRatio / currentRatio
+  let multiplier = dynamicPricingSettings.idealDriverPassengerRatio / currentRatio;
+
+  // Apply bounds
+  multiplier = Math.max(dynamicPricingSettings.minMultiplier, Math.min(dynamicPricingSettings.maxMultiplier, multiplier));
+  
+  // Round to 2 decimals
+  multiplier = Math.round(multiplier * 100) / 100;
+
+  // Active if > 1.0 (surge) or < 1.0 (discount)
+  const isActive = multiplier !== 1.0;
+
+  return { multiplier, isActive };
+}
+
 function calculateDistanceKm(originZoneId: string, destZoneId: string): number {
   const origin = zonesStore.find((z) => z.id === originZoneId);
   const dest = zonesStore.find((z) => z.id === destZoneId);
@@ -221,6 +271,8 @@ function calculateDistanceKm(originZoneId: string, destZoneId: string): number {
 }
 
 function calculateDriverFare(driver: Driver, originZoneId: string, destZoneId: string): number {
+  const dynamic = calculateCurrentDynamicMultiplier(originZoneId);
+
   // 1. Check if driver has a fixed route
   const fixedRoute = driver.pricing.fixedRoutes.find(
     (r) =>
@@ -229,9 +281,13 @@ function calculateDriverFare(driver: Driver, originZoneId: string, destZoneId: s
   );
 
   if (fixedRoute) {
-    const routePrice = platformFareSettings.isEnforced
+    let routePrice = platformFareSettings.isEnforced
       ? Math.max(fixedRoute.price, platformFareSettings.minFixedRoutePrice)
       : fixedRoute.price;
+    
+    // Apply dynamic multiplier
+    routePrice = routePrice * dynamic.multiplier;
+
     return Math.round(routePrice);
   }
 
@@ -245,6 +301,10 @@ function calculateDriverFare(driver: Driver, originZoneId: string, destZoneId: s
     : (driver.pricing.ratePerKm || 3.5);
 
   let fare = minBase + distanceKm * rateKm;
+  
+  // Apply dynamic multiplier
+  fare = fare * dynamic.multiplier;
+
   if (platformFareSettings.isEnforced) {
     fare = Math.max(fare, platformFareSettings.minBaseFare);
   }
@@ -475,12 +535,16 @@ app.post('/api/v1/search/drivers', (req, res) => {
     };
   });
 
+  const dynamic = calculateCurrentDynamicMultiplier(originZoneId);
+
   res.json({
     totalFound: results.length,
     distanceKm,
     estimatedDurationMin,
     originZone: zonesStore.find((z) => z.id === originZoneId),
     destinationZone: zonesStore.find((z) => z.id === destinationZoneId),
+    dynamicMultiplier: dynamic.multiplier,
+    isDynamicActive: dynamic.isActive,
     results,
   });
 });
@@ -728,6 +792,7 @@ app.post('/api/v1/rides', (req, res) => {
   const estimatedPrice = calculateDriverFare(driver, originZoneId, destinationZoneId);
   const estimatedDistanceKm = calculateDistanceKm(originZoneId, destinationZoneId);
   const estimatedDurationMin = Math.max(5, Math.round(estimatedDistanceKm * 1.4));
+  const dynamic = calculateCurrentDynamicMultiplier(originZoneId);
 
   const newRide: Ride = {
     id: `ride-${Date.now()}`,
@@ -757,6 +822,8 @@ app.post('/api/v1/rides', (req, res) => {
     estimatedPrice,
     estimatedDistanceKm,
     estimatedDurationMin,
+    dynamicMultiplier: dynamic.multiplier,
+    isDynamicPricingActive: dynamic.isActive,
     status: 'REQUESTED',
     paymentMethod: paymentMethod as any,
     paymentChangeFor: paymentChangeFor ? Number(paymentChangeFor) : undefined,
@@ -1359,6 +1426,39 @@ app.get('/api/v1/passenger-reviews', (req, res) => {
   if (passengerId) list = list.filter((r) => r.passengerId === String(passengerId));
   if (driverId) list = list.filter((r) => r.driverId === String(driverId));
   res.json(list);
+});
+
+// --- DYNAMIC PRICING ADMIN ROUTES ---
+app.get('/api/v1/admin/dynamic-pricing', (req, res) => {
+  res.json(dynamicPricingSettings);
+});
+
+app.post('/api/v1/admin/dynamic-pricing', (req, res) => {
+  const settings = req.body;
+  dynamicPricingSettings = {
+    ...dynamicPricingSettings,
+    ...settings,
+  };
+  res.json({ success: true, settings: dynamicPricingSettings });
+});
+
+app.get('/api/v1/admin/surge-analysis', (req, res) => {
+  const analysis = zonesStore.map(zone => {
+    const dynamic = calculateCurrentDynamicMultiplier(zone.id);
+    const onlineDrivers = driversStore.filter(d => d.isOnline && d.regulatoryStatus === 'APPROVED' && d.operatingZones.includes(zone.id)).length;
+    const activeRequests = ridesStore.filter(r => ['REQUESTED', 'ACCEPTED', 'DRIVER_ARRIVING'].includes(r.status) && r.originZoneId === zone.id).length;
+    
+    return {
+      zoneId: zone.id,
+      zoneName: zone.name,
+      multiplier: dynamic.multiplier,
+      isActive: dynamic.isActive,
+      onlineDrivers,
+      activeRequests,
+      ratio: activeRequests === 0 ? onlineDrivers : (onlineDrivers / activeRequests).toFixed(2)
+    };
+  });
+  res.json(analysis);
 });
 
 // --- VITE MIDDLEWARE & SPA SERVING ---

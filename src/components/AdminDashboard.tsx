@@ -58,7 +58,11 @@ import {
   deletePlatformCost,
   fetchFareSettings,
   updateAdminFareSettings,
+  fetchDynamicPricingSettings,
+  updateDynamicPricingSettings,
+  fetchSurgeAnalysis,
 } from '../lib/api.ts';
+import { DynamicPricingSettings } from '../types.ts';
 
 interface AdminDashboardProps {
   metrics: PlatformMetrics;
@@ -97,7 +101,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pwdChangeSuccess, setPwdChangeSuccess] = useState('');
 
   // Dashboard Tabs
-  const [tab, setTab] = useState<'METRICS' | 'DRIVERS' | 'RIDES' | 'FINANCES' | 'FARES' | 'ZONES' | 'REPORTS'>('METRICS');
+  const [tab, setTab] = useState<'METRICS' | 'DRIVERS' | 'RIDES' | 'FINANCES' | 'FARES' | 'DINAMICA' | 'ZONES' | 'REPORTS'>('METRICS');
+
+  // Dynamic Pricing State
+  const [dynamicSettings, setDynamicSettings] = useState<DynamicPricingSettings>({
+    isEnabled: true,
+    minMultiplier: 0.8,
+    maxMultiplier: 2.5,
+    idealDriverPassengerRatio: 3.0,
+    minDriversThreshold: 2,
+    activeZoneIds: [],
+    surgeIcon: '⚡',
+  });
+  const [surgeAnalysis, setSurgeAnalysis] = useState<any[]>([]);
+  const [dynamicUpdateSuccess, setDynamicUpdateSuccess] = useState('');
+  const [dynamicUpdateError, setDynamicUpdateError] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -137,7 +155,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   useEffect(() => {
     loadCosts();
     loadFareSettings();
+    loadDynamicSettings();
+    loadSurgeAnalysis();
   }, []);
+
+  const loadDynamicSettings = async () => {
+    try {
+      const data = await fetchDynamicPricingSettings();
+      setDynamicSettings(data);
+    } catch { }
+  };
+
+  const loadSurgeAnalysis = async () => {
+    try {
+      const data = await fetchSurgeAnalysis();
+      setSurgeAnalysis(data);
+    } catch { }
+  };
+
+  const handleUpdateDynamicPricing = async () => {
+    setIsUpdating(true);
+    setDynamicUpdateSuccess('');
+    setDynamicUpdateError('');
+    try {
+      await updateDynamicPricingSettings(dynamicSettings);
+      setDynamicUpdateSuccess('Configurações de tarifa dinâmica atualizadas com sucesso!');
+      loadSurgeAnalysis();
+      setTimeout(() => setDynamicUpdateSuccess(''), 3000);
+    } catch (err: any) {
+      setDynamicUpdateError(err.message || 'Falha ao atualizar tarifa dinâmica');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   const loadCosts = async () => {
     try {
@@ -725,6 +775,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         >
           <Scale className="w-3.5 h-3.5" />
           <span>Pisos & Tarifas</span>
+        </button>
+
+        <button
+          onClick={() => setTab('DINAMICA')}
+          className={`px-4 py-2 rounded-xl font-bold cursor-pointer transition-all whitespace-nowrap flex items-center gap-1.5 ${
+            tab === 'DINAMICA' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white bg-slate-900'
+          }`}
+        >
+          <TrendingUp className="w-3.5 h-3.5" />
+          <span>Tarifa Dinâmica</span>
         </button>
 
         <button
@@ -1651,6 +1711,207 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </table>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB: DINAMICA (Tarifa Dinâmica) */}
+      {/* ========================================================================= */}
+      {tab === 'DINAMICA' && (
+        <div className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-black text-white flex items-center gap-2">
+                <TrendingUp className="w-6 h-6 text-emerald-400" />
+                <span>Gestão de Tarifa Dinâmica</span>
+              </h2>
+              <p className="text-xs text-slate-400">
+                Ajuste automático de preços por oferta e demanda local.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={loadSurgeAnalysis}
+                className="p-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer border border-slate-700 shadow-sm"
+                title="Atualizar Análise"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Settings Form */}
+            <div className="lg:col-span-6 bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Parâmetros do Multiplicador</h3>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    className="sr-only peer"
+                    checked={dynamicSettings.isEnabled}
+                    onChange={(e) => setDynamicSettings({...dynamicSettings, isEnabled: e.target.checked})}
+                  />
+                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                  <span className="ml-3 text-xs font-bold text-slate-300">{dynamicSettings.isEnabled ? 'ATIVADO' : 'DESATIVADO'}</span>
+                </label>
+              </div>
+
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Multiplicador Mínimo</label>
+                    <input 
+                      type="number" step="0.1" min="0.1" max="1.0"
+                      className="w-full bg-transparent text-white font-black text-xl outline-none"
+                      value={dynamicSettings.minMultiplier}
+                      onChange={(e) => setDynamicSettings({...dynamicSettings, minMultiplier: Number(e.target.value)})}
+                    />
+                    <span className="text-[9px] text-slate-500">Padrão: 0.8 (Desconto)</span>
+                  </div>
+                  <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Multiplicador Máximo</label>
+                    <input 
+                      type="number" step="0.1" min="1.0" max="5.0"
+                      className="w-full bg-transparent text-white font-black text-xl outline-none"
+                      value={dynamicSettings.maxMultiplier}
+                      onChange={(e) => setDynamicSettings({...dynamicSettings, maxMultiplier: Number(e.target.value)})}
+                    />
+                    <span className="text-[9px] text-slate-500">Padrão: 2.5 (Surge)</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-white">Relação Ideal (Motorista/Solicitação)</label>
+                    <span className="text-xs font-black text-emerald-400">{dynamicSettings.idealDriverPassengerRatio}x</span>
+                  </div>
+                  <input 
+                    type="range" min="1.0" max="5.0" step="0.5"
+                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                    value={dynamicSettings.idealDriverPassengerRatio}
+                    onChange={(e) => setDynamicSettings({...dynamicSettings, idealDriverPassengerRatio: Number(e.target.value)})}
+                  />
+                  <p className="text-[10px] text-slate-500">
+                    Define o equilíbrio. Se houver menos que {dynamicSettings.idealDriverPassengerRatio} motoristas por passageiro solicitando, o preço sobe.
+                  </p>
+                </div>
+
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1.5">
+                  <label className="text-xs font-bold text-white block">Ativar apenas se houver pelo menos:</label>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="number" min="1" max="10"
+                      className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-bold w-20 outline-none"
+                      value={dynamicSettings.minDriversThreshold}
+                      onChange={(e) => setDynamicSettings({...dynamicSettings, minDriversThreshold: Number(e.target.value)})}
+                    />
+                    <span className="text-xs text-slate-400">motoristas online na região</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1.5">
+                  <label className="text-xs font-bold text-white block">Ícone de Identificação</label>
+                  <input 
+                    type="text"
+                    className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-bold w-20 outline-none text-center"
+                    value={dynamicSettings.surgeIcon}
+                    onChange={(e) => setDynamicSettings({...dynamicSettings, surgeIcon: e.target.value})}
+                  />
+                  <span className="text-[10px] text-slate-500">Será exibido ao lado do preço quando a tarifa dinâmica estiver ativa.</span>
+                </div>
+              </div>
+
+              {dynamicUpdateSuccess && (
+                <div className="p-3 bg-emerald-950/60 border border-emerald-800/60 rounded-xl text-xs text-emerald-300">
+                  {dynamicUpdateSuccess}
+                </div>
+              )}
+              {dynamicUpdateError && (
+                <div className="p-3 bg-rose-950/60 border border-rose-800/60 rounded-xl text-xs text-rose-300">
+                  {dynamicUpdateError}
+                </div>
+              )}
+
+              <button
+                onClick={handleUpdateDynamicPricing}
+                disabled={isUpdating}
+                className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs py-3.5 rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {isUpdating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}
+                <span>Salvar Configurações Dinâmicas</span>
+              </button>
+            </div>
+
+            {/* Live Analysis Sidebar */}
+            <div className="lg:col-span-6 space-y-6">
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-emerald-400" />
+                  <span>Análise de Demanda em Tempo Real</span>
+                </h3>
+                
+                <div className="space-y-3 overflow-y-auto max-h-[500px] pr-1 custom-scrollbar">
+                  {surgeAnalysis.map((item) => (
+                    <div 
+                      key={item.zoneId}
+                      className={`p-4 rounded-2xl border transition-all ${
+                        item.isActive 
+                          ? (item.multiplier > 1.0 ? 'bg-amber-950/20 border-amber-500/30' : 'bg-emerald-950/20 border-emerald-500/30')
+                          : 'bg-slate-950 border-slate-800 opacity-80'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-white text-sm">{item.zoneName}</span>
+                          {item.isActive && (
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                              item.multiplier > 1.0 ? 'bg-amber-500 text-slate-950' : 'bg-emerald-500 text-slate-950'
+                            }`}>
+                              {item.multiplier}x
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <span className="text-[10px] text-slate-500 block uppercase">Oferta</span>
+                            <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                              <Car className="w-3 h-3" /> {item.onlineDrivers}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] text-slate-500 block uppercase">Demanda</span>
+                            <span className="text-xs font-bold text-rose-400 flex items-center gap-1">
+                              <Users className="w-3 h-3" /> {item.activeRequests}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Micro Progress Bar for Supply/Demand Health */}
+                      <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden flex">
+                        <div 
+                          className="h-full bg-emerald-500 transition-all" 
+                          style={{ width: `${Math.min(100, (item.onlineDrivers / (item.activeRequests || 1)) * 20)}%` }}
+                        />
+                        <div 
+                          className="h-full bg-rose-500 transition-all opacity-50" 
+                          style={{ width: `${Math.min(100, (item.activeRequests / (item.onlineDrivers || 1)) * 20)}%` }}
+                        />
+                      </div>
+                      
+                      <div className="mt-2 flex items-center justify-between text-[10px]">
+                        <span className="text-slate-500">Ratio Real: {item.ratio}x</span>
+                        <span className={item.isActive ? 'text-white font-bold' : 'text-slate-600'}>
+                          {item.multiplier > 1.0 ? 'Alta Demanda Detectada' : (item.multiplier < 1.0 ? 'Excesso de Oferta' : 'Equilíbrio')}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

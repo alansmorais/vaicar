@@ -527,4 +527,27 @@ export async function fetchPassengerReviews(passengerId?: string, driverId?: str
   return res.json();
 }
 
+// --- DYNAMIC PRICING ADMIN FUNCTIONS ---
+export async function fetchDynamicPricingSettings(): Promise<any> {
+  const res = await fetch('/api/v1/admin/dynamic-pricing');
+  if (!res.ok) throw new Error('Falha ao buscar configurações de tarifa dinâmica');
+  return res.json();
+}
+
+export async function updateDynamicPricingSettings(settings: any): Promise<any> {
+  const res = await fetch('/api/v1/admin/dynamic-pricing', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw new Error('Falha ao atualizar configurações de tarifa dinâmica');
+  return res.json();
+}
+
+export async function fetchSurgeAnalysis(): Promise<any[]> {
+  const res = await fetch('/api/v1/admin/surge-analysis');
+  if (!res.ok) return [];
+  return res.json();
+}
+
 

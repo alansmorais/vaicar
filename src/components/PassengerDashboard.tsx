@@ -553,16 +553,35 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
           {/* Search Results Area */}
           {searchConcluded && searchResults && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <span>Motoristas Disponíveis</span>
-                  <span className="text-xs bg-emerald-950 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">
-                    {searchResults.totalFound} {searchResults.totalFound === 1 ? 'encontrado' : 'encontrados'}
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <span>Motoristas Disponíveis</span>
+                    <span className="text-xs bg-emerald-950 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">
+                      {searchResults.totalFound} {searchResults.totalFound === 1 ? 'encontrado' : 'encontrados'}
+                    </span>
+                  </h3>
+                  <span className="text-xs text-slate-400">
+                    Estimativa de trajeto: {searchResults.distanceKm} km • ~{searchResults.estimatedDurationMin} min
                   </span>
-                </h3>
-                <span className="text-xs text-slate-400">
-                  Estimativa de trajeto: {searchResults.distanceKm} km • ~{searchResults.estimatedDurationMin} min
-                </span>
+                </div>
+
+                {/* Dynamic Pricing Alert */}
+                {searchResults.isDynamicActive && (
+                  <div className={`mt-2 flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-bold ${
+                    searchResults.dynamicMultiplier > 1.0 
+                      ? 'bg-amber-950/40 border-amber-500/30 text-amber-400' 
+                      : 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400'
+                  }`}>
+                    <Sparkles className="w-4 h-4" />
+                    <span>
+                      {searchResults.dynamicMultiplier > 1.0 
+                        ? `Tarifa de Alta Demanda Ativa (${searchResults.dynamicMultiplier}x)` 
+                        : `Tarifa com Desconto Promocional (${searchResults.dynamicMultiplier}x)`}
+                    </span>
+                    <span className="ml-auto opacity-70 font-normal">Ajustado pela oferta/demanda local</span>
+                  </div>
+                )}
               </div>
 
               {/* Empty state when 0 drivers available */}

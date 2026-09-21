@@ -210,6 +210,16 @@ export interface PlatformCost {
   date: string;
 }
 
+export interface DynamicPricingSettings {
+  isEnabled: boolean;
+  minMultiplier: number; // ex: 0.8
+  maxMultiplier: number; // ex: 2.5
+  idealDriverPassengerRatio: number; // ex: 2.0 (2 motoristas para cada 1 passageiro solicitando)
+  minDriversThreshold: number; // Quantidade mínima de motoristas para ativar o cálculo (ex: 2)
+  activeZoneIds: string[]; // Onde aplicar (vazio = todas)
+  surgeIcon: string; // Ex: "⚡"
+}
+
 export interface Ride {
   id: string;
   passengerName: string;
@@ -256,6 +266,8 @@ export interface Ride {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  dynamicMultiplier?: number;
+  isDynamicPricingActive?: boolean;
   timeline: {
     status: RideStatus;
     timestamp: string;
@@ -332,6 +344,8 @@ export interface SearchDriversResponse {
   estimatedDurationMin: number;
   originZone: Zone;
   destinationZone: Zone;
+  dynamicMultiplier: number;
+  isDynamicActive: boolean;
   results: {
     driverId: string;
     name: string;
