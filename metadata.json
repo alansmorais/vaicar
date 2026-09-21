@@ -1,0 +1,6 @@
+{
+  "name": "VaiCar",
+  "description": "Marketplace local de transporte remunerado em São Sebastião - SP. Conectando passageiros e motoristas profissionais com taxa zero sobre corridas.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
