@@ -24,6 +24,7 @@ import {
   Layers,
   KeyRound,
   Key,
+  Scale,
 } from 'lucide-react';
 import {
   verifyAdminPassword,
@@ -39,6 +40,7 @@ import {
   Report,
   Ride,
   PlatformCost,
+  PlatformFareSettings,
 } from '../types.ts';
 import {
   adminApproveDriver,
@@ -54,6 +56,8 @@ import {
   fetchPlatformCosts,
   addPlatformCost,
   deletePlatformCost,
+  fetchFareSettings,
+  updateAdminFareSettings,
 } from '../lib/api.ts';
 
 interface AdminDashboardProps {
@@ -93,7 +97,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pwdChangeSuccess, setPwdChangeSuccess] = useState('');
 
   // Dashboard Tabs
-  const [tab, setTab] = useState<'METRICS' | 'DRIVERS' | 'RIDES' | 'FINANCES' | 'ZONES' | 'REPORTS'>('METRICS');
+  const [tab, setTab] = useState<'METRICS' | 'DRIVERS' | 'RIDES' | 'FINANCES' | 'FARES' | 'ZONES' | 'REPORTS'>('METRICS');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -115,8 +119,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [costAmount, setCostAmount] = useState<number>(0);
   const [isUpdating, setIsUpdating] = useState(false);
 
+  // Platform Fare Floors State
+  const [fareSettings, setFareSettings] = useState<PlatformFareSettings>({
+    minBaseFare: 15.0,
+    minRatePerKm: 3.0,
+    minFixedRoutePrice: 25.0,
+    isEnforced: true,
+  });
+  const [formBaseFare, setFormBaseFare] = useState<number>(15.0);
+  const [formRatePerKm, setFormRatePerKm] = useState<number>(3.0);
+  const [formFixedRoutePrice, setFormFixedRoutePrice] = useState<number>(25.0);
+  const [formIsEnforced, setFormIsEnforced] = useState<boolean>(true);
+  const [applyToDrivers, setApplyToDrivers] = useState<boolean>(false);
+  const [fareUpdateSuccess, setFareUpdateSuccess] = useState<string>('');
+  const [fareUpdateError, setFareUpdateError] = useState<string>('');
+
   useEffect(() => {
     loadCosts();
+    loadFareSettings();
   }, []);
 
   const loadCosts = async () => {
@@ -125,6 +145,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setCosts(data);
     } catch {
       // safe fallback
+    }
+  };
+
+  const loadFareSettings = async () => {
+    try {
+      const fs = await fetchFareSettings();
+      if (fs) {
+        setFareSettings(fs);
+        setFormBaseFare(fs.minBaseFare);
+        setFormRatePerKm(fs.minRatePerKm);
+        setFormFixedRoutePrice(fs.minFixedRoutePrice);
+        setFormIsEnforced(fs.isEnforced);
+      }
+    } catch {
+      // safe fallback
+    }
+  };
+
+  const handleSaveFareSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFareUpdateError('');
+    setFareUpdateSuccess('');
+    try {
+      setIsUpdating(true);
+      const res = await updateAdminFareSettings({
+        minBaseFare: Number(formBaseFare),
+        minRatePerKm: Number(formRatePerKm),
+        minFixedRoutePrice: Number(formFixedRoutePrice),
+        isEnforced: formIsEnforced,
+        applyToAllDrivers: applyToDrivers,
+      });
+      setFareSettings(res.fareSettings);
+      let msg = 'Pisos regulatórios da plataforma atualizados com sucesso!';
+      if (res.driversAdjusted > 0) {
+        msg += ` (${res.driversAdjusted} motoristas com tarifas abaixo do piso foram ajustados).`;
+        onRefreshAll();
+      }
+      setFareUpdateSuccess(msg);
+      setTimeout(() => setFareUpdateSuccess(''), 6000);
+    } catch (err: any) {
+      setFareUpdateError(err.message || 'Erro ao salvar pisos tarifários');
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -652,6 +715,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           Financeiro & Custos
+        </button>
+
+        <button
+          onClick={() => setTab('FARES')}
+          className={`px-4 py-2 rounded-xl font-bold cursor-pointer transition-all whitespace-nowrap flex items-center gap-1.5 ${
+            tab === 'FARES' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white bg-slate-900'
+          }`}
+        >
+          <Scale className="w-3.5 h-3.5" />
+          <span>Pisos & Tarifas</span>
         </button>
 
         <button
@@ -1221,6 +1294,363 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB: FARES & FAIR BASE FLOORS */}
+      {/* ========================================================================= */}
+      {tab === 'FARES' && (
+        <div className="space-y-6">
+          {/* Header Card */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                  <Scale className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-white">
+                    Pisos Mínimos da Plataforma (Fair Base)
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Evite a concorrência predatória e mantenha uma remuneração digna e sustentável para motoristas e taxistas de São Sebastião.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span
+                  className={`text-[11px] font-bold px-3 py-1.5 rounded-full border ${
+                    fareSettings.isEnforced
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                      : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                  }`}
+                >
+                  {fareSettings.isEnforced ? '🛡️ Fiscalização Ativa' : '⚠️ Piso Facultativo'}
+                </span>
+              </div>
+            </div>
+
+            {fareUpdateSuccess && (
+              <div className="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl text-xs text-emerald-300 font-semibold flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{fareUpdateSuccess}</span>
+              </div>
+            )}
+
+            {fareUpdateError && (
+              <div className="p-3 bg-rose-950/60 border border-rose-500/40 rounded-xl text-xs text-rose-300 font-semibold flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{fareUpdateError}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Configuration Form & Live Simulation */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Form */}
+            <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider text-slate-300">
+                Ajuste dos Parâmetros Regulatórios
+              </h3>
+
+              <form onSubmit={handleSaveFareSettings} className="space-y-5">
+                <div className="space-y-4">
+                  {/* Min Base Fare */}
+                  <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-white flex items-center gap-2">
+                        <span>Bandeirada / Corrida Mínima</span>
+                      </label>
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        Atual: R$ {fareSettings.minBaseFare.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 bg-slate-900 px-3 py-2 rounded-xl border border-slate-700">
+                      <span className="text-slate-400 font-bold text-xs">R$</span>
+                      <input
+                        type="number"
+                        step="0.50"
+                        min="1.00"
+                        required
+                        value={formBaseFare}
+                        onChange={(e) => setFormBaseFare(Number(e.target.value))}
+                        className="bg-transparent text-white font-black text-sm outline-none w-full"
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Nenhum motorista poderá configurar bandeirada inicial inferior a este valor.
+                    </p>
+                  </div>
+
+                  {/* Min Rate Per KM */}
+                  <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-white flex items-center gap-2">
+                        <span>Piso por Km Rodado</span>
+                      </label>
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        Atual: R$ {fareSettings.minRatePerKm.toFixed(2)}/km
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 bg-slate-900 px-3 py-2 rounded-xl border border-slate-700">
+                      <span className="text-slate-400 font-bold text-xs">R$</span>
+                      <input
+                        type="number"
+                        step="0.10"
+                        min="0.50"
+                        required
+                        value={formRatePerKm}
+                        onChange={(e) => setFormRatePerKm(Number(e.target.value))}
+                        className="bg-transparent text-white font-black text-sm outline-none w-full"
+                      />
+                      <span className="text-xs text-slate-400 whitespace-nowrap">/ km</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Taxa quilométrica mínima para corridas calculadas por distância na SP-055 / Rio-Santos.
+                    </p>
+                  </div>
+
+                  {/* Min Fixed Route Price */}
+                  <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-white flex items-center gap-2">
+                        <span>Piso para Rotas Fixas entre Bairros</span>
+                      </label>
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        Atual: R$ {fareSettings.minFixedRoutePrice.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 bg-slate-900 px-3 py-2 rounded-xl border border-slate-700">
+                      <span className="text-slate-400 font-bold text-xs">R$</span>
+                      <input
+                        type="number"
+                        step="1.00"
+                        min="5.00"
+                        required
+                        value={formFixedRoutePrice}
+                        onChange={(e) => setFormFixedRoutePrice(Number(e.target.value))}
+                        className="bg-transparent text-white font-black text-sm outline-none w-full"
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Nenhuma rota fixa praia-a-praia poderá ser cadastrada por valor inferior a este piso.
+                    </p>
+                  </div>
+
+                  {/* Enforcement Toggle */}
+                  <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formIsEnforced}
+                        onChange={(e) => setFormIsEnforced(e.target.checked)}
+                        className="mt-1 w-4 h-4 rounded text-emerald-500 accent-emerald-500 cursor-pointer"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-white block">
+                          Ativar Bloqueio Automático na Plataforma
+                        </span>
+                        <span className="text-[11px] text-slate-400 block">
+                          Quando ativado, o sistema rejeita qualquer tentativa do motorista de salvar tarifas abaixo desses pisos e garante que a estimativa da corrida nunca fique inferior ao piso municipal.
+                        </span>
+                      </div>
+                    </label>
+
+                    {/* Auto sync drivers */}
+                    <label className="flex items-start gap-3 cursor-pointer pt-2 border-t border-slate-800">
+                      <input
+                        type="checkbox"
+                        checked={applyToDrivers}
+                        onChange={(e) => setApplyToDrivers(e.target.checked)}
+                        className="mt-1 w-4 h-4 rounded text-cyan-500 accent-cyan-500 cursor-pointer"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-cyan-300 block">
+                          Atualizar e elevar motoristas atuais abaixo do piso
+                        </span>
+                        <span className="text-[11px] text-slate-400 block">
+                          Se houver motoristas com valores antigos inferiores ao novo piso, atualiza-os automaticamente para o piso mínimo estabelecido.
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isUpdating}
+                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs py-3.5 rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <Scale className="w-4 h-4" />
+                  <span>Salvar Pisos Tarifários da Plataforma</span>
+                </button>
+              </form>
+            </div>
+
+            {/* Simulation & Education Panel */}
+            <div className="lg:col-span-5 space-y-6">
+              {/* Simulator Card */}
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-emerald-400" />
+                  <span>Simulador de Piso por Trajetos Típicos</span>
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Valores mínimos absolutos que um passageiro pagará considerando a fórmula da plataforma:
+                  <strong className="text-slate-200 block mt-1 font-mono">
+                    Valor Mínimo = R$ {formBaseFare.toFixed(2)} + (Distância × R$ {formRatePerKm.toFixed(2)}/km)
+                  </strong>
+                </p>
+
+                <div className="space-y-2 pt-2 text-xs">
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-white block">Trajeto Curto / No Bairro</span>
+                      <span className="text-[10px] text-slate-500">Estimativa: 3 km</span>
+                    </div>
+                    <span className="font-black text-emerald-400 text-sm">
+                      R$ {(formBaseFare + 3 * formRatePerKm).toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-white block">Centro ➔ São Francisco / Enseada</span>
+                      <span className="text-[10px] text-slate-500">Estimativa: 8 km</span>
+                    </div>
+                    <span className="font-black text-emerald-400 text-sm">
+                      R$ {(formBaseFare + 8 * formRatePerKm).toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-white block">Centro ➔ Maresias</span>
+                      <span className="text-[10px] text-slate-500">Estimativa: 27 km (Serra do Mar)</span>
+                    </div>
+                    <span className="font-black text-emerald-400 text-sm">
+                      R$ {(formBaseFare + 27 * formRatePerKm).toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-white block">Centro ➔ Boiçucanga</span>
+                      <span className="text-[10px] text-slate-500">Estimativa: 35 km</span>
+                    </div>
+                    <span className="font-black text-emerald-400 text-sm">
+                      R$ {(formBaseFare + 35 * formRatePerKm).toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-white block">Centro ➔ Juquehy / Barra do Una</span>
+                      <span className="text-[10px] text-slate-500">Estimativa: 52 km</span>
+                    </div>
+                    <span className="font-black text-emerald-400 text-sm">
+                      R$ {(formBaseFare + 52 * formRatePerKm).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Justification & Regulatory Card */}
+              <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-3xl p-5 space-y-2.5 text-xs text-slate-300">
+                <div className="flex items-center gap-2 text-emerald-400 font-bold">
+                  <Shield className="w-4 h-4" />
+                  <span>Por que o Piso de Preço é Essencial?</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-slate-400">
+                  Em cidades de litoral extenso como São Sebastião, o custo de combustível, pneus e manutenção na serra é elevado. 
+                  Sem um piso regulatório, alguns motoristas praticam preços que não cobrem os custos operacionais (dumping), deteriorando a renda de toda a categoria e a segurança dos passageiros.
+                </p>
+                <div className="text-[10px] text-slate-500 pt-1">
+                  Última atualização: {fareSettings.updatedAt ? new Date(fareSettings.updatedAt).toLocaleString('pt-BR') : 'Configuração inicial padrão'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Audit Table of Drivers Pricing Compliance */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white">Auditoria de Preços dos Motoristas</h3>
+                <p className="text-xs text-slate-400">
+                  Verifique como cada motorista cadastrado está cobrando em relação aos pisos da plataforma.
+                </p>
+              </div>
+              <span className="text-xs font-mono text-slate-400">Total: {drivers.length}</span>
+            </div>
+
+            {drivers.length === 0 ? (
+              <p className="text-xs text-slate-500 py-4 text-center">Nenhum motorista cadastrado ainda.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="p-3">Motorista</th>
+                      <th className="p-3">Categoria</th>
+                      <th className="p-3">Bandeirada</th>
+                      <th className="p-3">Preço / Km</th>
+                      <th className="p-3">Rotas Fixas</th>
+                      <th className="p-3">Conformidade com o Piso</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 font-medium">
+                    {drivers.map((d) => {
+                      const isBaseOk = (d.pricing?.minimumFare || 0) >= fareSettings.minBaseFare;
+                      const isRateOk = (d.pricing?.ratePerKm || 0) >= fareSettings.minRatePerKm;
+                      const isCompliant = isBaseOk && isRateOk;
+
+                      return (
+                        <tr key={d.id} className="hover:bg-slate-950/40 transition-colors">
+                          <td className="p-3 font-bold text-white flex items-center gap-2">
+                            <span>{d.name}</span>
+                          </td>
+                          <td className="p-3 text-slate-400">{d.professionalCategory}</td>
+                          <td className="p-3 font-mono">
+                            R$ {(d.pricing?.minimumFare || 0).toFixed(2)}
+                            {!isBaseOk && (
+                              <span className="text-[10px] text-rose-400 block">
+                                Abaixo de R$ {fareSettings.minBaseFare.toFixed(2)}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 font-mono">
+                            R$ {(d.pricing?.ratePerKm || 0).toFixed(2)}/km
+                            {!isRateOk && (
+                              <span className="text-[10px] text-rose-400 block">
+                                Abaixo de R$ {fareSettings.minRatePerKm.toFixed(2)}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 text-slate-400">
+                            {d.pricing?.fixedRoutes?.length || 0} cadastradas
+                          </td>
+                          <td className="p-3">
+                            <span
+                              className={`text-[10px] font-bold px-2 py-1 rounded-md ${
+                                isCompliant
+                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                              }`}
+                            >
+                              {isCompliant ? '✓ Em Conformidade' : '⚠ Abaixo do Piso'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}

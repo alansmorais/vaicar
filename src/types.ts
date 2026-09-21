@@ -127,6 +127,15 @@ export interface PricingConfig {
   }[];
 }
 
+export interface PlatformFareSettings {
+  minBaseFare: number; // Tarifa mínima / bandeirada mínima da plataforma (ex: R$ 15.00)
+  minRatePerKm: number; // Piso mínimo por km rodado da plataforma (ex: R$ 3.00/km)
+  minFixedRoutePrice: number; // Piso mínimo para rotas fixas entre bairros (ex: R$ 25.00)
+  isEnforced: boolean; // Se a trava regulatória contra tarifas predatórias está ativa
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export interface Driver {
   id: string;
   name: string;
@@ -206,6 +215,7 @@ export interface Ride {
   passengerName: string;
   passengerPhone: string;
   passengerId?: string;
+  passengerAvatarUrl?: string;
   driverId: string;
   driverName: string;
   driverPhone: string;
@@ -213,8 +223,16 @@ export interface Ride {
   driverAvatar: string;
   originZoneId: string;
   originAddress: string;
+  originLat?: number;
+  originLng?: number;
+  originLandmark?: string;
+  originMapsLink?: string;
   destinationZoneId: string;
   destinationAddress: string;
+  destinationLat?: number;
+  destinationLng?: number;
+  destinationLandmark?: string;
+  destinationMapsLink?: string;
   passengerCount: number;
   scheduledTime?: string;
   isImmediate: boolean;

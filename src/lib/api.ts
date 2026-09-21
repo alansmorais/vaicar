@@ -8,6 +8,7 @@ import {
   Report,
   SubscriptionPlan,
   PlatformMetrics,
+  PlatformFareSettings,
 } from '../types.ts';
 
 export interface MetaResponse {
@@ -16,6 +17,7 @@ export interface MetaResponse {
   requirements: RegulatoryRequirement[];
   subscriptionPlan: SubscriptionPlan;
   metrics: PlatformMetrics;
+  fareSettings?: PlatformFareSettings;
 }
 
 export interface SearchDriversResponse {
@@ -165,7 +167,10 @@ export async function updateDriverPricing(id: string, pricing: any): Promise<any
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(pricing),
   });
-  if (!res.ok) throw new Error('Falha ao atualizar preços');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Falha ao atualizar preços');
+  }
   return res.json();
 }
 
@@ -440,12 +445,40 @@ export async function deletePlatformCost(id: string): Promise<void> {
   await fetch(`/api/v1/admin/costs/${id}`, { method: 'DELETE' });
 }
 
+// --- PLATFORM FARE SETTINGS & REGULATORY FLOORS ---
+export async function fetchFareSettings(): Promise<PlatformFareSettings> {
+  const res = await fetch('/api/v1/fare-settings');
+  if (!res.ok) {
+    return {
+      minBaseFare: 15.0,
+      minRatePerKm: 3.0,
+      minFixedRoutePrice: 25.0,
+      isEnforced: true,
+    };
+  }
+  return res.json();
+}
+
+export async function updateAdminFareSettings(
+  settings: Partial<PlatformFareSettings> & { applyToAllDrivers?: boolean },
+): Promise<{ fareSettings: PlatformFareSettings; driversAdjusted: number; message: string }> {
+  const res = await fetch('/api/v1/admin/fare-settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Falha ao atualizar parâmetros de piso tarifário');
+  return data;
+}
+
 // --- PASSENGER AUTH & PROFILE (Section 3) ---
 export async function passengerAuth(params: {
   name?: string;
   phone: string;
   email?: string;
   verificationCode?: string;
+  avatarUrl?: string;
 }): Promise<any> {
   const res = await fetch('/api/v1/passengers/auth', {
     method: 'POST',

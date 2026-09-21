@@ -60,9 +60,21 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [activeTab, setActiveTab] = useState<'SOLICITAR' | 'ATUAL' | 'HISTORICO' | 'AVALIACOES' | 'PERFIL' | 'AJUDA'>('SOLICITAR');
 
   // Passenger Profile state (persisted locally for convenience)
-  const [passengerName, setPassengerName] = useState(() => localStorage.getItem('vaicar_passenger_name') || 'Maria Santos (Passageira)');
+  const [passengerName, setPassengerName] = useState(() => localStorage.getItem('vaicar_passenger_name') || 'Maria Santos');
   const [passengerPhone, setPassengerPhone] = useState(() => localStorage.getItem('vaicar_passenger_phone') || '(12) 99999-0000');
   const [passengerEmail, setPassengerEmail] = useState(() => localStorage.getItem('vaicar_passenger_email') || 'maria.santos@exemplo.com');
+  const [passengerAvatarUrl, setPassengerAvatarUrl] = useState(() => localStorage.getItem('vaicar_passenger_avatar') || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80');
+
+  const handlePassengerAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPassengerAvatarUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
   const [isVerified, setIsVerified] = useState(true);
   const [verificationCodeInput, setVerificationCodeInput] = useState('');
   const [codeRequested, setCodeRequested] = useState(false);
@@ -82,6 +94,8 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [selectedDriverForRequest, setSelectedDriverForRequest] = useState<any | null>(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>('PIX');
   const [paymentChangeFor, setPaymentChangeFor] = useState<string>('');
+  const [pickupLandmark, setPickupLandmark] = useState<string>('');
+  const [pickupMapsLink, setPickupMapsLink] = useState<string>('');
   const [isSubmittingRide, setIsSubmittingRide] = useState<boolean>(false);
   const [activeRide, setActiveRide] = useState<Ride | null>(initialTrackedRide || null);
   const [copiedPix, setCopiedPix] = useState(false);
@@ -157,11 +171,14 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         driverId: selectedDriverForRequest.driverId,
         passengerName,
         passengerPhone,
+        passengerAvatarUrl, // <--- Pass avatar
         passengerCount: passengers,
         originZoneId: originZone.id,
         destinationZoneId: destinationZone.id,
         originAddress: `${originZone.name}, São Sebastião - SP`,
         destinationAddress: `${destinationZone.name}, São Sebastião - SP`,
+        originLandmark: pickupLandmark, // <--- Pass exact landmark
+        originMapsLink: pickupMapsLink, // <--- Pass maps link
         estimatedDistanceKm: searchResults?.distanceKm || 12,
         estimatedDurationMin: searchResults?.estimatedDurationMin || 20,
         estimatedPrice: selectedDriverForRequest.fare,
@@ -169,6 +186,9 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         paymentChangeFor: selectedPaymentMethod === 'CASH' && paymentChangeFor ? Number(paymentChangeFor) : undefined,
       });
 
+      // Clear specific pickup inputs
+      setPickupLandmark('');
+      setPickupMapsLink('');
       setSelectedDriverForRequest(null);
       setActiveRide(newRide);
       setActiveTab('ATUAL');
@@ -242,6 +262,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         phone: passengerPhone,
         email: passengerEmail,
         verificationCode: verificationCodeInput || undefined,
+        avatarUrl: passengerAvatarUrl, // <--- Added!
       });
       if (res.codeSent) {
         setCodeRequested(true);
@@ -254,6 +275,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         localStorage.setItem('vaicar_passenger_name', passengerName);
         localStorage.setItem('vaicar_passenger_phone', passengerPhone);
         localStorage.setItem('vaicar_passenger_email', passengerEmail);
+        localStorage.setItem('vaicar_passenger_avatar', passengerAvatarUrl); // <--- Added!
       }
     } catch (err: any) {
       setAuthMessage(err.message || 'Erro ao validar perfil');
@@ -658,6 +680,36 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                     <span>Passageiros: {passengers}</span>
                     <span>•</span>
                     <span>Distância estimada: {searchResults?.distanceKm || 12} km</span>
+                  </div>
+                </div>
+
+                {/* Localização Exata para Embarque */}
+                <div className="space-y-2.5 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
+                    Localização Exata de Embarque *
+                  </label>
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-400 block mb-1">Ponto de Referência / Número / Instrução específica:</span>
+                      <input
+                        type="text"
+                        placeholder="Ex: Em frente à Padaria Maresias, portão branco"
+                        value={pickupLandmark}
+                        onChange={(e) => setPickupLandmark(e.target.value)}
+                        required
+                        className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-lg border border-slate-700 outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-400 block mb-1">Link do Google Maps do local exato (Opcional):</span>
+                      <input
+                        type="url"
+                        placeholder="Ex: https://maps.google.com/?q=-23.79..."
+                        value={pickupMapsLink}
+                        onChange={(e) => setPickupMapsLink(e.target.value)}
+                        className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-lg border border-slate-700 outline-none focus:border-emerald-500"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -1079,6 +1131,37 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
           </div>
 
           <form onSubmit={handleSaveProfile} className="space-y-4 max-w-md">
+            {/* Foto de Perfil do Passageiro */}
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+              <label className="text-xs font-bold text-slate-300 block">Sua Foto de Perfil (Opcional - Recomendado) *</label>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                <div className="relative shrink-0">
+                  <img
+                    src={passengerAvatarUrl}
+                    alt="Sua foto"
+                    className="w-16 h-16 rounded-2xl object-cover border-2 border-slate-700 shadow-md"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePassengerAvatarChange}
+                    className="hidden"
+                    id="passenger-avatar-upload"
+                  />
+                  <label
+                    htmlFor="passenger-avatar-upload"
+                    className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3.5 py-2 rounded-lg cursor-pointer transition-all border border-slate-700"
+                  >
+                    Selecionar Foto do Dispositivo
+                  </label>
+                  <p className="text-[10px] text-slate-400">Ajuda o motorista a te identificar visualmente no local de embarque.</p>
+                </div>
+              </div>
+            </div>
+
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-300">Nome Completo</label>
               <input

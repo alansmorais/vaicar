@@ -42,6 +42,20 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
     'z-juquehy',
   ]);
 
+  // Photo Avatar state
+  const [avatarUrl, setAvatarUrl] = useState('https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=400&q=80');
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setAvatarUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleToggleZone = (zoneId: string) => {
     if (selectedZones.includes(zoneId)) {
       setSelectedZones(selectedZones.filter((id) => id !== zoneId));
@@ -73,6 +87,7 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
         vehicleColor,
         vehiclePlate,
         operatingZones: selectedZones,
+        avatarUrl, // <--- Added!
       });
 
       alert('Cadastro recebido com sucesso! Sua documentação foi enviada para análise da Prefeitura e Administração.');
@@ -137,6 +152,37 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
               <User className="w-4 h-4 text-emerald-400" />
               <span>Dados Pessoais & Contato</span>
             </h3>
+
+            {/* Foto de Perfil */}
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+              <label className="text-xs font-bold text-slate-300 block">Sua Foto de Perfil (Opcional - mas recomendado para identificação) *</label>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                <div className="relative shrink-0">
+                  <img
+                    src={avatarUrl}
+                    alt="Foto de perfil"
+                    className="w-20 h-20 rounded-2xl object-cover border-2 border-slate-700 shadow-md"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="hidden"
+                    id="driver-avatar-upload"
+                  />
+                  <label
+                    htmlFor="driver-avatar-upload"
+                    className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3.5 py-2 rounded-lg cursor-pointer transition-all border border-slate-700"
+                  >
+                    Selecionar Foto do Dispositivo
+                  </label>
+                  <p className="text-[10px] text-slate-400">Insira uma foto nítida de rosto. Os passageiros verão essa foto ao solicitar viagens.</p>
+                </div>
+              </div>
+            </div>
 
             <div>
               <label className="text-xs font-bold text-slate-300 block mb-1">Nome Completo *</label>

@@ -25,8 +25,9 @@ import {
   Bell,
   Volume2,
   VolumeX,
+  Scale,
 } from 'lucide-react';
-import { Driver, Zone, Ride, RegulatoryRequirement, PaymentMethod } from '../types.ts';
+import { Driver, Zone, Ride, RegulatoryRequirement, PaymentMethod, PlatformFareSettings } from '../types.ts';
 import {
   updateDriverAvailability,
   updateDriverPricing,
@@ -35,6 +36,7 @@ import {
   getWhatsAppContact,
   updateDriverPaymentSettings,
   updateRidePaymentStatus,
+  fetchFareSettings,
 } from '../lib/api.ts';
 
 interface DriverCockpitProps {
@@ -76,6 +78,18 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
   const [newOrigZone, setNewOrigZone] = useState(allZones[0]?.id || '');
   const [newDestZone, setNewDestZone] = useState(allZones[1]?.id || '');
   const [newRoutePrice, setNewRoutePrice] = useState(40);
+
+  // Platform fare floor state
+  const [fareSettings, setFareSettings] = useState<PlatformFareSettings>({
+    minBaseFare: 15.0,
+    minRatePerKm: 3.0,
+    minFixedRoutePrice: 25.0,
+    isEnforced: true,
+  });
+
+  useEffect(() => {
+    fetchFareSettings().then(setFareSettings).catch(() => {});
+  }, []);
 
   // Sound and alert notification state
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -188,6 +202,30 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
 
   const handleSavePricing = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (fareSettings.isEnforced) {
+      if (Number(minFare) < fareSettings.minBaseFare) {
+        alert(
+          `O valor da bandeirada / corrida mínima (R$ ${Number(minFare).toFixed(2)}) não pode ser inferior ao piso da plataforma de R$ ${fareSettings.minBaseFare.toFixed(2)}.`,
+        );
+        return;
+      }
+      if (Number(rateKm) < fareSettings.minRatePerKm) {
+        alert(
+          `O valor por km rodado (R$ ${Number(rateKm).toFixed(2)}/km) não pode ser inferior ao piso da plataforma de R$ ${fareSettings.minRatePerKm.toFixed(2)}/km.`,
+        );
+        return;
+      }
+      for (const r of fixedRoutes) {
+        if (Number(r.price) < fareSettings.minFixedRoutePrice) {
+          alert(
+            `A rota fixa cadastrada não pode ter valor inferior ao piso de R$ ${fareSettings.minFixedRoutePrice.toFixed(2)}.`,
+          );
+          return;
+        }
+      }
+    }
+
     try {
       setIsUpdating(true);
       await updateDriverPricing(driver.id, {
@@ -212,6 +250,10 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
   const handleAddFixedRoute = () => {
     if (!newOrigZone || !newDestZone || newOrigZone === newDestZone) {
       alert('Escolha duas zonas diferentes para cadastrar a rota fixa.');
+      return;
+    }
+    if (fareSettings.isEnforced && Number(newRoutePrice) < fareSettings.minFixedRoutePrice) {
+      alert(`O valor da rota fixa não pode ser inferior ao piso mínimo de R$ ${fareSettings.minFixedRoutePrice.toFixed(2)}.`);
       return;
     }
     const updated = [
@@ -595,19 +637,27 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                   className="bg-gradient-to-br from-slate-900 to-amber-950/20 border-2 border-amber-500/50 rounded-2xl p-5 shadow-xl space-y-4"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                      <span className="text-[10px] font-bold text-amber-400 bg-amber-950 px-2 py-0.5 rounded uppercase">
-                        Chamada Imediata
-                      </span>
-                      <h4 className="text-lg font-black text-white mt-1">
-                        Passageiro(a): {req.passengerName}
-                      </h4>
-                      <p className="text-xs text-slate-300">
-                        {req.passengerCount} {req.passengerCount === 1 ? 'passageiro' : 'passageiros'} • Distância ~{req.estimatedDistanceKm} km
-                      </p>
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={req.passengerAvatarUrl || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80"}
+                        alt={req.passengerName}
+                        className="w-12 h-12 rounded-xl object-cover border border-slate-700 shrink-0"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div>
+                        <span className="text-[10px] font-bold text-amber-400 bg-amber-950 px-2 py-0.5 rounded uppercase">
+                          Chamada Imediata
+                        </span>
+                        <h4 className="text-lg font-black text-white mt-0.5">
+                          Passageiro(a): {req.passengerName}
+                        </h4>
+                        <p className="text-xs text-slate-300">
+                          {req.passengerCount} {req.passengerCount === 1 ? 'passageiro' : 'passageiros'} • Distância ~{req.estimatedDistanceKm} km
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="text-left sm:text-right">
+                    <div className="text-left sm:text-right shrink-0">
                       <span className="text-[10px] text-slate-400 uppercase font-bold block">
                         Valor total para você
                       </span>
@@ -621,11 +671,30 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                   </div>
 
                   {/* Addresses */}
-                  <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2 text-xs">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span className="text-slate-400">Origem:</span>
-                      <span className="text-white font-bold">{req.originAddress}</span>
+                  <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-3 text-xs">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span className="text-slate-400">Origem:</span>
+                        <span className="text-white font-bold">{req.originAddress}</span>
+                      </div>
+                      {req.originLandmark && (
+                        <div className="pl-6 text-amber-300 font-semibold flex items-center gap-1.5 bg-amber-950/20 py-1 px-2 rounded-md border border-amber-500/10">
+                          <span>📍 Ref: {req.originLandmark}</span>
+                        </div>
+                      )}
+                      {req.originMapsLink && (
+                        <div className="pl-6">
+                          <a
+                            href={req.originMapsLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300 font-bold hover:underline"
+                          >
+                            🗺 Abrir no Google Maps ↗
+                          </a>
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 border-t border-slate-800/60 pt-2">
                       <MapPin className="w-4 h-4 text-cyan-400 shrink-0" />
@@ -705,13 +774,40 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <h3 className="text-xl font-black text-white">{activeRide.passengerName}</h3>
-                  <p className="text-xs text-slate-300">
-                    Origem: <strong>{activeRide.originAddress}</strong> ➔ Destino: <strong>{activeRide.destinationAddress}</strong>
-                  </p>
+                <div className="flex items-center gap-3">
+                  <img
+                    src={activeRide.passengerAvatarUrl || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80"}
+                    alt={activeRide.passengerName}
+                    className="w-12 h-12 rounded-xl object-cover border border-slate-700 shrink-0"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div>
+                    <h3 className="text-xl font-black text-white">{activeRide.passengerName}</h3>
+                    <div className="text-xs text-slate-300 space-y-1 mt-0.5">
+                      <p>
+                        Origem: <strong>{activeRide.originAddress}</strong> ➔ Destino: <strong>{activeRide.destinationAddress}</strong>
+                      </p>
+                      {activeRide.originLandmark && (
+                        <p className="text-amber-300 font-bold flex items-center gap-1.5 bg-amber-950/30 py-0.5 px-2 rounded-md border border-amber-500/10 w-fit">
+                          <span>📍 Ref: {activeRide.originLandmark}</span>
+                        </p>
+                      )}
+                      {activeRide.originMapsLink && (
+                        <p>
+                          <a
+                            href={activeRide.originMapsLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300 font-bold hover:underline"
+                          >
+                            🗺 Abrir Ponto de Embarque no Google Maps ↗
+                          </a>
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-left sm:text-right">
+                <div className="text-left sm:text-right shrink-0">
                   <span className="text-2xl font-black text-emerald-400">R$ {activeRide.estimatedPrice}</span>
                   <span className="text-[10px] text-slate-400 block">Receber diretamente do passageiro</span>
                 </div>
@@ -888,11 +984,46 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
       {/* TAB 2: PRICING CONFIGURATION */}
       {activeTab === 'PRICING' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
-          <div>
-            <h2 className="text-xl font-black text-white">Configuração de Preços</h2>
-            <p className="text-xs text-slate-400">
-              Defina como suas corridas serão cobradas em São Sebastião. Você pode usar tarifas fixas para trajetos conhecidos ou preço por km.
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 className="text-xl font-black text-white">Configuração de Preços</h2>
+              <p className="text-xs text-slate-400">
+                Defina como suas corridas serão cobradas em São Sebastião. Você pode usar tarifas fixas para trajetos conhecidos ou preço por km.
+              </p>
+            </div>
+            {fareSettings.isEnforced && (
+              <span className="inline-flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px] font-bold px-3 py-1 rounded-full w-fit">
+                <Scale className="w-3.5 h-3.5" />
+                <span>Piso Regulatório Ativo</span>
+              </span>
+            )}
+          </div>
+
+          {/* Fair Floor Regulatory Protection Banner */}
+          <div className="bg-emerald-950/20 border border-emerald-500/25 rounded-2xl p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <Scale className="w-4 h-4 text-emerald-400 shrink-0" />
+              <h3 className="font-bold text-white text-xs uppercase tracking-wider">
+                Piso de Preço da Plataforma (Base Justa da Categoria)
+              </h3>
+            </div>
+            <p className="text-[11px] text-slate-300 leading-relaxed">
+              Para proteger a renda dos motoristas parceiros e impedir concorrência predatória (leilão de preços para baixo), a plataforma exige os seguintes pisos mínimos:
             </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+              <div className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-semibold">Bandeirada Mínima</span>
+                <span className="text-sm font-black text-emerald-400">R$ {fareSettings.minBaseFare.toFixed(2)}</span>
+              </div>
+              <div className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-semibold">Km Mínimo</span>
+                <span className="text-sm font-black text-emerald-400">R$ {fareSettings.minRatePerKm.toFixed(2)}/km</span>
+              </div>
+              <div className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-[10px] text-slate-400 block font-semibold">Rotas Fixas Mínimas</span>
+                <span className="text-sm font-black text-emerald-400">R$ {fareSettings.minFixedRoutePrice.toFixed(2)}</span>
+              </div>
+            </div>
           </div>
 
           <form onSubmit={handleSavePricing} className="space-y-6">
@@ -909,28 +1040,69 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                   <option value="MINIMUM_PLUS_KM">Bandeirada Mínima + Km</option>
                   <option value="COMPOSITE">Composto (Mínimo + Km + Tempo)</option>
                 </select>
+                <p className="text-[10px] text-slate-500">
+                  Modelo de cálculo aplicado ao passageiro.
+                </p>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300">Preço Mínimo / Bandeirada (R$)</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-300">Preço Mínimo / Bandeirada (R$)</label>
+                  <span className="text-[10px] font-mono text-emerald-400">
+                    Piso: R$ {fareSettings.minBaseFare.toFixed(2)}
+                  </span>
+                </div>
                 <input
                   type="number"
-                  step="1"
+                  step="0.5"
+                  min={fareSettings.isEnforced ? fareSettings.minBaseFare : 0}
                   value={minFare}
                   onChange={(e) => setMinFare(Number(e.target.value))}
-                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-700 text-xs font-bold"
+                  className={`w-full bg-slate-950 text-white p-3 rounded-xl border text-xs font-bold outline-none transition-colors ${
+                    fareSettings.isEnforced && Number(minFare) < fareSettings.minBaseFare
+                      ? 'border-rose-500 text-rose-300'
+                      : 'border-slate-700 focus:border-emerald-500'
+                  }`}
                 />
+                {fareSettings.isEnforced && Number(minFare) < fareSettings.minBaseFare ? (
+                  <p className="text-[10px] text-rose-400 font-semibold">
+                    ⚠ Abaixo do piso mínimo permitido (R$ {fareSettings.minBaseFare.toFixed(2)})
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-slate-500">
+                    Valor mínimo cobrado na partida de qualquer corrida.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300">Preço por Km (R$/km)</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-300">Preço por Km (R$/km)</label>
+                  <span className="text-[10px] font-mono text-emerald-400">
+                    Piso: R$ {fareSettings.minRatePerKm.toFixed(2)}/km
+                  </span>
+                </div>
                 <input
                   type="number"
                   step="0.1"
+                  min={fareSettings.isEnforced ? fareSettings.minRatePerKm : 0}
                   value={rateKm}
                   onChange={(e) => setRateKm(Number(e.target.value))}
-                  className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-700 text-xs font-bold"
+                  className={`w-full bg-slate-950 text-white p-3 rounded-xl border text-xs font-bold outline-none transition-colors ${
+                    fareSettings.isEnforced && Number(rateKm) < fareSettings.minRatePerKm
+                      ? 'border-rose-500 text-rose-300'
+                      : 'border-slate-700 focus:border-emerald-500'
+                  }`}
                 />
+                {fareSettings.isEnforced && Number(rateKm) < fareSettings.minRatePerKm ? (
+                  <p className="text-[10px] text-rose-400 font-semibold">
+                    ⚠ Abaixo do piso mínimo permitido (R$ {fareSettings.minRatePerKm.toFixed(2)}/km)
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-slate-500">
+                    Tarifa aplicada por quilômetro rodado.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -940,7 +1112,7 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                 <div>
                   <h3 className="text-sm font-bold text-white">Rotas Fixas Cadastradas</h3>
                   <p className="text-[11px] text-slate-400">
-                    Defina valores pré-combinados para viagens entre praias (ex: Centro ➔ Maresias: R$ 80)
+                    Defina valores pré-combinados para viagens entre praias (Piso mínimo: R$ {fareSettings.minFixedRoutePrice.toFixed(2)})
                   </p>
                 </div>
               </div>
@@ -949,16 +1121,24 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                 {fixedRoutes.map((route, idx) => {
                   const origName = allZones.find((z) => z.id === route.originZoneId)?.name || route.originZoneId;
                   const destName = allZones.find((z) => z.id === route.destinationZoneId)?.name || route.destinationZoneId;
+                  const isRouteBelowFloor = fareSettings.isEnforced && Number(route.price) < fareSettings.minFixedRoutePrice;
                   return (
                     <div
                       key={idx}
-                      className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center justify-between text-xs"
+                      className={`bg-slate-950 p-3 rounded-xl border flex items-center justify-between text-xs ${
+                        isRouteBelowFloor ? 'border-rose-500/50 bg-rose-950/10' : 'border-slate-800'
+                      }`}
                     >
                       <div className="flex items-center gap-2">
                         <MapPin className="w-3.5 h-3.5 text-emerald-400" />
                         <span className="text-white font-bold">{origName}</span>
                         <span className="text-slate-500">➔</span>
                         <span className="text-white font-bold">{destName}</span>
+                        {isRouteBelowFloor && (
+                          <span className="text-[10px] text-rose-400 font-bold ml-2">
+                            (Abaixo do piso de R$ {fareSettings.minFixedRoutePrice.toFixed(2)})
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="text-base font-black text-emerald-400">R$ {route.price}</span>
@@ -977,7 +1157,12 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
 
               {/* Add New Fixed Route */}
               <div className="bg-slate-950/60 p-4 rounded-2xl border border-dashed border-slate-800 space-y-3">
-                <span className="text-xs font-bold text-emerald-400 block">+ Adicionar Rota Fixa</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-400 block">+ Adicionar Rota Fixa</span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    Piso Mínimo: R$ {fareSettings.minFixedRoutePrice.toFixed(2)}
+                  </span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <select
                     value={newOrigZone}
@@ -1007,6 +1192,7 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                     <span className="text-xs text-slate-400">R$</span>
                     <input
                       type="number"
+                      min={fareSettings.isEnforced ? fareSettings.minFixedRoutePrice : 0}
                       value={newRoutePrice}
                       onChange={(e) => setNewRoutePrice(Number(e.target.value))}
                       className="w-full bg-transparent text-white text-xs font-bold outline-none py-2"

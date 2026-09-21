@@ -13,6 +13,7 @@ import {
   PlatformMetrics,
   PlatformCost,
   Passenger,
+  PlatformFareSettings,
 } from './src/types.ts';
 
 const app = express();
@@ -97,8 +98,86 @@ let subscriptionPlan: SubscriptionPlan = {
   isActive: true,
 };
 
-// --- IN-MEMORY RELATIONAL DATABASE STORES (INITIAL CLEAN STATE: 0 FAKE DATA) ---
-let driversStore: Driver[] = [];
+let platformFareSettings: PlatformFareSettings = {
+  minBaseFare: 15.0, // Bandeirada mínima da plataforma (R$ 15,00)
+  minRatePerKm: 3.0, // Piso por KM rodado da plataforma (R$ 3,00/km)
+  minFixedRoutePrice: 25.0, // Piso para rota fixa entre bairros (R$ 25,00)
+  isEnforced: true, // Bloqueio ativo contra tarifas predatórias
+  updatedAt: new Date().toISOString(),
+  updatedBy: 'Administração Municipal',
+};
+
+// --- IN-MEMORY RELATIONAL DATABASE STORES (INITIAL CLEAN STATE: WITH APPROVED MOTORISTA DE BASE) ---
+const approvedDriver: Driver = {
+  id: 'drv-carlos',
+  name: 'Carlos Oliveira',
+  phone: '(12) 99745-1234',
+  email: 'carlos.oliveira@vaicar.com.br',
+  cpf: '123.456.789-00',
+  birthDate: '1982-08-15',
+  avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=400&q=80',
+  professionalCategory: 'Transporte Remunerado Individual',
+  licenseNumber: 'ALV-2026/089',
+  regulatoryStatus: 'APPROVED',
+  subscriptionStatus: 'ACTIVE',
+  isOnline: true,
+  operatingZones: ['z-centro', 'z-maresias', 'z-juquehy', 'z-boicucanga'],
+  acceptsImmediate: true,
+  acceptsScheduled: true,
+  vehicle: {
+    id: 'veh-carlos',
+    driverId: 'drv-carlos',
+    brand: 'Toyota',
+    model: 'Corolla',
+    year: 2022,
+    color: 'Prata',
+    licensePlate: 'ABC-1234',
+    passengerCapacity: 4,
+    category: 'Sedan Premium',
+    isApproved: true,
+  },
+  pricing: {
+    pricingType: 'MINIMUM_PLUS_KM',
+    minimumFare: 20.0,
+    ratePerKm: 3.5,
+    ratePerMinute: 0.5,
+    fixedRoutes: [
+      { originZoneId: 'z-centro', destinationZoneId: 'z-maresias', price: 80.0 },
+      { originZoneId: 'z-maresias', destinationZoneId: 'z-centro', price: 80.0 },
+    ],
+  },
+  documents: [
+    { id: 'doc-carlos-alvara', driverId: 'drv-carlos', requirementId: 'req-alvara', requirementName: 'Alvará Municipal', documentNumber: 'ALV-2026/089', status: 'APPROVED', verifiedAt: '2026-03-01' },
+    { id: 'doc-carlos-cnh', driverId: 'drv-carlos', requirementId: 'req-cnh-ear', requirementName: 'CNH c/ EAR', documentNumber: '12345678901', status: 'APPROVED', expiryDate: '2030-06-15', verifiedAt: '2026-03-01' },
+    { id: 'doc-carlos-vistoria', driverId: 'drv-carlos', requirementId: 'req-vistoria', requirementName: 'Laudo de Vistoria', documentNumber: 'VIST-2026/089', status: 'APPROVED', expiryDate: '2026-12-30', verifiedAt: '2026-03-01' },
+    { id: 'doc-carlos-seguro', driverId: 'drv-carlos', requirementId: 'req-seguro-app', requirementName: 'Seguro APP Passageiros', documentNumber: 'SEG-99882', status: 'APPROVED', expiryDate: '2027-02-01', verifiedAt: '2026-03-01' },
+  ],
+  ratingAverage: 4.9,
+  ratingCount: 18,
+  ridesCompleted: 42,
+  whatsappDirectNumber: '5512997451234',
+  pixKey: '(12) 99745-1234',
+  pixKeyType: 'PHONE',
+  acceptsCardMachine: true,
+  acceptedPaymentMethods: ['PIX', 'CASH', 'CARD_CREDIT', 'CARD_DEBIT'],
+  address: 'Rua Sebastião Silveira, 250 - Centro, São Sebastião - SP',
+  cnhNumber: '12345678901',
+  cnhCategory: 'B',
+  cnhExpiry: '2030-06-15',
+  hasEar: true,
+};
+
+const approvedPassenger: Passenger = {
+  id: 'pass-maria',
+  name: 'Maria Santos',
+  phone: '(12) 99999-0000',
+  email: 'maria.santos@gmail.com',
+  isVerified: true,
+  avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80',
+  createdAt: new Date().toISOString(),
+};
+
+let driversStore: Driver[] = [approvedDriver];
 let zonesStore: Zone[] = [...defaultZones];
 let requirementsStore: RegulatoryRequirement[] = [...defaultRequirements];
 let ridesStore: Ride[] = [];
@@ -113,94 +192,18 @@ let passengerReviewsStore: {
   createdAt: string;
 }[] = [];
 let reportsStore: Report[] = [];
-let passengersStore: Passenger[] = [];
+let passengersStore: Passenger[] = [approvedPassenger];
 let platformCostsStore: PlatformCost[] = [];
 let whatsappContactEventsCount = 0;
 
 // Helper to create strictly identified DEMO data as specified in Section 20 & 21
 function createDemoData(approved: boolean = false) {
+  // Always return Carlos Oliveira as approved, or we can toggle his status based on the button
   const demoDriver: Driver = {
-    id: 'drv-demo-joao',
-    name: 'João da Silva — DEMO',
-    phone: '(12) 99999-0001',
-    email: 'joao.silva.demo@vaicar.local',
-    cpf: '000.000.000-00',
-    birthDate: '1985-04-12',
-    avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
-    professionalCategory: 'Transporte Remunerado Individual (DEMO)',
-    licenseNumber: 'ALV-DEMO-2026/001',
+    ...approvedDriver,
     regulatoryStatus: approved ? 'APPROVED' : 'PENDING',
-    subscriptionStatus: approved ? 'ACTIVE' : 'TRIAL',
-    isOnline: approved,
-    operatingZones: ['z-centro', 'z-maresias', 'z-juquehy', 'z-boicucanga'],
-    acceptsImmediate: true,
-    acceptsScheduled: true,
-    vehicle: {
-      id: 'veh-demo-1',
-      driverId: 'drv-demo-joao',
-      brand: 'Geral',
-      model: 'Veículo de demonstração',
-      year: 2024,
-      color: 'Prata',
-      licensePlate: 'DEMO-000',
-      passengerCapacity: 4,
-      category: 'Sedan Confort',
-      photoUrl: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=600&q=80',
-      isApproved: approved,
-    },
-    pricing: {
-      pricingType: 'MINIMUM_PLUS_KM',
-      minimumFare: 20.0,
-      ratePerKm: 3.5,
-      ratePerMinute: 0.5,
-      fixedRoutes: [
-        { originZoneId: 'z-centro', destinationZoneId: 'z-maresias', price: 80.0 },
-        { originZoneId: 'z-maresias', destinationZoneId: 'z-centro', price: 80.0 },
-      ],
-    },
-    documents: [
-      { id: 'doc-demo-alvara', driverId: 'drv-demo-joao', requirementId: 'req-alvara', requirementName: 'Alvará Municipal', documentNumber: 'DOCUMENTO DEMO', status: approved ? 'APPROVED' : 'PENDING', verifiedAt: approved ? '2026-03-01' : undefined },
-      { id: 'doc-demo-cnh', driverId: 'drv-demo-joao', requirementId: 'req-cnh-ear', requirementName: 'CNH c/ EAR', documentNumber: 'DOCUMENTO DEMO', status: approved ? 'APPROVED' : 'PENDING', expiryDate: '2028-06-15', verifiedAt: approved ? '2026-03-01' : undefined },
-      { id: 'doc-demo-vistoria', driverId: 'drv-demo-joao', requirementId: 'req-vistoria', requirementName: 'Laudo de Vistoria', documentNumber: 'DOCUMENTO DEMO', status: approved ? 'APPROVED' : 'PENDING', expiryDate: '2026-12-30', verifiedAt: approved ? '2026-03-01' : undefined },
-      { id: 'doc-demo-seguro', driverId: 'drv-demo-joao', requirementId: 'req-seguro-app', requirementName: 'Seguro APP Passageiros', documentNumber: 'DOCUMENTO DEMO', status: approved ? 'APPROVED' : 'PENDING', expiryDate: '2027-02-01', verifiedAt: approved ? '2026-03-01' : undefined },
-    ],
-    ratingAverage: 5.0,
-    ratingCount: 0,
-    ridesCompleted: 0,
-    whatsappDirectNumber: '5512999990001',
-    pixKey: '(12) 99999-0001',
-    pixKeyType: 'PHONE',
-    acceptsCardMachine: true,
-    acceptedPaymentMethods: ['PIX', 'CASH', 'CARD_CREDIT', 'CARD_DEBIT'],
-    address: 'Av. Dr. Francisco Loup, 100 - Maresias (DEMO)',
-    cnhNumber: 'DOCUMENTO DEMO',
-    cnhCategory: 'B com EAR',
-    cnhExpiry: '2028-12-31',
-    hasEar: true,
-    cnhFrontUrl: 'DOCUMENTO DEMO',
-    cnhBackUrl: 'DOCUMENTO DEMO',
-    renavam: '00000000000',
-    crlvDocumentUrl: 'DOCUMENTO DEMO',
-    insuranceCompany: 'Porto Seguro (DEMO)',
-    insurancePolicy: 'DOCUMENTO DEMO',
-    insuranceExpiry: '2027-01-01',
-    insuranceDocumentUrl: 'DOCUMENTO DEMO',
-    selfieCnhUrl: 'IMAGEM DEMO',
-    selfieDateUrl: 'IMAGEM DEMO COM DATA',
-    criminalRecordUrl: 'DOCUMENTO DEMO',
-    isDemo: true,
   };
-
-  const demoPassenger: Passenger = {
-    id: 'pass-demo-maria',
-    name: 'Maria Santos — DEMO',
-    phone: '(12) 99999-0000',
-    email: 'maria.santos.demo@vaicar.local',
-    isVerified: true,
-    isDemo: true,
-    createdAt: new Date().toISOString(),
-  };
-
+  const demoPassenger = approvedPassenger;
   return { demoDriver, demoPassenger };
 }
 
@@ -226,12 +229,25 @@ function calculateDriverFare(driver: Driver, originZoneId: string, destZoneId: s
   );
 
   if (fixedRoute) {
-    return fixedRoute.price;
+    const routePrice = platformFareSettings.isEnforced
+      ? Math.max(fixedRoute.price, platformFareSettings.minFixedRoutePrice)
+      : fixedRoute.price;
+    return Math.round(routePrice);
   }
 
-  // 2. Otherwise calculate based on distance & driver formula
+  // 2. Otherwise calculate based on distance & driver formula with platform floors
   const distanceKm = calculateDistanceKm(originZoneId, destZoneId);
-  let fare = (driver.pricing.minimumFare || 20.0) + distanceKm * (driver.pricing.ratePerKm || 3.5);
+  const minBase = platformFareSettings.isEnforced
+    ? Math.max(driver.pricing.minimumFare || 20.0, platformFareSettings.minBaseFare)
+    : (driver.pricing.minimumFare || 20.0);
+  const rateKm = platformFareSettings.isEnforced
+    ? Math.max(driver.pricing.ratePerKm || 3.5, platformFareSettings.minRatePerKm)
+    : (driver.pricing.ratePerKm || 3.5);
+
+  let fare = minBase + distanceKm * rateKm;
+  if (platformFareSettings.isEnforced) {
+    fare = Math.max(fare, platformFareSettings.minBaseFare);
+  }
 
   return Math.round(fare);
 }
@@ -301,6 +317,78 @@ app.get('/api/v1/meta', (req, res) => {
     requirements: requirementsStore,
     subscriptionPlan,
     metrics: computePlatformMetrics(),
+    fareSettings: platformFareSettings,
+  });
+});
+
+// Platform Fare Floor Settings (Public)
+app.get('/api/v1/fare-settings', (req, res) => {
+  res.json(platformFareSettings);
+});
+
+// Admin Update Platform Fare Floor Settings
+app.put('/api/v1/admin/fare-settings', (req, res) => {
+  const { minBaseFare, minRatePerKm, minFixedRoutePrice, isEnforced, applyToAllDrivers } = req.body;
+
+  if (minBaseFare !== undefined) {
+    const val = Number(minBaseFare);
+    if (isNaN(val) || val <= 0) {
+      return res.status(400).json({ error: 'Tarifa base mínima inválida.' });
+    }
+    platformFareSettings.minBaseFare = Math.round(val * 100) / 100;
+  }
+
+  if (minRatePerKm !== undefined) {
+    const val = Number(minRatePerKm);
+    if (isNaN(val) || val <= 0) {
+      return res.status(400).json({ error: 'Piso por km inválido.' });
+    }
+    platformFareSettings.minRatePerKm = Math.round(val * 100) / 100;
+  }
+
+  if (minFixedRoutePrice !== undefined) {
+    const val = Number(minFixedRoutePrice);
+    if (isNaN(val) || val <= 0) {
+      return res.status(400).json({ error: 'Piso de rota fixa inválido.' });
+    }
+    platformFareSettings.minFixedRoutePrice = Math.round(val * 100) / 100;
+  }
+
+  if (isEnforced !== undefined) {
+    platformFareSettings.isEnforced = Boolean(isEnforced);
+  }
+
+  platformFareSettings.updatedAt = new Date().toISOString();
+
+  // If requested, synchronize and adjust drivers whose rates are below the new fair floor
+  let driversAdjusted = 0;
+  if (applyToAllDrivers && platformFareSettings.isEnforced) {
+    for (const d of driversStore) {
+      let changed = false;
+      if (d.pricing.minimumFare < platformFareSettings.minBaseFare) {
+        d.pricing.minimumFare = platformFareSettings.minBaseFare;
+        changed = true;
+      }
+      if (d.pricing.ratePerKm < platformFareSettings.minRatePerKm) {
+        d.pricing.ratePerKm = platformFareSettings.minRatePerKm;
+        changed = true;
+      }
+      if (Array.isArray(d.pricing.fixedRoutes)) {
+        for (const route of d.pricing.fixedRoutes) {
+          if (route.price < platformFareSettings.minFixedRoutePrice) {
+            route.price = platformFareSettings.minFixedRoutePrice;
+            changed = true;
+          }
+        }
+      }
+      if (changed) driversAdjusted++;
+    }
+  }
+
+  res.json({
+    fareSettings: platformFareSettings,
+    driversAdjusted,
+    message: 'Pisos mínimos da plataforma atualizados com sucesso!',
   });
 });
 
@@ -435,6 +523,7 @@ app.post('/api/v1/drivers', (req, res) => {
     vehicleColor,
     vehiclePlate,
     operatingZones = ['z-centro', 'z-maresias'],
+    avatarUrl, // <--- added avatarUrl
   } = req.body;
 
   if (!name || !phone || !cpf || !vehicleModel || !vehiclePlate) {
@@ -450,7 +539,7 @@ app.post('/api/v1/drivers', (req, res) => {
     email: email || `${cleanPhone}@vaicar.local`,
     cpf,
     birthDate: birthDate || '1990-01-01',
-    avatarUrl: `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=400&q=80`,
+    avatarUrl: avatarUrl || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=400&q=80`,
     professionalCategory: professionalCategory || 'Transporte Remunerado Municipal',
     licenseNumber: licenseNumber || 'REG-PENDENTE',
     regulatoryStatus: 'SUBMITTED', // Starts as submitted/pending admin review
@@ -524,6 +613,39 @@ app.patch('/api/v1/drivers/:id/pricing', (req, res) => {
   if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
 
   const { pricingType, minimumFare, ratePerKm, fixedRoutes } = req.body;
+
+  // Platform Fair Pricing Floor Validation
+  if (platformFareSettings.isEnforced) {
+    if (minimumFare !== undefined) {
+      const numMinFare = Number(minimumFare);
+      if (numMinFare < platformFareSettings.minBaseFare) {
+        return res.status(400).json({
+          error: `O valor da bandeirada / corrida mínima (R$ ${numMinFare.toFixed(2)}) não pode ser inferior ao piso da plataforma de R$ ${platformFareSettings.minBaseFare.toFixed(2)}.`,
+        });
+      }
+    }
+
+    if (ratePerKm !== undefined) {
+      const numRateKm = Number(ratePerKm);
+      if (numRateKm < platformFareSettings.minRatePerKm) {
+        return res.status(400).json({
+          error: `O valor por km rodado (R$ ${numRateKm.toFixed(2)}/km) não pode ser inferior ao piso da plataforma de R$ ${platformFareSettings.minRatePerKm.toFixed(2)}/km.`,
+        });
+      }
+    }
+
+    if (Array.isArray(fixedRoutes)) {
+      for (const route of fixedRoutes) {
+        const routePrice = Number(route.price);
+        if (routePrice < platformFareSettings.minFixedRoutePrice) {
+          return res.status(400).json({
+            error: `Nenhuma rota fixa pode ter valor inferior ao piso de R$ ${platformFareSettings.minFixedRoutePrice.toFixed(2)}.`,
+          });
+        }
+      }
+    }
+  }
+
   if (pricingType) driver.pricing.pricingType = pricingType;
   if (minimumFare !== undefined) driver.pricing.minimumFare = Number(minimumFare);
   if (ratePerKm !== undefined) driver.pricing.ratePerKm = Number(ratePerKm);
@@ -570,11 +692,16 @@ app.post('/api/v1/rides', (req, res) => {
   const {
     passengerName,
     passengerPhone,
+    passengerAvatarUrl, // <--- added
     driverId,
     originZoneId,
     originAddress,
+    originLandmark, // <--- added
+    originMapsLink, // <--- added
     destinationZoneId,
     destinationAddress,
+    destinationLandmark, // <--- added
+    destinationMapsLink, // <--- added
     passengerCount = 1,
     scheduledTime,
     isImmediate = true,
@@ -603,6 +730,7 @@ app.post('/api/v1/rides', (req, res) => {
     id: `ride-${Date.now()}`,
     passengerName,
     passengerPhone,
+    passengerAvatarUrl: passengerAvatarUrl || `https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80`,
     driverId: driver.id,
     driverName: driver.name,
     driverPhone: driver.phone,
@@ -610,8 +738,12 @@ app.post('/api/v1/rides', (req, res) => {
     driverAvatar: driver.avatarUrl,
     originZoneId,
     originAddress: originAddress || zonesStore.find((z) => z.id === originZoneId)?.name || 'Origem',
+    originLandmark, // <--- added
+    originMapsLink, // <--- added
     destinationZoneId,
     destinationAddress: destinationAddress || zonesStore.find((z) => z.id === destinationZoneId)?.name || 'Destino',
+    destinationLandmark, // <--- added
+    destinationMapsLink, // <--- added
     passengerCount: Number(passengerCount),
     scheduledTime,
     isImmediate: Boolean(isImmediate),
@@ -1138,7 +1270,7 @@ app.delete('/api/v1/admin/costs/:id', (req, res) => {
 
 // --- PASSENGER PROFILE & AUTH (Section 3 & 4) ---
 app.post('/api/v1/passengers/auth', (req, res) => {
-  const { name, phone, email, verificationCode } = req.body;
+  const { name, phone, email, verificationCode, avatarUrl } = req.body;
 
   if (!phone || !phone.trim()) {
     return res.status(400).json({ error: 'Número de WhatsApp/telefone é obrigatório.' });
@@ -1165,6 +1297,7 @@ app.post('/api/v1/passengers/auth', (req, res) => {
       name: (name && name.trim()) || 'Passageiro VaiCar',
       phone: phone.trim(),
       email: email ? email.trim() : undefined,
+      avatarUrl: avatarUrl || `https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80`,
       isVerified: true,
       createdAt: new Date().toISOString(),
     };
@@ -1172,6 +1305,7 @@ app.post('/api/v1/passengers/auth', (req, res) => {
   } else {
     if (name) passenger.name = name.trim();
     if (email) passenger.email = email.trim();
+    if (avatarUrl) passenger.avatarUrl = avatarUrl;
     passenger.isVerified = true;
   }
 
