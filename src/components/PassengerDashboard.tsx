@@ -39,6 +39,7 @@ import {
   fetchPassengerReviews,
   getWhatsAppContact,
 } from '../lib/api.ts';
+import { LiveRideTracker } from './LiveRideTracker.tsx';
 
 interface PassengerDashboardProps {
   zones: Zone[];
@@ -125,9 +126,22 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
       const refreshed = allRides.find((r) => r.id === activeRide.id);
       if (refreshed) {
         setActiveRide(refreshed);
+      } else {
+        // If it was cancelled or deleted from server
+        setActiveRide(null);
+      }
+    } else {
+      // Auto-restore any active in-progress ride belonging to this passenger
+      const active = allRides.find((r) =>
+        (r.passengerPhone === passengerPhone || r.passengerName === passengerName) &&
+        ['REQUESTED', 'ACCEPTED', 'DRIVER_ARRIVING', 'PASSENGER_PICKED_UP', 'IN_PROGRESS'].includes(r.status)
+      );
+      if (active) {
+        setActiveRide(active);
+        setActiveTab('ATUAL');
       }
     }
-  }, [allRides]);
+  }, [allRides, activeRide, passengerPhone, passengerName]);
 
   // Ensure default zones if available
   useEffect(() => {
@@ -844,6 +858,9 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   </span>
                 </div>
               </div>
+
+              {/* Live GPS Map & Progress Simulation Component */}
+              <LiveRideTracker ride={activeRide} />
 
               {/* Driver and Vehicle card */}
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-4">

@@ -722,6 +722,9 @@ app.post('/api/v1/rides', (req, res) => {
     return res.status(400).json({ error: 'Motorista não está habilitado para transporte remunerado.' });
   }
 
+  const originZone = zonesStore.find((z) => z.id === originZoneId);
+  const destinationZone = zonesStore.find((z) => z.id === destinationZoneId);
+
   const estimatedPrice = calculateDriverFare(driver, originZoneId, destinationZoneId);
   const estimatedDistanceKm = calculateDistanceKm(originZoneId, destinationZoneId);
   const estimatedDurationMin = Math.max(5, Math.round(estimatedDistanceKm * 1.4));
@@ -737,11 +740,15 @@ app.post('/api/v1/rides', (req, res) => {
     driverVehicle: `${driver.vehicle.brand} ${driver.vehicle.model} - ${driver.vehicle.color}`,
     driverAvatar: driver.avatarUrl,
     originZoneId,
-    originAddress: originAddress || zonesStore.find((z) => z.id === originZoneId)?.name || 'Origem',
+    originAddress: originAddress || originZone?.name || 'Origem',
+    originLat: originZone ? originZone.lat : undefined,
+    originLng: originZone ? originZone.lng : undefined,
     originLandmark, // <--- added
     originMapsLink, // <--- added
     destinationZoneId,
-    destinationAddress: destinationAddress || zonesStore.find((z) => z.id === destinationZoneId)?.name || 'Destino',
+    destinationAddress: destinationAddress || destinationZone?.name || 'Destino',
+    destinationLat: destinationZone ? destinationZone.lat : undefined,
+    destinationLng: destinationZone ? destinationZone.lng : undefined,
     destinationLandmark, // <--- added
     destinationMapsLink, // <--- added
     passengerCount: Number(passengerCount),

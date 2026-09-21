@@ -118,6 +118,29 @@ export default function App() {
     loadData();
   }, []);
 
+  // Poll rides and drivers every 2 seconds for live real-time updates
+  useEffect(() => {
+    let active = true;
+    const interval = setInterval(async () => {
+      try {
+        const [d, r] = await Promise.all([
+          fetchDrivers().catch(() => null),
+          fetchRides().catch(() => null),
+        ]);
+        if (!active) return;
+        if (d) setDrivers(d);
+        if (r) setRides(r);
+      } catch (err) {
+        console.error('Error in background update poll:', err);
+      }
+    }, 2000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   const handleOpenLegal = (tab: any) => {
     const normalized: 'termos' | 'privacidade' | 'regulacao' =
       tab === 'termos' || tab === 'TERMS'
