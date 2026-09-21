@@ -22,7 +22,14 @@ import {
   Activity,
   Calendar,
   Layers,
+  KeyRound,
+  Key,
 } from 'lucide-react';
+import {
+  verifyAdminPassword,
+  setAdminPassword,
+  isAdminPasswordChanged,
+} from '../lib/authSecurity.ts';
 import {
   Driver,
   Zone,
@@ -77,6 +84,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [adminPin, setAdminPin] = useState('');
   const [authError, setAuthError] = useState('');
 
+  // Password change states (Mandatory on first access or on demand)
+  const [isMandatoryFirstChange, setIsMandatoryFirstChange] = useState<boolean>(false);
+  const [showPasswordChangeModal, setShowPasswordChangeModal] = useState<boolean>(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [pwdChangeError, setPwdChangeError] = useState('');
+  const [pwdChangeSuccess, setPwdChangeSuccess] = useState('');
+
   // Dashboard Tabs
   const [tab, setTab] = useState<'METRICS' | 'DRIVERS' | 'RIDES' | 'FINANCES' | 'ZONES' | 'REPORTS'>('METRICS');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
@@ -115,23 +130,67 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPin === 'admin123' || adminPin === 'vaicar2025' || adminPin === 'demo') {
-      setIsAuthenticated(true);
-      localStorage.setItem('vaicar_admin_auth', 'true');
-      setAuthError('');
-    } else {
-      setAuthError('Chave administrativa inválida. Em modo de teste use: admin123 ou clique no botão rápido abaixo.');
+    setAuthError('');
+    const res = verifyAdminPassword(adminPin);
+    if (!res.success) {
+      setAuthError(res.errorMessage || 'Senha administrativa incorreta.');
+      return;
     }
-  };
 
-  const handleQuickLoginTest = () => {
+    if (res.needsPasswordChange) {
+      // First access: force setting a new custom password
+      setIsMandatoryFirstChange(true);
+      setAuthError('');
+      return;
+    }
+
     setIsAuthenticated(true);
     localStorage.setItem('vaicar_admin_auth', 'true');
+    setAuthError('');
+  };
+
+  const handleSaveNewPassword = (e: React.FormEvent, isFirstTime: boolean) => {
+    e.preventDefault();
+    setPwdChangeError('');
+    setPwdChangeSuccess('');
+
+    if (newPassword.length < 6) {
+      setPwdChangeError('A nova senha deve ter no mínimo 6 caracteres.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPwdChangeError('A confirmação de senha não confere.');
+      return;
+    }
+
+    const result = setAdminPassword(newPassword);
+    if (!result.success) {
+      setPwdChangeError(result.message || 'Erro ao definir senha.');
+      return;
+    }
+
+    setNewPassword('');
+    setConfirmPassword('');
+
+    if (isFirstTime) {
+      setIsMandatoryFirstChange(false);
+      setIsAuthenticated(true);
+      localStorage.setItem('vaicar_admin_auth', 'true');
+      alert('✅ Nova senha de Administrador salva com sucesso! Guarde-a em local seguro.');
+    } else {
+      setPwdChangeSuccess('✅ Senha alterada com sucesso!');
+      setTimeout(() => {
+        setShowPasswordChangeModal(false);
+        setPwdChangeSuccess('');
+      }, 1500);
+    }
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
     localStorage.removeItem('vaicar_admin_auth');
+    setAdminPin('');
+    setIsMandatoryFirstChange(false);
   };
 
   const filteredDrivers = drivers.filter((d) => {
@@ -289,6 +348,82 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Login Gate View
   if (!isAuthenticated) {
+    if (isMandatoryFirstChange) {
+      return (
+        <div className="min-h-[70vh] flex items-center justify-center px-4 py-12">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-3xl p-8 max-w-md w-full shadow-2xl space-y-6 animate-in fade-in">
+            <div className="text-center space-y-2">
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400 shadow-lg">
+                <KeyRound className="w-7 h-7" />
+              </div>
+              <h2 className="text-xl font-black text-white">Primeiro Acesso: Troca Obrigatória</h2>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Por segurança da plataforma municipal, cadastre sua <strong>senha pessoal definitiva</strong> de Administrador. O acesso por senhas genéricas ou <span className="text-rose-400">"demo"</span> foi bloqueado.
+              </p>
+            </div>
+
+            <form onSubmit={(e) => handleSaveNewPassword(e, true)} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">Nova Senha de Administrador</label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Mínimo 6 caracteres"
+                    required
+                    className="w-full bg-slate-950 text-white text-sm px-4 py-3 rounded-xl border border-slate-700 outline-none focus:border-amber-500"
+                  />
+                  <Lock className="w-4 h-4 text-slate-500 absolute right-3.5 top-3.5" />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">Confirmar Nova Senha</label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Repita a nova senha"
+                    required
+                    className="w-full bg-slate-950 text-white text-sm px-4 py-3 rounded-xl border border-slate-700 outline-none focus:border-amber-500"
+                  />
+                  <Lock className="w-4 h-4 text-slate-500 absolute right-3.5 top-3.5" />
+                </div>
+              </div>
+
+              {pwdChangeError && (
+                <div className="p-3 bg-rose-950/50 border border-rose-800/60 rounded-xl text-xs text-rose-300 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{pwdChangeError}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black py-3 rounded-xl text-xs transition-all cursor-pointer shadow-lg"
+              >
+                Definir Senha e Entrar
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMandatoryFirstChange(false);
+                  setAdminPin('');
+                  setPwdChangeError('');
+                }}
+                className="w-full text-center text-xs text-slate-400 hover:text-white py-1 cursor-pointer"
+              >
+                Voltar
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-[70vh] flex items-center justify-center px-4 py-12">
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl space-y-6">
@@ -298,43 +433,58 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
             <h2 className="text-2xl font-black text-white">Acesso Administrativo</h2>
             <p className="text-xs text-slate-400">
-              Gestão de credenciamento municipal, auditoria de motoristas e finanças do VaiCar.
+              Gestão restrita de credenciamento municipal, auditoria e finanças do VaiCar.
+            </p>
+          </div>
+
+          <div className="bg-slate-950/70 border border-slate-800 p-3 rounded-xl text-xs text-slate-300 space-y-1">
+            <div className="flex items-center gap-1.5 text-emerald-400 font-semibold text-[11px]">
+              <Lock className="w-3.5 h-3.5" />
+              <span>Autenticação Segura</span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Chave inicial de primeiro acesso: <code className="text-emerald-400 font-mono font-bold bg-slate-900 px-1 py-0.5 rounded">admin2025</code>
+            </p>
+            <p className="text-[10px] text-amber-400/90 font-medium">
+              * A troca para sua senha pessoal será exigida na primeira ação.
             </p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-300">Chave / PIN de Acesso</label>
+              <label className="text-xs font-bold text-slate-300">Senha / PIN de Acesso</label>
               <div className="relative">
                 <input
                   type="password"
                   value={adminPin}
                   onChange={(e) => setAdminPin(e.target.value)}
-                  placeholder="Digite a chave administrativa"
+                  placeholder="Digite sua senha de administrador"
+                  required
                   className="w-full bg-slate-950 text-white font-mono text-sm px-4 py-3 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
                 />
                 <Lock className="w-4 h-4 text-slate-500 absolute right-3.5 top-3.5" />
               </div>
             </div>
 
-            {authError && <p className="text-xs text-rose-400 font-medium">{authError}</p>}
+            {authError && (
+              <div className="p-3 bg-rose-950/60 border border-rose-800/60 rounded-xl text-xs text-rose-300 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{authError}</span>
+              </div>
+            )}
 
             <button
               type="submit"
               className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-3 rounded-xl text-xs transition-colors cursor-pointer shadow-md"
             >
-              Entrar no Painel
+              Acessar Painel
             </button>
           </form>
 
-          {/* Quick test login button */}
-          <div className="pt-2 border-t border-slate-800 text-center">
-            <button
-              onClick={handleQuickLoginTest}
-              className="text-xs text-emerald-400 hover:underline font-semibold cursor-pointer"
-            >
-              [Ambiente de Teste] Acessar com 1 clique
-            </button>
+          <div className="pt-2 border-t border-slate-800/80 text-center">
+            <span className="text-[11px] text-slate-500 font-medium">
+              Acessos de teste "demo" foram desativados para segurança dos dados municipais.
+            </span>
           </div>
         </div>
       </div>
@@ -347,6 +497,85 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   return (
     <div className="w-full max-w-6xl mx-auto px-4 py-6 space-y-6">
+      {/* Password Change Modal (Inside Dashboard) */}
+      {showPasswordChangeModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl animate-in zoom-in-95">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-white font-bold">
+                <KeyRound className="w-5 h-5 text-amber-400" />
+                <span>Alterar Senha do Administrador</span>
+              </div>
+              <button
+                onClick={() => {
+                  setShowPasswordChangeModal(false);
+                  setPwdChangeError('');
+                  setPwdChangeSuccess('');
+                  setNewPassword('');
+                  setConfirmPassword('');
+                }}
+                className="text-slate-400 hover:text-white text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Defina uma nova senha para proteger o acesso às aprovações de motoristas e aos relatórios financeiros.
+            </p>
+
+            <form onSubmit={(e) => handleSaveNewPassword(e, false)} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-300">Nova Senha</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Mínimo 6 caracteres"
+                  required
+                  className="w-full bg-slate-950 text-white text-sm px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-300">Confirmar Nova Senha</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Repita a nova senha"
+                  required
+                  className="w-full bg-slate-950 text-white text-sm px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-amber-500"
+                />
+              </div>
+
+              {pwdChangeError && (
+                <p className="text-xs text-rose-400 font-semibold">{pwdChangeError}</p>
+              )}
+              {pwdChangeSuccess && (
+                <p className="text-xs text-emerald-400 font-semibold">{pwdChangeSuccess}</p>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordChangeModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white font-medium cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs cursor-pointer shadow"
+                >
+                  Salvar Nova Senha
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Top Header */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
         <div>
@@ -362,10 +591,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          <button
+            onClick={() => setShowPasswordChangeModal(true)}
+            className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border border-slate-700"
+            title="Alterar senha do administrador"
+          >
+            <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+            <span>Trocar Senha</span>
+          </button>
           <button
             onClick={onRefreshAll}
-            className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3.5 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+            className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Atualizar</span>

@@ -172,7 +172,7 @@ export default function App() {
   const demoDriverApproved = demoDriver?.regulatoryStatus === 'APPROVED';
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
+    <div className="min-h-screen w-full overflow-x-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
       {/* Universal Top Navigation Header */}
       <Header
         currentRole={role}

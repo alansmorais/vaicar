@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Power,
   Star,
@@ -22,6 +22,9 @@ import {
   Wallet,
   Copy,
   Check,
+  Bell,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { Driver, Zone, Ride, RegulatoryRequirement, PaymentMethod } from '../types.ts';
 import {
@@ -74,12 +77,90 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
   const [newDestZone, setNewDestZone] = useState(allZones[1]?.id || '');
   const [newRoutePrice, setNewRoutePrice] = useState(40);
 
+  // Sound and alert notification state
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [hasNotifPermission, setHasNotifPermission] = useState(
+    typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
+  );
+
+  // Synthesized Web Audio chime (pleasant 4-tone bell)
+  const playRideChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'triangle';
+
+      const now = ctx.currentTime;
+      // Melody: C5 (523Hz) -> E5 (659Hz) -> G5 (784Hz) -> C6 (1046Hz)
+      osc.frequency.setValueAtTime(523.25, now);
+      osc.frequency.setValueAtTime(659.25, now + 0.12);
+      osc.frequency.setValueAtTime(783.99, now + 0.24);
+      osc.frequency.setValueAtTime(1046.5, now + 0.36);
+
+      gain.gain.setValueAtTime(0.35, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+
+      osc.start(now);
+      osc.stop(now + 0.9);
+    } catch {
+      // AudioContext policy fallback
+    }
+  };
+
+  const requestNotificationPermission = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      const perm = await Notification.requestPermission();
+      setHasNotifPermission(perm === 'granted');
+      if (perm === 'granted') {
+        playRideChime();
+        alert('Notificações ativadas! Você ouvirá um alerta sonoro a cada nova corrida.');
+      }
+    }
+  };
+
   // Filter rides for this driver
   const driverRides = rides.filter((r) => r.driverId === driver.id);
   const pendingRequests = driverRides.filter((r) => r.status === 'REQUESTED');
   const activeRide = driverRides.find((r) =>
     ['ACCEPTED', 'DRIVER_ARRIVING', 'PASSENGER_PICKED_UP', 'IN_PROGRESS'].includes(r.status),
   );
+
+  const prevPendingCountRef = useRef<number>(pendingRequests.length);
+
+  // 1. Auto-refresh rides every 4 seconds so incoming passenger requests arrive in real-time
+  useEffect(() => {
+    const interval = setInterval(() => {
+      onRefreshRides();
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [onRefreshRides]);
+
+  // 2. Alert driver with sound, vibration and push notification when new ride is requested
+  useEffect(() => {
+    if (pendingRequests.length > prevPendingCountRef.current) {
+      if (soundEnabled) {
+        playRideChime();
+      }
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([250, 100, 250, 100, 350]);
+      }
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification('🚗 Nova Corrida no VaiCar!', {
+            body: `Nova solicitação recebida de ${pendingRequests[0]?.passengerName || 'Passageiro'}! Toque para aceitar.`,
+          });
+        } catch {
+          // ignore
+        }
+      }
+    }
+    prevPendingCountRef.current = pendingRequests.length;
+  }, [pendingRequests.length, soundEnabled]);
 
   const completedTodayCount = driverRides.filter((r) => r.status === 'COMPLETED').length;
   const estimatedRevenue = driverRides
@@ -350,6 +431,45 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
             <Power className="w-4 h-4" />
             <span>{driver.isOnline ? 'FICAR OFFLINE' : 'FICAR ONLINE'}</span>
           </button>
+
+          {/* Sound & Notification Controls */}
+          <div className="flex items-center gap-1.5 pt-1.5 flex-wrap justify-end">
+            <button
+              onClick={() => {
+                const next = !soundEnabled;
+                setSoundEnabled(next);
+                if (next) playRideChime();
+              }}
+              className={`text-[11px] px-2 py-1 rounded-lg border font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
+                soundEnabled
+                  ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/60'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+              }`}
+              title={soundEnabled ? 'Som ativado (toque para silenciar)' : 'Som desativado (toque para ativar)'}
+            >
+              {soundEnabled ? <Volume2 className="w-3 h-3 text-emerald-400" /> : <VolumeX className="w-3 h-3 text-slate-500" />}
+              <span>{soundEnabled ? 'Sons Ativos' : 'Silencioso'}</span>
+            </button>
+
+            <button
+              onClick={playRideChime}
+              className="text-[10px] px-1.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 cursor-pointer"
+              title="Testar som do sino de chamada"
+            >
+              Testar
+            </button>
+
+            {!hasNotifPermission && (
+              <button
+                onClick={requestNotificationPermission}
+                className="text-[11px] px-2 py-1 rounded-lg bg-teal-950/70 border border-teal-500/40 text-teal-300 hover:bg-teal-900/70 font-semibold flex items-center gap-1 cursor-pointer"
+                title="Ativar notificações push no navegador/celular"
+              >
+                <Bell className="w-3 h-3 text-teal-400" />
+                <span>Alertas Celular</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
