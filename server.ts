@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
+import { db } from './src/lib/firebaseAdmin.ts';
 import {
   Zone,
   Municipality,
@@ -14,6 +15,7 @@ import {
   PlatformCost,
   Passenger,
   PlatformFareSettings,
+  DynamicPricingSettings,
 } from './src/types.ts';
 
 const app = express();
@@ -117,83 +119,149 @@ let dynamicPricingSettings: DynamicPricingSettings = {
   surgeIcon: '⚡',
 };
 
-// --- IN-MEMORY RELATIONAL DATABASE STORES (INITIAL CLEAN STATE) ---
-let driversStore: Driver[] = [];
-let zonesStore: Zone[] = [...defaultZones];
-let requirementsStore: RegulatoryRequirement[] = [...defaultRequirements];
-let ridesStore: Ride[] = [];
-let reviewsStore: Review[] = [];
-let passengerReviewsStore: {
-  id: string;
-  rideId: string;
-  passengerId: string;
-  driverId: string;
-  rating: number;
-  comment: string;
-  createdAt: string;
-}[] = [];
-let reportsStore: Report[] = [];
-let passengersStore: Passenger[] = [];
-let platformCostsStore: PlatformCost[] = [];
-let whatsappContactEventsCount = 0;
+// --- FIRESTORE HELPERS & INITIALIZATION ---
+
+async function getGlobalConfig() {
+  const doc = await db.collection('config').doc('global').get();
+  if (!doc.exists) {
+    const defaultConfig = {
+      subscriptionPlan: {
+        id: 'plan-pro',
+        name: 'VaiCar Pro',
+        priceBrl: 49.0,
+        billingPeriod: 'mensal',
+        description: 'Acesso total, perfil verificado, 0% de comissão sobre corridas, chamadas diretas.',
+        commissionPercent: 0,
+        isActive: true,
+      },
+      platformFareSettings: {
+        minBaseFare: 15.0,
+        minRatePerKm: 3.0,
+        minFixedRoutePrice: 25.0,
+        isEnforced: true,
+        updatedAt: new Date().toISOString(),
+        updatedBy: 'Administração Municipal',
+      },
+      dynamicPricingSettings: {
+        isEnabled: true,
+        minMultiplier: 0.8,
+        maxMultiplier: 2.5,
+        idealDriverPassengerRatio: 3.0,
+        minDriversThreshold: 2,
+        activeZoneIds: [],
+        surgeIcon: '⚡',
+      },
+      whatsappContactEventsCount: 0,
+    };
+    await db.collection('config').doc('global').set(defaultConfig);
+    return defaultConfig;
+  }
+  return doc.data() as any;
+}
+
+async function seedStaticData() {
+  const zonesSnap = await db.collection('zones').limit(1).get();
+  if (zonesSnap.empty) {
+    const batch = db.batch();
+    for (const zone of defaultZones) {
+      batch.set(db.collection('zones').doc(zone.id), zone);
+    }
+    await batch.commit();
+  }
+
+  const reqsSnap = await db.collection('requirements').limit(1).get();
+  if (reqsSnap.empty) {
+    const batch = db.batch();
+    for (const req of defaultRequirements) {
+      batch.set(db.collection('requirements').doc(req.id), req);
+    }
+    await batch.commit();
+  }
+}
+
+// Global state variables will now be loaded from DB where needed
+let currentConfig: any = null;
+
+async function ensureConfig() {
+  if (!currentConfig) {
+    currentConfig = await getGlobalConfig();
+  }
+  return currentConfig;
+}
+
+// Helpers to get collections easily
+async function getDrivers(): Promise<Driver[]> {
+  const snap = await db.collection('drivers').get();
+  return snap.docs.map((doc: any) => doc.data() as Driver);
+}
+
+async function getRides(): Promise<Ride[]> {
+  const snap = await db.collection('rides').get();
+  return snap.docs.map((doc: any) => doc.data() as Ride);
+}
+
+async function getZones(): Promise<Zone[]> {
+  const snap = await db.collection('zones').get();
+  return snap.docs.map((doc: any) => doc.data() as Zone);
+}
+
+async function getPassengers(): Promise<Passenger[]> {
+  const snap = await db.collection('passengers').get();
+  return snap.docs.map((doc: any) => doc.data() as Passenger);
+}
 
 // --- DISTANCE & PRICE CALCULATION HELPER ---
-function calculateCurrentDynamicMultiplier(zoneId?: string): { multiplier: number; isActive: boolean } {
-  if (!dynamicPricingSettings.isEnabled) return { multiplier: 1.0, isActive: false };
+async function calculateCurrentDynamicMultiplier(zoneId?: string): Promise<{ multiplier: number; isActive: boolean }> {
+  const config = await ensureConfig();
+  const settings = config.dynamicPricingSettings;
+  if (!settings.isEnabled) return { multiplier: 1.0, isActive: false };
+
+  const drivers = await getDrivers();
+  const rides = await getRides();
 
   // Calculate supply: Online approved drivers in this zone (or total if no zone)
-  const onlineDrivers = driversStore.filter(d => 
+  const onlineDrivers = drivers.filter(d => 
     d.isOnline && 
     d.regulatoryStatus === 'APPROVED' &&
     (!zoneId || d.operatingZones.includes(zoneId))
   ).length;
 
   // Calculate demand: Active requests (not yet picked up) in this zone
-  const activeRequests = ridesStore.filter(r => 
+  const activeRequests = rides.filter(r => 
     ['REQUESTED', 'ACCEPTED', 'DRIVER_ARRIVING'].includes(r.status) &&
     (!zoneId || r.originZoneId === zoneId)
   ).length;
 
-  if (onlineDrivers < dynamicPricingSettings.minDriversThreshold) {
+  if (onlineDrivers < settings.minDriversThreshold) {
     return { multiplier: 1.0, isActive: false };
   }
 
-  // Safe division: ratio = drivers / requests
-  // If no requests, ratio is infinite (oversupply) -> price goes down
-  // If many requests and few drivers, ratio is low (undersupply) -> price goes up
   const currentRatio = activeRequests === 0 ? 10 : onlineDrivers / activeRequests;
-  
-  // Inverse relationship: multiplier = idealRatio / currentRatio
-  let multiplier = dynamicPricingSettings.idealDriverPassengerRatio / currentRatio;
-
-  // Apply bounds
-  multiplier = Math.max(dynamicPricingSettings.minMultiplier, Math.min(dynamicPricingSettings.maxMultiplier, multiplier));
-  
-  // Round to 2 decimals
+  let multiplier = settings.idealDriverPassengerRatio / currentRatio;
+  multiplier = Math.max(settings.minMultiplier, Math.min(settings.maxMultiplier, multiplier));
   multiplier = Math.round(multiplier * 100) / 100;
-
-  // Active if > 1.0 (surge) or < 1.0 (discount)
   const isActive = multiplier !== 1.0;
 
   return { multiplier, isActive };
 }
 
-function calculateDistanceKm(originZoneId: string, destZoneId: string): number {
-  const origin = zonesStore.find((z) => z.id === originZoneId);
-  const dest = zonesStore.find((z) => z.id === destZoneId);
+async function calculateDistanceKm(originZoneId: string, destZoneId: string): Promise<number> {
+  const zones = await getZones();
+  const origin = zones.find((z) => z.id === originZoneId);
+  const dest = zones.find((z) => z.id === destZoneId);
 
   if (!origin || !dest) return 10.0;
-  if (origin.id === dest.id) return 4.0; // Intra-neighborhood
+  if (origin.id === dest.id) return 4.0;
 
-  // São Sebastião spans along the Rio-Santos highway (SP-055)
   const diffKm = Math.abs(origin.distanceFromCenterKm - dest.distanceFromCenterKm);
   return Math.max(3.0, Math.round(diffKm * 10) / 10);
 }
 
-function calculateDriverFare(driver: Driver, originZoneId: string, destZoneId: string): number {
-  const dynamic = calculateCurrentDynamicMultiplier(originZoneId);
+async function calculateDriverFare(driver: Driver, originZoneId: string, destZoneId: string): Promise<number> {
+  const config = await ensureConfig();
+  const fareSettings = config.platformFareSettings;
+  const dynamic = await calculateCurrentDynamicMultiplier(originZoneId);
 
-  // 1. Check if driver has a fixed route
   const fixedRoute = driver.pricing.fixedRoutes.find(
     (r) =>
       (r.originZoneId === originZoneId && r.destinationZoneId === destZoneId) ||
@@ -201,32 +269,26 @@ function calculateDriverFare(driver: Driver, originZoneId: string, destZoneId: s
   );
 
   if (fixedRoute) {
-    let routePrice = platformFareSettings.isEnforced
-      ? Math.max(fixedRoute.price, platformFareSettings.minFixedRoutePrice)
+    let routePrice = fareSettings.isEnforced
+      ? Math.max(fixedRoute.price, fareSettings.minFixedRoutePrice)
       : fixedRoute.price;
-    
-    // Apply dynamic multiplier
     routePrice = routePrice * dynamic.multiplier;
-
     return Math.round(routePrice);
   }
 
-  // 2. Otherwise calculate based on distance & driver formula with platform floors
-  const distanceKm = calculateDistanceKm(originZoneId, destZoneId);
-  const minBase = platformFareSettings.isEnforced
-    ? Math.max(driver.pricing.minimumFare || 20.0, platformFareSettings.minBaseFare)
+  const distanceKm = await calculateDistanceKm(originZoneId, destZoneId);
+  const minBase = fareSettings.isEnforced
+    ? Math.max(driver.pricing.minimumFare || 20.0, fareSettings.minBaseFare)
     : (driver.pricing.minimumFare || 20.0);
-  const rateKm = platformFareSettings.isEnforced
-    ? Math.max(driver.pricing.ratePerKm || 3.5, platformFareSettings.minRatePerKm)
+  const rateKm = fareSettings.isEnforced
+    ? Math.max(driver.pricing.ratePerKm || 3.5, fareSettings.minRatePerKm)
     : (driver.pricing.ratePerKm || 3.5);
 
   let fare = minBase + distanceKm * rateKm;
-  
-  // Apply dynamic multiplier
   fare = fare * dynamic.multiplier;
 
-  if (platformFareSettings.isEnforced) {
-    fare = Math.max(fare, platformFareSettings.minBaseFare);
+  if (fareSettings.isEnforced) {
+    fare = Math.max(fare, fareSettings.minBaseFare);
   }
 
   return Math.round(fare);
@@ -235,27 +297,34 @@ function calculateDriverFare(driver: Driver, originZoneId: string, destZoneId: s
 // --- API ENDPOINTS ---
 
 // Helper to compute realistic real-time platform metrics
-function computePlatformMetrics(): PlatformMetrics {
-  const approvedCount = driversStore.filter((d) => d.regulatoryStatus === 'APPROVED').length;
-  const onlineCount = driversStore.filter((d) => d.isOnline && d.regulatoryStatus === 'APPROVED').length;
-  const pendingCount = driversStore.filter((d) => ['PENDING', 'IN_REVIEW', 'SUBMITTED', 'INCOMPLETE'].includes(d.regulatoryStatus)).length;
-  const suspendedCount = driversStore.filter((d) => d.regulatoryStatus === 'SUSPENDED').length;
-  const blockedCount = driversStore.filter((d) => d.regulatoryStatus === 'BLOCKED').length;
+async function computePlatformMetrics(): Promise<PlatformMetrics> {
+  const config = await ensureConfig();
+  const drivers = await getDrivers();
+  const rides = await getRides();
+  const zones = await getZones();
+  const passengers = await getPassengers();
+  const costsSnap = await db.collection('platformCosts').get();
+  const platformCosts = costsSnap.docs.map((doc: any) => doc.data() as PlatformCost);
 
-  const activeSubsCount = driversStore.filter((d) => d.subscriptionStatus === 'ACTIVE').length;
-  const expiredSubsCount = driversStore.filter((d) => d.subscriptionStatus === 'EXPIRED').length;
-  const cancelledSubsCount = driversStore.filter((d) => d.subscriptionStatus === 'CANCELLED').length;
-  const pendingSubsCount = driversStore.filter((d) => ['PAYMENT_PENDING', 'TRIAL'].includes(d.subscriptionStatus)).length;
+  const approvedCount = drivers.filter((d: Driver) => d.regulatoryStatus === 'APPROVED').length;
+  const onlineCount = drivers.filter((d: Driver) => d.isOnline && d.regulatoryStatus === 'APPROVED').length;
+  const pendingCount = drivers.filter((d: Driver) => ['PENDING', 'IN_REVIEW', 'SUBMITTED', 'INCOMPLETE'].includes(d.regulatoryStatus)).length;
+  const suspendedCount = drivers.filter((d: Driver) => d.regulatoryStatus === 'SUSPENDED').length;
+  const blockedCount = drivers.filter((d: Driver) => d.regulatoryStatus === 'BLOCKED').length;
 
-  const totalCosts = platformCostsStore.reduce((sum, c) => sum + c.amountBrl, 0);
-  const monthlyRevenue = activeSubsCount * subscriptionPlan.priceBrl;
+  const activeSubsCount = drivers.filter((d: Driver) => d.subscriptionStatus === 'ACTIVE').length;
+  const expiredSubsCount = drivers.filter((d: Driver) => d.subscriptionStatus === 'EXPIRED').length;
+  const cancelledSubsCount = drivers.filter((d: Driver) => d.subscriptionStatus === 'CANCELLED').length;
+  const pendingSubsCount = drivers.filter((d: Driver) => ['PAYMENT_PENDING', 'TRIAL'].includes(d.subscriptionStatus)).length;
+
+  const totalCosts = platformCosts.reduce((sum: number, c: PlatformCost) => sum + c.amountBrl, 0);
+  const monthlyRevenue = activeSubsCount * config.subscriptionPlan.priceBrl;
   const yearlyRevenue = monthlyRevenue * 12;
   const netIncome = monthlyRevenue - totalCosts;
 
-  // Real top zones calculation from actual rides (empty if 0 rides)
   const zoneCounts: { [name: string]: number } = {};
-  for (const ride of ridesStore) {
-    const origZone = zonesStore.find((z) => z.id === ride.originZoneId)?.name || 'Zona';
+  for (const ride of rides) {
+    const origZone = zones.find((z) => z.id === ride.originZoneId)?.name || 'Zona';
     zoneCounts[origZone] = (zoneCounts[origZone] || 0) + 1;
   }
   const topZones = Object.entries(zoneCounts)
@@ -264,1050 +333,1021 @@ function computePlatformMetrics(): PlatformMetrics {
     .slice(0, 5);
 
   return {
-    totalDrivers: driversStore.length,
+    totalDrivers: drivers.length,
     approvedDrivers: approvedCount,
     onlineDrivers: onlineCount,
     pendingDrivers: pendingCount,
     suspendedDrivers: suspendedCount,
     blockedDrivers: blockedCount,
-    totalPassengers: passengersStore.length,
+    totalPassengers: passengers.length,
     activeSubscriptions: activeSubsCount,
     expiredSubscriptions: expiredSubsCount,
     cancelledSubscriptions: cancelledSubsCount,
     pendingSubscriptions: pendingSubsCount,
-    subscriptionPriceBrl: subscriptionPlan.priceBrl,
+    subscriptionPriceBrl: config.subscriptionPlan.priceBrl,
     monthlyRecurringRevenue: monthlyRevenue,
     totalSubscriptionRevenueMonth: monthlyRevenue,
     totalSubscriptionRevenueYear: yearlyRevenue,
     totalPlatformCosts: totalCosts,
     netEstimatedIncome: netIncome,
-    totalRides: ridesStore.length,
-    completedRides: ridesStore.filter((r) => r.status === 'COMPLETED').length,
-    activeRides: ridesStore.filter((r) => !['COMPLETED', 'CANCELLED_BY_PASSENGER', 'CANCELLED_BY_DRIVER', 'EXPIRED'].includes(r.status)).length,
+    totalRides: rides.length,
+    completedRides: rides.filter((r) => r.status === 'COMPLETED').length,
+    activeRides: rides.filter((r) => !['COMPLETED', 'CANCELLED_BY_PASSENGER', 'CANCELLED_BY_DRIVER', 'EXPIRED'].includes(r.status)).length,
     topZones,
-    whatsappContactEvents: whatsappContactEventsCount,
+    whatsappContactEvents: config.whatsappContactEventsCount,
   };
 }
 
 // Metadata / Config bootstrap
-app.get('/api/v1/meta', (req, res) => {
-  res.json({
-    municipality: municipalitySS,
-    zones: zonesStore.filter((z) => z.isActive),
-    requirements: requirementsStore,
-    subscriptionPlan,
-    metrics: computePlatformMetrics(),
-    fareSettings: platformFareSettings,
-  });
+app.get('/api/v1/meta', async (req, res) => {
+  try {
+    const config = await ensureConfig();
+    const zones = await getZones();
+    const requirementsSnap = await db.collection('requirements').get();
+    const requirements = requirementsSnap.docs.map((doc: any) => doc.data() as RegulatoryRequirement);
+    const metrics = await computePlatformMetrics();
+
+    res.json({
+      municipality: municipalitySS,
+      zones: zones.filter((z) => z.isActive),
+      requirements,
+      subscriptionPlan: config.subscriptionPlan,
+      metrics,
+      fareSettings: config.platformFareSettings,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load metadata' });
+  }
 });
 
 // Platform Fare Floor Settings (Public)
-app.get('/api/v1/fare-settings', (req, res) => {
-  res.json(platformFareSettings);
+app.get('/api/v1/fare-settings', async (req, res) => {
+  const config = await ensureConfig();
+  res.json(config.platformFareSettings);
 });
 
 // Admin Update Platform Fare Floor Settings
-app.put('/api/v1/admin/fare-settings', (req, res) => {
-  const { minBaseFare, minRatePerKm, minFixedRoutePrice, isEnforced, applyToAllDrivers } = req.body;
+app.put('/api/v1/admin/fare-settings', async (req, res) => {
+  try {
+    const { minBaseFare, minRatePerKm, minFixedRoutePrice, isEnforced, applyToAllDrivers } = req.body;
+    const config = await ensureConfig();
+    const settings = config.platformFareSettings;
 
-  if (minBaseFare !== undefined) {
-    const val = Number(minBaseFare);
-    if (isNaN(val) || val <= 0) {
-      return res.status(400).json({ error: 'Tarifa base mínima inválida.' });
+    if (minBaseFare !== undefined) {
+      const val = Number(minBaseFare);
+      if (isNaN(val) || val <= 0) return res.status(400).json({ error: 'Tarifa base mínima inválida.' });
+      settings.minBaseFare = Math.round(val * 100) / 100;
     }
-    platformFareSettings.minBaseFare = Math.round(val * 100) / 100;
-  }
 
-  if (minRatePerKm !== undefined) {
-    const val = Number(minRatePerKm);
-    if (isNaN(val) || val <= 0) {
-      return res.status(400).json({ error: 'Piso por km inválido.' });
+    if (minRatePerKm !== undefined) {
+      const val = Number(minRatePerKm);
+      if (isNaN(val) || val <= 0) return res.status(400).json({ error: 'Piso por km inválido.' });
+      settings.minRatePerKm = Math.round(val * 100) / 100;
     }
-    platformFareSettings.minRatePerKm = Math.round(val * 100) / 100;
-  }
 
-  if (minFixedRoutePrice !== undefined) {
-    const val = Number(minFixedRoutePrice);
-    if (isNaN(val) || val <= 0) {
-      return res.status(400).json({ error: 'Piso de rota fixa inválido.' });
+    if (minFixedRoutePrice !== undefined) {
+      const val = Number(minFixedRoutePrice);
+      if (isNaN(val) || val <= 0) return res.status(400).json({ error: 'Piso de rota fixa inválido.' });
+      settings.minFixedRoutePrice = Math.round(val * 100) / 100;
     }
-    platformFareSettings.minFixedRoutePrice = Math.round(val * 100) / 100;
-  }
 
-  if (isEnforced !== undefined) {
-    platformFareSettings.isEnforced = Boolean(isEnforced);
-  }
+    if (isEnforced !== undefined) settings.isEnforced = Boolean(isEnforced);
+    settings.updatedAt = new Date().toISOString();
 
-  platformFareSettings.updatedAt = new Date().toISOString();
+    await db.collection('config').doc('global').update({ platformFareSettings: settings });
+    currentConfig = null; // Invalidate cache
 
-  // If requested, synchronize and adjust drivers whose rates are below the new fair floor
-  let driversAdjusted = 0;
-  if (applyToAllDrivers && platformFareSettings.isEnforced) {
-    for (const d of driversStore) {
-      let changed = false;
-      if (d.pricing.minimumFare < platformFareSettings.minBaseFare) {
-        d.pricing.minimumFare = platformFareSettings.minBaseFare;
-        changed = true;
-      }
-      if (d.pricing.ratePerKm < platformFareSettings.minRatePerKm) {
-        d.pricing.ratePerKm = platformFareSettings.minRatePerKm;
-        changed = true;
-      }
-      if (Array.isArray(d.pricing.fixedRoutes)) {
-        for (const route of d.pricing.fixedRoutes) {
-          if (route.price < platformFareSettings.minFixedRoutePrice) {
-            route.price = platformFareSettings.minFixedRoutePrice;
-            changed = true;
+    let driversAdjusted = 0;
+    if (applyToAllDrivers && settings.isEnforced) {
+      const drivers = await getDrivers();
+      const batch = db.batch();
+      for (const d of drivers) {
+        let changed = false;
+        if (d.pricing.minimumFare < settings.minBaseFare) {
+          d.pricing.minimumFare = settings.minBaseFare;
+          changed = true;
+        }
+        if (d.pricing.ratePerKm < settings.minRatePerKm) {
+          d.pricing.ratePerKm = settings.minRatePerKm;
+          changed = true;
+        }
+        if (Array.isArray(d.pricing.fixedRoutes)) {
+          for (const route of d.pricing.fixedRoutes) {
+            if (route.price < settings.minFixedRoutePrice) {
+              route.price = settings.minFixedRoutePrice;
+              changed = true;
+            }
           }
         }
+        if (changed) {
+          batch.update(db.collection('drivers').doc(d.id), { pricing: d.pricing });
+          driversAdjusted++;
+        }
       }
-      if (changed) driversAdjusted++;
+      await batch.commit();
     }
-  }
 
-  res.json({
-    fareSettings: platformFareSettings,
-    driversAdjusted,
-    message: 'Pisos mínimos da plataforma atualizados com sucesso!',
-  });
+    res.json({ fareSettings: settings, driversAdjusted, message: 'Pisos mínimos da plataforma atualizados com sucesso!' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update fare settings' });
+  }
 });
 
 // Zones list
-app.get('/api/v1/zones', (req, res) => {
-  res.json(zonesStore);
+app.get('/api/v1/zones', async (req, res) => {
+  const zones = await getZones();
+  res.json(zones);
 });
 
-// Admin Add Zone
-app.post('/api/v1/admin/zones', (req, res) => {
-  const { name, distanceFromCenterKm } = req.body;
-  if (!name) {
-    return res.status(400).json({ error: 'Nome da zona é obrigatório' });
-  }
+// Search Drivers
+app.post('/api/v1/search/drivers', async (req, res) => {
+  try {
+    const { originZoneId, destinationZoneId, passengerCount = 1 } = req.body;
+    if (!originZoneId || !destinationZoneId) return res.status(400).json({ error: 'Origem e destino são obrigatórios.' });
 
-  const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
-  const newZone: Zone = {
-    id: `z-${Date.now()}`,
-    municipalityId: 'mun-ss',
-    name,
-    slug,
-    lat: -23.8 + (Math.random() - 0.5) * 0.1,
-    lng: -45.5 + (Math.random() - 0.5) * 0.2,
-    distanceFromCenterKm: Number(distanceFromCenterKm) || 15,
-    isActive: true,
-  };
+    const distanceKm = await calculateDistanceKm(originZoneId, destinationZoneId);
+    const estimatedDurationMin = Math.max(5, Math.round(distanceKm * 1.4));
+    const drivers = await getDrivers();
+    const config = await ensureConfig();
 
-  zonesStore.push(newZone);
-  res.status(201).json(newZone);
-});
+    const matchingDrivers = drivers.filter((driver) => {
+      const isApproved = driver.regulatoryStatus === 'APPROVED';
+      const isSubscribed = driver.subscriptionStatus === 'ACTIVE' || driver.subscriptionStatus === 'TRIAL';
+      const coversZone = driver.operatingZones.includes(originZoneId);
+      const hasCapacity = (driver.vehicle.passengerCapacity || 4) >= Number(passengerCount);
+      return driver.isOnline && isApproved && isSubscribed && coversZone && hasCapacity;
+    });
 
-// Search Drivers (Public endpoint, no auth required)
-app.post('/api/v1/search/drivers', (req, res) => {
-  const { originZoneId, destinationZoneId, passengerCount = 1 } = req.body;
+    const results = await Promise.all(matchingDrivers.map(async (driver) => {
+      const fare = await calculateDriverFare(driver, originZoneId, destinationZoneId);
+      const arrivalTimeMin = Math.floor(Math.random() * 4) + 3;
+      return {
+        driverId: driver.id,
+        name: driver.name,
+        avatarUrl: driver.avatarUrl,
+        ratingAverage: driver.ratingAverage,
+        ratingCount: driver.ratingCount,
+        ridesCompleted: driver.ridesCompleted,
+        professionalCategory: driver.professionalCategory,
+        vehicle: driver.vehicle,
+        fare,
+        distanceKm,
+        estimatedDurationMin,
+        arrivalTimeMin,
+        isOnline: driver.isOnline,
+        pricingType: driver.pricing.pricingType,
+      };
+    }));
 
-  if (!originZoneId || !destinationZoneId) {
-    return res.status(400).json({ error: 'Origem e destino são obrigatórios.' });
-  }
+    const dynamic = await calculateCurrentDynamicMultiplier(originZoneId);
+    const zones = await getZones();
 
-  const distanceKm = calculateDistanceKm(originZoneId, destinationZoneId);
-  const estimatedDurationMin = Math.max(5, Math.round(distanceKm * 1.4));
-
-  // Business Rule: ONLY show drivers that:
-  // 1. are ONLINE
-  // 2. have APPROVED regulatory status
-  // 3. have ACTIVE or TRIAL subscription
-  // 4. cover the origin zone (or have it in operatingZones)
-  // 5. vehicle capacity >= passengerCount
-  const matchingDrivers = driversStore.filter((driver) => {
-    const isApproved = driver.regulatoryStatus === 'APPROVED';
-    const isSubscribed = driver.subscriptionStatus === 'ACTIVE' || driver.subscriptionStatus === 'TRIAL';
-    const coversZone = driver.operatingZones.includes(originZoneId);
-    const hasCapacity = (driver.vehicle.passengerCapacity || 4) >= Number(passengerCount);
-
-    return driver.isOnline && isApproved && isSubscribed && coversZone && hasCapacity;
-  });
-
-  const results = matchingDrivers.map((driver) => {
-    const fare = calculateDriverFare(driver, originZoneId, destinationZoneId);
-    // Estimated arrival time to origin (random 3-7 mins demo calculation)
-    const arrivalTimeMin = Math.floor(Math.random() * 4) + 3;
-
-    return {
-      driverId: driver.id,
-      name: driver.name,
-      avatarUrl: driver.avatarUrl,
-      ratingAverage: driver.ratingAverage,
-      ratingCount: driver.ratingCount,
-      ridesCompleted: driver.ridesCompleted,
-      professionalCategory: driver.professionalCategory,
-      vehicle: {
-        brand: driver.vehicle.brand,
-        model: driver.vehicle.model,
-        color: driver.vehicle.color,
-        capacity: driver.vehicle.passengerCapacity,
-        category: driver.vehicle.category,
-      },
-      fare,
+    res.json({
+      totalFound: results.length,
       distanceKm,
       estimatedDurationMin,
-      arrivalTimeMin,
-      isOnline: driver.isOnline,
-      pricingType: driver.pricing.pricingType,
-    };
-  });
-
-  const dynamic = calculateCurrentDynamicMultiplier(originZoneId);
-
-  res.json({
-    totalFound: results.length,
-    distanceKm,
-    estimatedDurationMin,
-    originZone: zonesStore.find((z) => z.id === originZoneId),
-    destinationZone: zonesStore.find((z) => z.id === destinationZoneId),
-    dynamicMultiplier: dynamic.multiplier,
-    isDynamicActive: dynamic.isActive,
-    results,
-  });
+      originZone: zones.find((z) => z.id === originZoneId),
+      destinationZone: zones.find((z) => z.id === destinationZoneId),
+      dynamicMultiplier: dynamic.multiplier,
+      isDynamicActive: dynamic.isActive,
+      results,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Search failed' });
+  }
 });
 
-// Drivers List (Public/Directory or admin)
-app.get('/api/v1/drivers', (req, res) => {
+// Drivers List
+app.get('/api/v1/drivers', async (req, res) => {
   const { status, onlyOnline } = req.query;
-  let list = driversStore;
-
-  if (status) {
-    list = list.filter((d) => d.regulatoryStatus === status);
-  }
-  if (onlyOnline === 'true') {
-    list = list.filter((d) => d.isOnline);
-  }
-
+  let list = await getDrivers();
+  if (status) list = list.filter((d) => d.regulatoryStatus === status);
+  if (onlyOnline === 'true') list = list.filter((d) => d.isOnline);
   res.json(list);
 });
 
 // Driver details
-app.get('/api/v1/drivers/:id', (req, res) => {
-  const driver = driversStore.find((d) => d.id === req.params.id);
-  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
-  res.json(driver);
+app.get('/api/v1/drivers/:id', async (req, res) => {
+  const doc = await db.collection('drivers').doc(req.params.id).get();
+  if (!doc.exists) return res.status(404).json({ error: 'Motorista não encontrado' });
+  res.json(doc.data());
 });
 
 // Register new driver
-app.post('/api/v1/drivers', (req, res) => {
-  const {
-    name,
-    phone,
-    email,
-    cpf,
-    birthDate,
-    professionalCategory,
-    licenseNumber,
-    vehicleBrand,
-    vehicleModel,
-    vehicleYear,
-    vehicleColor,
-    vehiclePlate,
-    operatingZones = ['z-centro', 'z-maresias'],
-    avatarUrl, // <--- added avatarUrl
-  } = req.body;
+app.post('/api/v1/drivers', async (req, res) => {
+  try {
+    const { name, phone, email, cpf, birthDate, professionalCategory, licenseNumber, vehicleBrand, vehicleModel, vehicleYear, vehicleColor, vehiclePlate, operatingZones = ['z-centro'], avatarUrl } = req.body;
+    if (!name || !phone || !cpf || !vehicleModel || !vehiclePlate) return res.status(400).json({ error: 'Campos obrigatórios ausentes.' });
 
-  if (!name || !phone || !cpf || !vehicleModel || !vehiclePlate) {
-    return res.status(400).json({ error: 'Por favor preencha todos os campos obrigatórios.' });
+    const cleanPhone = phone.replace(/\D/g, '');
+    const id = `drv-${Date.now()}`;
+    const requirementsSnap = await db.collection('requirements').get();
+    const requirements = requirementsSnap.docs.map(doc => doc.data() as RegulatoryRequirement);
+
+    const newDriver: Driver = {
+      id,
+      name,
+      phone,
+      email: email || `${cleanPhone}@vaicar.local`,
+      cpf,
+      birthDate: birthDate || '1990-01-01',
+      avatarUrl: avatarUrl || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=400&q=80`,
+      professionalCategory: professionalCategory || 'Transporte Remunerado Municipal',
+      licenseNumber: licenseNumber || 'REG-PENDENTE',
+      regulatoryStatus: 'SUBMITTED',
+      subscriptionStatus: 'TRIAL',
+      isOnline: false,
+      operatingZones: operatingZones.length ? operatingZones : ['z-centro'],
+      acceptsImmediate: true,
+      acceptsScheduled: true,
+      vehicle: {
+        id: `veh-${Date.now()}`,
+        driverId: id,
+        brand: vehicleBrand || 'Geral',
+        model: vehicleModel,
+        year: Number(vehicleYear) || 2022,
+        color: vehicleColor || 'Branco',
+        licensePlate: vehiclePlate.toUpperCase(),
+        passengerCapacity: 4,
+        category: 'Veículo Autorizado',
+        isApproved: false,
+      },
+      pricing: {
+        pricingType: 'KM_ONLY',
+        minimumFare: 25.0,
+        ratePerKm: 3.5,
+        fixedRoutes: [],
+      },
+      documents: requirements.map((reqItem, idx) => ({
+        id: `doc-${Date.now()}-${idx}`,
+        driverId: id,
+        requirementId: reqItem.id,
+        requirementName: reqItem.name,
+        status: 'PENDING',
+      })),
+      ratingAverage: 5.0,
+      ratingCount: 0,
+      ridesCompleted: 0,
+      whatsappDirectNumber: `55${cleanPhone}`,
+    };
+
+    await db.collection('drivers').doc(id).set(newDriver);
+    res.status(201).json(newDriver);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Registration failed' });
   }
-
-  const cleanPhone = phone.replace(/\D/g, '');
-
-  const newDriver: Driver = {
-    id: `drv-${Date.now()}`,
-    name,
-    phone,
-    email: email || `${cleanPhone}@vaicar.local`,
-    cpf,
-    birthDate: birthDate || '1990-01-01',
-    avatarUrl: avatarUrl || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=400&q=80`,
-    professionalCategory: professionalCategory || 'Transporte Remunerado Municipal',
-    licenseNumber: licenseNumber || 'REG-PENDENTE',
-    regulatoryStatus: 'SUBMITTED', // Starts as submitted/pending admin review
-    subscriptionStatus: 'TRIAL',
-    isOnline: false,
-    operatingZones: operatingZones.length ? operatingZones : ['z-centro'],
-    acceptsImmediate: true,
-    acceptsScheduled: true,
-    vehicle: {
-      id: `veh-${Date.now()}`,
-      driverId: `drv-${Date.now()}`,
-      brand: vehicleBrand || 'Geral',
-      model: vehicleModel,
-      year: Number(vehicleYear) || 2022,
-      color: vehicleColor || 'Branco',
-      licensePlate: vehiclePlate.toUpperCase(),
-      passengerCapacity: 4,
-      category: 'Veículo Autorizado',
-      isApproved: false,
-    },
-    pricing: {
-      pricingType: 'KM_ONLY',
-      minimumFare: 25.0,
-      ratePerKm: 3.5,
-      fixedRoutes: [],
-    },
-    documents: requirementsStore.map((reqItem, idx) => ({
-      id: `doc-${Date.now()}-${idx}`,
-      driverId: `drv-${Date.now()}`,
-      requirementId: reqItem.id,
-      requirementName: reqItem.name,
-      status: 'PENDING',
-    })),
-    ratingAverage: 5.0,
-    ratingCount: 0,
-    ridesCompleted: 0,
-    whatsappDirectNumber: `55${cleanPhone}`,
-  };
-
-  driversStore.push(newDriver);
-  res.status(201).json(newDriver);
 });
 
 // Update Driver Availability (Online / Operating Zones)
-app.patch('/api/v1/drivers/:id/availability', (req, res) => {
-  const driver = driversStore.find((d) => d.id === req.params.id);
-  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
+app.patch('/api/v1/drivers/:id/availability', async (req, res) => {
+  try {
+    const doc = await db.collection('drivers').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Motorista não encontrado' });
+    const driver = doc.data() as Driver;
 
-  const { isOnline, operatingZones } = req.body;
+    const { isOnline, operatingZones } = req.body;
+    if (isOnline === true && driver.regulatoryStatus !== 'APPROVED') {
+      return res.status(403).json({ error: 'Não é possível ficar online sem aprovação.' });
+    }
 
-  // Security check: cannot go online if not approved
-  if (isOnline === true && driver.regulatoryStatus !== 'APPROVED') {
-    return res.status(403).json({
-      error: 'Não é possível ficar online. Sua documentação ainda não foi aprovada pelo administrador.',
-    });
+    const updates: any = {};
+    if (typeof isOnline === 'boolean') updates.isOnline = isOnline;
+    if (Array.isArray(operatingZones)) updates.operatingZones = operatingZones;
+
+    await db.collection('drivers').doc(req.params.id).update(updates);
+    res.json({ ...driver, ...updates });
+  } catch (err) {
+    res.status(500).json({ error: 'Update failed' });
   }
-
-  if (typeof isOnline === 'boolean') {
-    driver.isOnline = isOnline;
-  }
-  if (Array.isArray(operatingZones)) {
-    driver.operatingZones = operatingZones;
-  }
-
-  res.json(driver);
 });
 
 // Update Driver Pricing
-app.patch('/api/v1/drivers/:id/pricing', (req, res) => {
-  const driver = driversStore.find((d) => d.id === req.params.id);
-  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
+app.patch('/api/v1/drivers/:id/pricing', async (req, res) => {
+  try {
+    const doc = await db.collection('drivers').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Motorista não encontrado' });
+    const driver = doc.data() as Driver;
+    const config = await ensureConfig();
+    const fareSettings = config.platformFareSettings;
 
-  const { pricingType, minimumFare, ratePerKm, fixedRoutes } = req.body;
+    const { pricingType, minimumFare, ratePerKm, fixedRoutes } = req.body;
 
-  // Platform Fair Pricing Floor Validation
-  if (platformFareSettings.isEnforced) {
-    if (minimumFare !== undefined) {
-      const numMinFare = Number(minimumFare);
-      if (numMinFare < platformFareSettings.minBaseFare) {
-        return res.status(400).json({
-          error: `O valor da bandeirada / corrida mínima (R$ ${numMinFare.toFixed(2)}) não pode ser inferior ao piso da plataforma de R$ ${platformFareSettings.minBaseFare.toFixed(2)}.`,
-        });
+    if (fareSettings.isEnforced) {
+      if (minimumFare !== undefined && Number(minimumFare) < fareSettings.minBaseFare) {
+        return res.status(400).json({ error: `Mínimo de R$ ${fareSettings.minBaseFare.toFixed(2)}` });
+      }
+      if (ratePerKm !== undefined && Number(ratePerKm) < fareSettings.minRatePerKm) {
+        return res.status(400).json({ error: `Mínimo de R$ ${fareSettings.minRatePerKm.toFixed(2)}/km` });
       }
     }
 
-    if (ratePerKm !== undefined) {
-      const numRateKm = Number(ratePerKm);
-      if (numRateKm < platformFareSettings.minRatePerKm) {
-        return res.status(400).json({
-          error: `O valor por km rodado (R$ ${numRateKm.toFixed(2)}/km) não pode ser inferior ao piso da plataforma de R$ ${platformFareSettings.minRatePerKm.toFixed(2)}/km.`,
-        });
-      }
-    }
+    const pricing = { ...driver.pricing };
+    if (pricingType) pricing.pricingType = pricingType;
+    if (minimumFare !== undefined) pricing.minimumFare = Number(minimumFare);
+    if (ratePerKm !== undefined) pricing.ratePerKm = Number(ratePerKm);
+    if (Array.isArray(fixedRoutes)) pricing.fixedRoutes = fixedRoutes;
 
-    if (Array.isArray(fixedRoutes)) {
-      for (const route of fixedRoutes) {
-        const routePrice = Number(route.price);
-        if (routePrice < platformFareSettings.minFixedRoutePrice) {
-          return res.status(400).json({
-            error: `Nenhuma rota fixa pode ter valor inferior ao piso de R$ ${platformFareSettings.minFixedRoutePrice.toFixed(2)}.`,
-          });
-        }
-      }
-    }
+    await db.collection('drivers').doc(req.params.id).update({ pricing });
+    res.json(pricing);
+  } catch (err) {
+    res.status(500).json({ error: 'Update failed' });
   }
-
-  if (pricingType) driver.pricing.pricingType = pricingType;
-  if (minimumFare !== undefined) driver.pricing.minimumFare = Number(minimumFare);
-  if (ratePerKm !== undefined) driver.pricing.ratePerKm = Number(ratePerKm);
-  if (Array.isArray(fixedRoutes)) driver.pricing.fixedRoutes = fixedRoutes;
-
-  res.json(driver.pricing);
 });
 
 // Submit/Update Driver Document
-app.post('/api/v1/drivers/:id/documents', (req, res) => {
-  const driver = driversStore.find((d) => d.id === req.params.id);
-  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
+app.post('/api/v1/drivers/:id/documents', async (req, res) => {
+  try {
+    const docRef = db.collection('drivers').doc(req.params.id);
+    const driverDoc = await docRef.get();
+    if (!driverDoc.exists) return res.status(404).json({ error: 'Motorista não encontrado' });
+    const driver = driverDoc.data() as Driver;
 
-  const { requirementId, documentNumber, expiryDate, fileUrl } = req.body;
-  let doc = driver.documents.find((d) => d.requirementId === requirementId);
+    const { requirementId, documentNumber, expiryDate, fileUrl } = req.body;
+    let doc = driver.documents.find((d) => d.requirementId === requirementId);
 
-  if (!doc) {
-    const reqItem = requirementsStore.find((r) => r.id === requirementId);
-    doc = {
-      id: `doc-${Date.now()}`,
-      driverId: driver.id,
-      requirementId,
-      requirementName: reqItem ? reqItem.name : 'Documento Regulatório',
-      status: 'IN_REVIEW',
-    };
-    driver.documents.push(doc);
+    if (!doc) {
+      const requirementsSnap = await db.collection('requirements').get();
+      const requirements = requirementsSnap.docs.map((d: any) => d.data() as RegulatoryRequirement);
+      const reqItem = requirements.find((r: RegulatoryRequirement) => r.id === requirementId);
+      doc = {
+        id: `doc-${Date.now()}`,
+        driverId: driver.id,
+        requirementId,
+        requirementName: reqItem ? reqItem.name : 'Documento Regulatório',
+        status: 'IN_REVIEW',
+      };
+      driver.documents.push(doc);
+    }
+
+    doc.documentNumber = documentNumber || doc.documentNumber;
+    doc.expiryDate = expiryDate || doc.expiryDate;
+    doc.fileUrl = fileUrl || 'https://via.placeholder.com/600x400.png?text=Documento+Enviado';
+    doc.status = 'IN_REVIEW';
+
+    const updates: any = { documents: driver.documents };
+    if (driver.regulatoryStatus !== 'APPROVED') {
+      updates.regulatoryStatus = 'IN_REVIEW';
+    }
+
+    await docRef.update(updates);
+    res.json(doc);
+  } catch (err) {
+    res.status(500).json({ error: 'Upload failed' });
   }
-
-  doc.documentNumber = documentNumber || doc.documentNumber;
-  doc.expiryDate = expiryDate || doc.expiryDate;
-  doc.fileUrl = fileUrl || 'https://via.placeholder.com/600x400.png?text=Documento+Enviado';
-  doc.status = 'IN_REVIEW';
-
-  // Update driver overall status to IN_REVIEW if not approved
-  if (driver.regulatoryStatus !== 'APPROVED') {
-    driver.regulatoryStatus = 'IN_REVIEW';
-  }
-
-  res.json(doc);
 });
 
 // Create Ride Request
-app.post('/api/v1/rides', (req, res) => {
-  const {
-    passengerName,
-    passengerPhone,
-    passengerAvatarUrl, // <--- added
-    driverId,
-    originZoneId,
-    originAddress,
-    originLandmark, // <--- added
-    originMapsLink, // <--- added
-    destinationZoneId,
-    destinationAddress,
-    destinationLandmark, // <--- added
-    destinationMapsLink, // <--- added
-    passengerCount = 1,
-    scheduledTime,
-    isImmediate = true,
-    paymentMethod = 'PIX',
-    paymentChangeFor,
-    savedCard,
-  } = req.body;
+app.post('/api/v1/rides', async (req, res) => {
+  try {
+    const { passengerName, passengerPhone, passengerAvatarUrl, driverId, originZoneId, originAddress, originLandmark, originMapsLink, destinationZoneId, destinationAddress, destinationLandmark, destinationMapsLink, passengerCount = 1, scheduledTime, isImmediate = true, paymentMethod = 'PIX', paymentChangeFor, savedCard } = req.body;
+    if (!passengerName || !passengerPhone || !driverId || !originZoneId || !destinationZoneId) return res.status(400).json({ error: 'Dados incompletos.' });
 
-  if (!passengerName || !passengerPhone || !driverId || !originZoneId || !destinationZoneId) {
-    return res.status(400).json({ error: 'Dados incompletos para solicitação da corrida.' });
+    const driverDoc = await db.collection('drivers').doc(driverId).get();
+    if (!driverDoc.exists) return res.status(404).json({ error: 'Motorista não encontrado.' });
+    const driver = driverDoc.data() as Driver;
+    if (driver.regulatoryStatus !== 'APPROVED') return res.status(400).json({ error: 'Motorista não habilitado.' });
+
+    const zones = await getZones();
+    const originZone = zones.find((z) => z.id === originZoneId);
+    const destinationZone = zones.find((z) => z.id === destinationZoneId);
+
+    const estimatedPrice = await calculateDriverFare(driver, originZoneId, destinationZoneId);
+    const estimatedDistanceKm = await calculateDistanceKm(originZoneId, destinationZoneId);
+    const estimatedDurationMin = Math.max(5, Math.round(estimatedDistanceKm * 1.4));
+    const dynamic = await calculateCurrentDynamicMultiplier(originZoneId);
+
+    const id = `ride-${Date.now()}`;
+    const newRide: Ride = {
+      id,
+      passengerName,
+      passengerPhone,
+      passengerAvatarUrl: passengerAvatarUrl || `https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80`,
+      driverId: driver.id,
+      driverName: driver.name,
+      driverPhone: driver.phone,
+      driverVehicle: `${driver.vehicle.brand} ${driver.vehicle.model} - ${driver.vehicle.color}`,
+      driverAvatar: driver.avatarUrl,
+      originZoneId,
+      originAddress: originAddress || originZone?.name || 'Origem',
+      originLat: originZone ? originZone.lat : undefined,
+      originLng: originZone ? originZone.lng : undefined,
+      originLandmark,
+      originMapsLink,
+      destinationZoneId,
+      destinationAddress: destinationAddress || destinationZone?.name || 'Destino',
+      destinationLat: destinationZone ? destinationZone.lat : undefined,
+      destinationLng: destinationZone ? destinationZone.lng : undefined,
+      destinationLandmark,
+      destinationMapsLink,
+      passengerCount: Number(passengerCount),
+      scheduledTime,
+      isImmediate: Boolean(isImmediate),
+      estimatedPrice,
+      estimatedDistanceKm,
+      estimatedDurationMin,
+      dynamicMultiplier: dynamic.multiplier,
+      isDynamicPricingActive: dynamic.isActive,
+      status: 'REQUESTED',
+      paymentMethod: paymentMethod as any,
+      paymentChangeFor: paymentChangeFor ? Number(paymentChangeFor) : undefined,
+      savedCard,
+      pixKey: driver.pixKey || driver.phone,
+      paymentStatus: 'PENDING',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      timeline: [{ status: 'REQUESTED', timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), label: 'Solicitação enviada ao motorista' }],
+    };
+
+    await db.collection('rides').doc(id).set(newRide);
+    res.status(201).json(newRide);
+  } catch (err) {
+    res.status(500).json({ error: 'Ride request failed' });
   }
-
-  const driver = driversStore.find((d) => d.id === driverId);
-  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado.' });
-
-  // Verify driver is eligible
-  if (driver.regulatoryStatus !== 'APPROVED') {
-    return res.status(400).json({ error: 'Motorista não está habilitado para transporte remunerado.' });
-  }
-
-  const originZone = zonesStore.find((z) => z.id === originZoneId);
-  const destinationZone = zonesStore.find((z) => z.id === destinationZoneId);
-
-  const estimatedPrice = calculateDriverFare(driver, originZoneId, destinationZoneId);
-  const estimatedDistanceKm = calculateDistanceKm(originZoneId, destinationZoneId);
-  const estimatedDurationMin = Math.max(5, Math.round(estimatedDistanceKm * 1.4));
-  const dynamic = calculateCurrentDynamicMultiplier(originZoneId);
-
-  const newRide: Ride = {
-    id: `ride-${Date.now()}`,
-    passengerName,
-    passengerPhone,
-    passengerAvatarUrl: passengerAvatarUrl || `https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80`,
-    driverId: driver.id,
-    driverName: driver.name,
-    driverPhone: driver.phone,
-    driverVehicle: `${driver.vehicle.brand} ${driver.vehicle.model} - ${driver.vehicle.color}`,
-    driverAvatar: driver.avatarUrl,
-    originZoneId,
-    originAddress: originAddress || originZone?.name || 'Origem',
-    originLat: originZone ? originZone.lat : undefined,
-    originLng: originZone ? originZone.lng : undefined,
-    originLandmark, // <--- added
-    originMapsLink, // <--- added
-    destinationZoneId,
-    destinationAddress: destinationAddress || destinationZone?.name || 'Destino',
-    destinationLat: destinationZone ? destinationZone.lat : undefined,
-    destinationLng: destinationZone ? destinationZone.lng : undefined,
-    destinationLandmark, // <--- added
-    destinationMapsLink, // <--- added
-    passengerCount: Number(passengerCount),
-    scheduledTime,
-    isImmediate: Boolean(isImmediate),
-    estimatedPrice,
-    estimatedDistanceKm,
-    estimatedDurationMin,
-    dynamicMultiplier: dynamic.multiplier,
-    isDynamicPricingActive: dynamic.isActive,
-    status: 'REQUESTED',
-    paymentMethod: paymentMethod as any,
-    paymentChangeFor: paymentChangeFor ? Number(paymentChangeFor) : undefined,
-    savedCard: savedCard
-      ? {
-          id: savedCard.id,
-          last4: savedCard.last4,
-          brand: savedCard.brand,
-          type: savedCard.type,
-          nickname: savedCard.nickname,
-        }
-      : undefined,
-    pixKey: driver.pixKey || driver.phone,
-    paymentStatus: 'PENDING',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    timeline: [
-      {
-        status: 'REQUESTED',
-        timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        label: 'Solicitação enviada ao motorista',
-      },
-    ],
-  };
-
-  ridesStore.unshift(newRide);
-  res.status(201).json(newRide);
 });
 
 // Update Driver Payment Settings
-app.patch('/api/v1/drivers/:id/payment-settings', (req, res) => {
-  const driver = driversStore.find((d) => d.id === req.params.id);
-  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
+app.patch('/api/v1/drivers/:id/payment-settings', async (req, res) => {
+  try {
+    const { pixKey, pixKeyType, acceptsCardMachine, acceptedPaymentMethods } = req.body;
+    const updates: any = {};
+    if (pixKey !== undefined) updates.pixKey = pixKey;
+    if (pixKeyType !== undefined) updates.pixKeyType = pixKeyType;
+    if (acceptsCardMachine !== undefined) updates.acceptsCardMachine = Boolean(acceptsCardMachine);
+    if (Array.isArray(acceptedPaymentMethods)) updates.acceptedPaymentMethods = acceptedPaymentMethods;
 
-  const { pixKey, pixKeyType, acceptsCardMachine, acceptedPaymentMethods } = req.body;
-  if (pixKey !== undefined) driver.pixKey = pixKey;
-  if (pixKeyType !== undefined) driver.pixKeyType = pixKeyType;
-  if (acceptsCardMachine !== undefined) driver.acceptsCardMachine = Boolean(acceptsCardMachine);
-  if (Array.isArray(acceptedPaymentMethods)) driver.acceptedPaymentMethods = acceptedPaymentMethods;
-
-  res.json({
-    pixKey: driver.pixKey,
-    pixKeyType: driver.pixKeyType,
-    acceptsCardMachine: driver.acceptsCardMachine,
-    acceptedPaymentMethods: driver.acceptedPaymentMethods,
-  });
+    await db.collection('drivers').doc(req.params.id).update(updates);
+    res.json(updates);
+  } catch (err) {
+    res.status(500).json({ error: 'Update failed' });
+  }
 });
 
 // Update Ride Payment Status
-app.patch('/api/v1/rides/:id/payment-status', (req, res) => {
-  const ride = ridesStore.find((r) => r.id === req.params.id);
-  if (!ride) return res.status(404).json({ error: 'Corrida não encontrada' });
+app.patch('/api/v1/rides/:id/payment-status', async (req, res) => {
+  try {
+    const { paymentStatus } = req.body;
+    const updates: any = { updatedAt: new Date().toISOString() };
+    if (paymentStatus) updates.paymentStatus = paymentStatus;
 
-  const { paymentStatus } = req.body;
-  if (paymentStatus) {
-    ride.paymentStatus = paymentStatus;
-    ride.updatedAt = new Date().toISOString();
+    await db.collection('rides').doc(req.params.id).update(updates);
+    res.json(updates);
+  } catch (err) {
+    res.status(500).json({ error: 'Update failed' });
   }
-
-  res.json(ride);
 });
 
 // Get All Rides
-app.get('/api/v1/rides', (req, res) => {
+app.get('/api/v1/rides', async (req, res) => {
   const driverId = req.query.driverId as string | undefined;
-  if (driverId) {
-    return res.json(ridesStore.filter((r) => r.driverId === driverId));
-  }
-  res.json(ridesStore);
+  let query: any = db.collection('rides');
+  if (driverId) query = query.where('driverId', '==', driverId);
+  const snap = await query.get();
+  res.json(snap.docs.map((doc: any) => doc.data()));
 });
 
 // Get Ride Details
-app.get('/api/v1/rides/:id', (req, res) => {
-  const ride = ridesStore.find((r) => r.id === req.params.id);
-  if (!ride) return res.status(404).json({ error: 'Corrida não encontrada' });
-  res.json(ride);
+app.get('/api/v1/rides/:id', async (req, res) => {
+  const doc = await db.collection('rides').doc(req.params.id).get();
+  if (!doc.exists) return res.status(404).json({ error: 'Corrida não encontrada' });
+  res.json(doc.data());
 });
 
 // Update Ride Status (State Machine)
-app.patch('/api/v1/rides/:id/status', (req, res) => {
-  const ride = ridesStore.find((r) => r.id === req.params.id);
-  if (!ride) return res.status(404).json({ error: 'Corrida não encontrada' });
+app.patch('/api/v1/rides/:id/status', async (req, res) => {
+  try {
+    const docRef = db.collection('rides').doc(req.params.id);
+    const rideDoc = await docRef.get();
+    if (!rideDoc.exists) return res.status(404).json({ error: 'Corrida não encontrada' });
+    const ride = rideDoc.data() as Ride;
 
-  const { status, cancellationReason } = req.body;
-  const validTransitions: Record<string, string[]> = {
-    REQUESTED: ['ACCEPTED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER'],
-    ACCEPTED: ['DRIVER_ARRIVING', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER'],
-    DRIVER_ARRIVING: ['PASSENGER_PICKED_UP', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER'],
-    PASSENGER_PICKED_UP: ['IN_PROGRESS'],
-    IN_PROGRESS: ['COMPLETED'],
-  };
+    const { status, cancellationReason } = req.body;
+    const validTransitions: Record<string, string[]> = {
+      REQUESTED: ['ACCEPTED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER'],
+      ACCEPTED: ['DRIVER_ARRIVING', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER'],
+      DRIVER_ARRIVING: ['PASSENGER_PICKED_UP', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER'],
+      PASSENGER_PICKED_UP: ['IN_PROGRESS'],
+      IN_PROGRESS: ['COMPLETED'],
+    };
 
-  const allowed = validTransitions[ride.status];
-  if (!allowed || !allowed.includes(status)) {
-    return res.status(400).json({
-      error: `Transição de status inválida de ${ride.status} para ${status}.`,
-    });
-  }
+    const allowed = validTransitions[ride.status];
+    if (!allowed || !allowed.includes(status)) return res.status(400).json({ error: 'Transição inválida' });
 
-  ride.status = status;
-  ride.updatedAt = new Date().toISOString();
+    const labels: Record<string, string> = {
+      ACCEPTED: 'Motorista aceitou a corrida',
+      DRIVER_ARRIVING: 'Motorista a caminho',
+      PASSENGER_PICKED_UP: 'Passageiro a bordo',
+      IN_PROGRESS: 'Em andamento',
+      COMPLETED: 'Finalizada',
+      CANCELLED_BY_PASSENGER: 'Cancelado pelo passageiro',
+      CANCELLED_BY_DRIVER: 'Recusado pelo motorista',
+    };
 
-  const labels: Record<string, string> = {
-    ACCEPTED: 'Motorista aceitou a corrida',
-    DRIVER_ARRIVING: 'Motorista a caminho do local de partida',
-    PASSENGER_PICKED_UP: 'Passageiro a bordo do veículo',
-    IN_PROGRESS: 'Corrida em andamento até o destino',
-    COMPLETED: 'Viagem finalizada com sucesso',
-    CANCELLED_BY_PASSENGER: 'Cancelado pelo passageiro',
-    CANCELLED_BY_DRIVER: 'Recusado/Cancelado pelo motorista',
-  };
+    const updates: any = {
+      status,
+      updatedAt: new Date().toISOString(),
+      timeline: [...ride.timeline, {
+        status,
+        timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        label: labels[status] || status,
+      }]
+    };
 
-  ride.timeline.push({
-    status,
-    timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-    label: labels[status] || status,
-  });
-
-  if (status === 'COMPLETED') {
-    ride.completedAt = new Date().toISOString();
-    // Increment driver's completed rides
-    const driver = driversStore.find((d) => d.id === ride.driverId);
-    if (driver) {
-      driver.ridesCompleted = (driver.ridesCompleted || 0) + 1;
+    if (status === 'COMPLETED') {
+      updates.completedAt = new Date().toISOString();
+      const drvRef = db.collection('drivers').doc(ride.driverId);
+      const drvDoc = await drvRef.get();
+      if (drvDoc.exists) {
+        const d = drvDoc.data() as Driver;
+        await drvRef.update({ ridesCompleted: (d.ridesCompleted || 0) + 1 });
+      }
     }
-  }
+    if (cancellationReason) updates.cancellationReason = cancellationReason;
 
-  if (cancellationReason) {
-    ride.cancellationReason = cancellationReason;
+    await docRef.update(updates);
+    res.json({ ...ride, ...updates });
+  } catch (err) {
+    res.status(500).json({ error: 'Update status failed' });
   }
-
-  res.json(ride);
 });
 
-// Log WhatsApp Contact Event & Return URL
-app.post('/api/v1/rides/:id/whatsapp', (req, res) => {
-  const ride = ridesStore.find((r) => r.id === req.params.id);
-  if (!ride) return res.status(404).json({ error: 'Corrida não encontrada' });
+// Log WhatsApp Contact Event
+app.post('/api/v1/rides/:id/whatsapp', async (req, res) => {
+  try {
+    const rideDoc = await db.collection('rides').doc(req.params.id).get();
+    if (!rideDoc.exists) return res.status(404).json({ error: 'Corrida não encontrada' });
+    const ride = rideDoc.data() as Ride;
 
-  const driver = driversStore.find((d) => d.id === ride.driverId);
-  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
+    const driverDoc = await db.collection('drivers').doc(ride.driverId).get();
+    if (!driverDoc.exists) return res.status(404).json({ error: 'Motorista não encontrado' });
+    const driver = driverDoc.data() as Driver;
 
-  whatsappContactEventsCount += 1;
+    const config = await ensureConfig();
+    const newCount = (config.whatsappContactEventsCount || 0) + 1;
+    await db.collection('config').doc('global').update({ whatsappContactEventsCount: newCount });
+    currentConfig = null;
 
-  const msg = encodeURIComponent(
-    `Olá ${driver.name}, sou passageiro(a) da corrida VaiCar (#${ride.id.slice(-5)}) de ${ride.originAddress} para ${ride.destinationAddress}.`,
-  );
-  const whatsappUrl = `https://wa.me/${driver.whatsappDirectNumber}?text=${msg}`;
+    const msg = encodeURIComponent(`Olá ${driver.name}, sou passageiro(a) da corrida VaiCar (#${ride.id.slice(-5)}) de ${ride.originAddress} para ${ride.destinationAddress}.`);
+    const whatsappUrl = `https://wa.me/${driver.whatsappDirectNumber}?text=${msg}`;
 
-  res.json({
-    success: true,
-    whatsappUrl,
-    whatsappDirectNumber: driver.whatsappDirectNumber,
-    totalEvents: whatsappContactEventsCount,
-  });
+    res.json({ success: true, whatsappUrl, whatsappDirectNumber: driver.whatsappDirectNumber, totalEvents: newCount });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to log WhatsApp event' });
+  }
 });
 
 // Reviews
-app.post('/api/v1/reviews', (req, res) => {
-  const { rideId, driverId, rating, comment, reviewerName } = req.body;
-  if (!rideId || !driverId || !rating) {
-    return res.status(400).json({ error: 'Dados incompletos para avaliação.' });
+app.post('/api/v1/reviews', async (req, res) => {
+  try {
+    const { rideId, driverId, rating, comment, reviewerName } = req.body;
+    if (!rideId || !driverId || !rating) return res.status(400).json({ error: 'Dados incompletos.' });
+
+    const id = `rev-${Date.now()}`;
+    const review: Review = {
+      id,
+      rideId,
+      driverId,
+      reviewerRole: 'PASSENGER',
+      reviewerName: reviewerName || 'Passageiro(a)',
+      rating: Number(rating),
+      comment: comment || '',
+      createdAt: new Date().toISOString(),
+    };
+
+    await db.collection('reviews').doc(id).set(review);
+
+    const driverRef = db.collection('drivers').doc(driverId);
+    const drvDoc = await driverRef.get();
+    if (drvDoc.exists) {
+      const snap = await db.collection('reviews').where('driverId', '==', driverId).get();
+      const reviews = snap.docs.map((doc: any) => doc.data() as Review);
+      const sum = reviews.reduce((acc: number, curr: Review) => acc + curr.rating, 0);
+      await driverRef.update({
+        ratingAverage: Number((sum / reviews.length).toFixed(2)),
+        ratingCount: reviews.length
+      });
+    }
+
+    res.status(201).json(review);
+  } catch (err) {
+    res.status(500).json({ error: 'Review failed' });
   }
-
-  const review: Review = {
-    id: `rev-${Date.now()}`,
-    rideId,
-    driverId,
-    reviewerRole: 'PASSENGER',
-    reviewerName: reviewerName || 'Passageiro(a)',
-    rating: Number(rating),
-    comment: comment || '',
-    createdAt: new Date().toISOString(),
-  };
-
-  reviewsStore.unshift(review);
-
-  // Recalculate driver average
-  const driver = driversStore.find((d) => d.id === driverId);
-  if (driver) {
-    const driverReviews = reviewsStore.filter((r) => r.driverId === driverId);
-    const sum = driverReviews.reduce((acc, curr) => acc + curr.rating, 0);
-    driver.ratingAverage = Number((sum / driverReviews.length).toFixed(2));
-    driver.ratingCount = driverReviews.length;
-  }
-
-  res.status(201).json(review);
 });
 
-app.get('/api/v1/reviews', (req, res) => {
+app.get('/api/v1/reviews', async (req, res) => {
   const { driverId } = req.query;
-  if (driverId) {
-    return res.json(reviewsStore.filter((r) => r.driverId === driverId));
-  }
-  res.json(reviewsStore);
+  let query: any = db.collection('reviews');
+  if (driverId) query = query.where('driverId', '==', driverId);
+  const snap = await query.get();
+  res.json(snap.docs.map((doc: any) => doc.data()));
 });
 
 // Reports (Denúncias)
-app.post('/api/v1/reports', (req, res) => {
-  const { reportedByRole, reporterName, reporterContact, targetId, targetName, rideId, category, description } = req.body;
-  if (!category || !description) {
-    return res.status(400).json({ error: 'Categoria e descrição são obrigatórias.' });
+app.post('/api/v1/reports', async (req, res) => {
+  try {
+    const { reportedByRole, reporterName, reporterContact, targetId, targetName, rideId, category, description } = req.body;
+    if (!category || !description) return res.status(400).json({ error: 'Categoria e descrição obrigatórias.' });
+
+    const id = `rep-${Date.now()}`;
+    const newReport: Report = {
+      id,
+      reportedByRole: reportedByRole || 'PASSENGER',
+      reporterName: reporterName || 'Anônimo',
+      reporterContact: reporterContact || '',
+      targetId: targetId || 'drv-unknown',
+      targetName: targetName || 'Alvo da denúncia',
+      rideId,
+      category,
+      description,
+      status: 'OPEN',
+      createdAt: new Date().toISOString(),
+    };
+
+    await db.collection('reports').doc(id).set(newReport);
+    res.status(201).json(newReport);
+  } catch (err) {
+    res.status(500).json({ error: 'Report failed' });
   }
-
-  const newReport: Report = {
-    id: `rep-${Date.now()}`,
-    reportedByRole: reportedByRole || 'PASSENGER',
-    reporterName: reporterName || 'Anônimo',
-    reporterContact: reporterContact || '',
-    targetId: targetId || 'drv-unknown',
-    targetName: targetName || 'Alvo da denúncia',
-    rideId,
-    category,
-    description,
-    status: 'OPEN',
-    createdAt: new Date().toISOString(),
-  };
-
-  reportsStore.unshift(newReport);
-  res.status(201).json(newReport);
 });
 
-app.get('/api/v1/reports', (req, res) => {
-  res.json(reportsStore);
+app.get('/api/v1/reports', async (req, res) => {
+  const snap = await db.collection('reports').get();
+  res.json(snap.docs.map((doc: any) => doc.data()));
 });
 
 // --- ADMIN CONTROL ENDPOINTS ---
 
 // Admin change driver regulatory status
-app.patch('/api/v1/admin/drivers/:id/status', (req, res) => {
-  const driver = driversStore.find((d) => d.id === req.params.id);
-  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
+app.patch('/api/v1/admin/drivers/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body;
+    const docRef = db.collection('drivers').doc(req.params.id);
+    const doc = await docRef.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Motorista não encontrado' });
+    const driver = doc.data() as Driver;
 
-  const { status } = req.body;
-  driver.regulatoryStatus = status;
+    const updates: any = { regulatoryStatus: status };
+    if (status === 'APPROVED') {
+      updates['vehicle.isApproved'] = true;
+      updates.documents = driver.documents.map(d => ({ ...d, status: 'APPROVED' }));
+    } else if (status === 'REJECTED' || status === 'EXPIRED') {
+      updates.isOnline = false;
+    }
 
-  if (status === 'APPROVED') {
-    driver.vehicle.isApproved = true;
-    driver.documents.forEach((d) => {
-      d.status = 'APPROVED';
-    });
-  } else if (status === 'REJECTED' || status === 'EXPIRED') {
-    driver.isOnline = false;
+    await docRef.update(updates);
+    res.json({ ...driver, ...updates });
+  } catch (err) {
+    res.status(500).json({ error: 'Status update failed' });
   }
-
-  res.json(driver);
 });
 
 // Admin verify specific document
-app.patch('/api/v1/admin/documents/:docId', (req, res) => {
-  const { docId } = req.params;
-  const { status, rejectionReason } = req.body;
+app.patch('/api/v1/admin/documents/:docId', async (req, res) => {
+  try {
+    const { docId } = req.params;
+    const { status, rejectionReason } = req.body;
 
-  let targetDoc: any = null;
-  let targetDriver: Driver | null = null;
+    const drivers = await getDrivers();
+    let targetDoc: any = null;
+    let targetDriver: Driver | null = null;
 
-  for (const driver of driversStore) {
-    const doc = driver.documents.find((d) => d.id === docId);
-    if (doc) {
-      targetDoc = doc;
-      targetDriver = driver;
-      break;
+    for (const d of drivers) {
+      const doc = d.documents.find((doc: any) => doc.id === docId);
+      if (doc) {
+        targetDoc = doc;
+        targetDriver = d;
+        break;
+      }
     }
+
+    if (!targetDoc || !targetDriver) return res.status(404).json({ error: 'Documento não encontrado' });
+
+    targetDoc.status = status;
+    targetDoc.verifiedAt = new Date().toISOString().split('T')[0];
+    if (rejectionReason) targetDoc.rejectionReason = rejectionReason;
+
+    const requirementsSnap = await db.collection('requirements').get();
+    const requirements = requirementsSnap.docs.map((d: any) => d.data() as RegulatoryRequirement);
+    const mandatoryReqIds = requirements.filter((r: RegulatoryRequirement) => r.isMandatory).map((r: RegulatoryRequirement) => r.id);
+    const allMandatoryApproved = mandatoryReqIds.every((reqId: string) => {
+      const d = targetDriver!.documents.find((doc: any) => doc.requirementId === reqId);
+      return d && d.status === 'APPROVED';
+    });
+
+    const updates: any = { documents: targetDriver.documents };
+    if (allMandatoryApproved) {
+      updates.regulatoryStatus = 'APPROVED';
+      updates['vehicle.isApproved'] = true;
+    } else if (status === 'REJECTED') {
+      updates.regulatoryStatus = 'REJECTED';
+      updates.isOnline = false;
+    }
+
+    await db.collection('drivers').doc(targetDriver.id).update(updates);
+    res.json(targetDoc);
+  } catch (err) {
+    res.status(500).json({ error: 'Verification failed' });
   }
-
-  if (!targetDoc || !targetDriver) {
-    return res.status(404).json({ error: 'Documento não encontrado' });
-  }
-
-  targetDoc.status = status;
-  targetDoc.verifiedAt = new Date().toISOString().split('T')[0];
-  if (rejectionReason) targetDoc.rejectionReason = rejectionReason;
-
-  // Check if all mandatory requirements are approved
-  const mandatoryReqIds = requirementsStore.filter((r) => r.isMandatory).map((r) => r.id);
-  const allMandatoryApproved = mandatoryReqIds.every((reqId) => {
-    const d = targetDriver!.documents.find((doc) => doc.requirementId === reqId);
-    return d && d.status === 'APPROVED';
-  });
-
-  if (allMandatoryApproved) {
-    targetDriver.regulatoryStatus = 'APPROVED';
-    targetDriver.vehicle.isApproved = true;
-  } else if (status === 'REJECTED') {
-    targetDriver.regulatoryStatus = 'REJECTED';
-    targetDriver.isOnline = false;
-  }
-
-  res.json(targetDoc);
 });
 
 // Admin update subscription plan price
-app.patch('/api/v1/admin/subscription-plan', (req, res) => {
-  const { priceBrl, name } = req.body;
-  if (priceBrl !== undefined) {
-    subscriptionPlan.priceBrl = Number(priceBrl);
+app.patch('/api/v1/admin/subscription-plan', async (req, res) => {
+  try {
+    const { priceBrl, name } = req.body;
+    const config = await ensureConfig();
+    const plan = config.subscriptionPlan;
+
+    if (priceBrl !== undefined) plan.priceBrl = Number(priceBrl);
+    if (name) plan.name = name;
+
+    await db.collection('config').doc('global').update({ subscriptionPlan: plan });
+    currentConfig = null;
+    res.json(plan);
+  } catch (err) {
+    res.status(500).json({ error: 'Update failed' });
   }
-  if (name) {
-    subscriptionPlan.name = name;
-  }
-  res.json(subscriptionPlan);
 });
 
 // Admin update report status
-app.patch('/api/v1/admin/reports/:id', (req, res) => {
-  const report = reportsStore.find((r) => r.id === req.params.id);
-  if (!report) return res.status(404).json({ error: 'Denúncia não encontrada' });
-
-  const { status, resolutionNotes } = req.body;
-  if (status) report.status = status;
-  if (resolutionNotes) report.resolutionNotes = resolutionNotes;
-
-  res.json(report);
+app.patch('/api/v1/admin/reports/:id', async (req, res) => {
+  try {
+    const { status, resolutionNotes } = req.body;
+    const updates: any = {};
+    if (status) updates.status = status;
+    if (resolutionNotes) updates.resolutionNotes = resolutionNotes;
+    await db.collection('reports').doc(req.params.id).update(updates);
+    res.json({ id: req.params.id, ...updates });
+  } catch (err) {
+    res.status(500).json({ error: 'Update failed' });
+  }
 });
 
 // Admin Metrics
-app.get('/api/v1/admin/metrics', (req, res) => {
-  res.json(computePlatformMetrics());
+app.get('/api/v1/admin/metrics', async (req, res) => {
+  res.json(await computePlatformMetrics());
 });
 
 // Subscription Plan
-app.get('/api/v1/subscription/plan', (req, res) => {
-  res.json(subscriptionPlan);
+app.get('/api/v1/subscription/plan', async (req, res) => {
+  const config = await ensureConfig();
+  res.json(config.subscriptionPlan);
 });
 
 // Regulatory Requirements
-app.get('/api/v1/regulatory/requirements', (req, res) => {
-  res.json(requirementsStore);
+app.get('/api/v1/regulatory/requirements', async (req, res) => {
+  const snap = await db.collection('requirements').get();
+  res.json(snap.docs.map(doc => doc.data()));
 });
 
-// --- ADMIN DRIVER AUDITING ACTIONS (Section 12) ---
-app.post('/api/v1/admin/drivers/:id/approve', (req, res) => {
-  const driver = driversStore.find((d) => d.id === req.params.id);
-  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
+// --- ADMIN DRIVER AUDITING ACTIONS ---
+app.post('/api/v1/admin/drivers/:id/approve', async (req, res) => {
+  try {
+    const docRef = db.collection('drivers').doc(req.params.id);
+    const doc = await docRef.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Motorista não encontrado' });
+    const driver = doc.data() as Driver;
 
-  driver.regulatoryStatus = 'APPROVED';
-  driver.rejectionReason = undefined;
-  driver.suspensionReason = undefined;
-  driver.blockingReason = undefined;
-  driver.requestedDocRequirement = undefined;
-  if (driver.vehicle) driver.vehicle.isApproved = true;
-  driver.documents.forEach((d) => {
-    d.status = 'APPROVED';
-    d.verifiedAt = new Date().toISOString();
-  });
+    const updates: any = {
+      regulatoryStatus: 'APPROVED',
+      rejectionReason: null,
+      suspensionReason: null,
+      blockingReason: null,
+      requestedDocRequirement: null,
+      'vehicle.isApproved': true,
+      documents: driver.documents.map(d => ({ ...d, status: 'APPROVED', verifiedAt: new Date().toISOString() }))
+    };
 
-  res.json({ success: true, driver, message: `Motorista ${driver.name} aprovado com sucesso.` });
-});
-
-app.post('/api/v1/admin/drivers/:id/reject', (req, res) => {
-  const driver = driversStore.find((d) => d.id === req.params.id);
-  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
-
-  const { reason } = req.body;
-  if (!reason || !reason.trim()) {
-    return res.status(400).json({ error: 'O motivo da rejeição é obrigatório conforme regulamento municipal.' });
+    await docRef.update(updates);
+    res.json({ success: true, message: `Motorista ${driver.name} aprovado.` });
+  } catch (err) {
+    res.status(500).json({ error: 'Approval failed' });
   }
-
-  driver.regulatoryStatus = 'REJECTED';
-  driver.rejectionReason = reason.trim();
-  driver.isOnline = false;
-
-  res.json({ success: true, driver, message: `Motorista ${driver.name} rejeitado. Motivo registrado.` });
 });
 
-app.post('/api/v1/admin/drivers/:id/suspend', (req, res) => {
-  const driver = driversStore.find((d) => d.id === req.params.id);
-  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
-
-  const { reason } = req.body;
-  if (!reason || !reason.trim()) {
-    return res.status(400).json({ error: 'O motivo da suspensão é obrigatório.' });
+app.post('/api/v1/admin/drivers/:id/reject', async (req, res) => {
+  try {
+    const { reason } = req.body;
+    if (!reason) return res.status(400).json({ error: 'Motivo obrigatório' });
+    await db.collection('drivers').doc(req.params.id).update({
+      regulatoryStatus: 'REJECTED',
+      rejectionReason: reason.trim(),
+      isOnline: false
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Rejection failed' });
   }
-
-  driver.regulatoryStatus = 'SUSPENDED';
-  driver.suspensionReason = reason.trim();
-  driver.isOnline = false;
-
-  res.json({ success: true, driver, message: `Motorista ${driver.name} suspenso temporariamente.` });
 });
 
-app.post('/api/v1/admin/drivers/:id/block', (req, res) => {
-  const driver = driversStore.find((d) => d.id === req.params.id);
-  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
-
-  const { reason } = req.body;
-  if (!reason || !reason.trim()) {
-    return res.status(400).json({ error: 'O motivo do bloqueio é obrigatório.' });
+app.post('/api/v1/admin/drivers/:id/suspend', async (req, res) => {
+  try {
+    const { reason } = req.body;
+    if (!reason) return res.status(400).json({ error: 'Motivo obrigatório' });
+    await db.collection('drivers').doc(req.params.id).update({
+      regulatoryStatus: 'SUSPENDED',
+      suspensionReason: reason.trim(),
+      isOnline: false
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Suspension failed' });
   }
-
-  driver.regulatoryStatus = 'BLOCKED';
-  driver.blockingReason = reason.trim();
-  driver.isOnline = false;
-
-  res.json({ success: true, driver, message: `Motorista ${driver.name} bloqueado permanentemente da plataforma.` });
 });
 
-app.post('/api/v1/admin/drivers/:id/request-doc', (req, res) => {
-  const driver = driversStore.find((d) => d.id === req.params.id);
-  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
-
-  const { requirementName, message } = req.body;
-  driver.regulatoryStatus = 'INCOMPLETE';
-  driver.requestedDocRequirement = `${requirementName}: ${message || 'Reenvio solicitado pela administração municipal'}`;
-
-  res.json({ success: true, driver, message: `Solicitação de novo documento enviada para ${driver.name}.` });
-});
-
-app.post('/api/v1/admin/drivers/:id/subscription/mark-paid', (req, res) => {
-  const driver = driversStore.find((d) => d.id === req.params.id);
-  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
-
-  driver.subscriptionStatus = 'ACTIVE';
-
-  res.json({
-    success: true,
-    driver,
-    message: `[MODO DE TESTE] Assinatura do motorista ${driver.name} marcada como PAGA e ATIVA.`,
-  });
-});
-
-// --- PLATFORM COSTS (Section 15) ---
-app.get('/api/v1/admin/costs', (req, res) => {
-  res.json(platformCostsStore);
-});
-
-app.post('/api/v1/admin/costs', (req, res) => {
-  const { category, description, amountBrl } = req.body;
-  if (!description || !amountBrl) {
-    return res.status(400).json({ error: 'Descrição e valor são obrigatórios.' });
+app.post('/api/v1/admin/drivers/:id/block', async (req, res) => {
+  try {
+    const { reason } = req.body;
+    if (!reason) return res.status(400).json({ error: 'Motivo obrigatório' });
+    await db.collection('drivers').doc(req.params.id).update({
+      regulatoryStatus: 'BLOCKED',
+      blockingReason: reason.trim(),
+      isOnline: false
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Blocking failed' });
   }
-
-  const categoryLabels: Record<string, string> = {
-    GATEWAY: 'Taxa de Gateway',
-    HOSTING: 'Hospedagem / Servidores',
-    MAPS: 'Serviço de Mapas / Rotas',
-    WHATSAPP_SMS: 'WhatsApp / SMS',
-    EXTERNAL_SERVICES: 'Serviços Externos',
-    OTHER: 'Outros Custos Operacionais',
-  };
-
-  const newCost: PlatformCost = {
-    id: `cost-${Date.now()}`,
-    category: category || 'OTHER',
-    categoryLabel: categoryLabels[category] || 'Outros',
-    description: description.trim(),
-    amountBrl: Math.abs(Number(amountBrl)),
-    date: new Date().toISOString().split('T')[0],
-  };
-
-  platformCostsStore.push(newCost);
-  res.status(201).json(newCost);
 });
 
-app.delete('/api/v1/admin/costs/:id', (req, res) => {
-  platformCostsStore = platformCostsStore.filter((c) => c.id !== req.params.id);
+app.post('/api/v1/admin/drivers/:id/request-doc', async (req, res) => {
+  try {
+    const { requirementName, message } = req.body;
+    await db.collection('drivers').doc(req.params.id).update({
+      regulatoryStatus: 'INCOMPLETE',
+      requestedDocRequirement: `${requirementName}: ${message || 'Reenvio solicitado'}`
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Request failed' });
+  }
+});
+
+app.post('/api/v1/admin/drivers/:id/subscription/mark-paid', async (req, res) => {
+  try {
+    await db.collection('drivers').doc(req.params.id).update({ subscriptionStatus: 'ACTIVE' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Update failed' });
+  }
+});
+
+// --- PLATFORM COSTS ---
+app.get('/api/v1/admin/costs', async (req, res) => {
+  const snap = await db.collection('platformCosts').get();
+  res.json(snap.docs.map(doc => doc.data()));
+});
+
+app.post('/api/v1/admin/costs', async (req, res) => {
+  try {
+    const { category, description, amountBrl } = req.body;
+    if (!description || !amountBrl) return res.status(400).json({ error: 'Dados incompletos' });
+
+    const id = `cost-${Date.now()}`;
+    const newCost = {
+      id,
+      category: category || 'OTHER',
+      description: description.trim(),
+      amountBrl: Math.abs(Number(amountBrl)),
+      date: new Date().toISOString().split('T')[0],
+    };
+
+    await db.collection('platformCosts').doc(id).set(newCost);
+    res.status(201).json(newCost);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to add cost' });
+  }
+});
+
+app.delete('/api/v1/admin/costs/:id', async (req, res) => {
+  await db.collection('platformCosts').doc(req.params.id).delete();
   res.json({ success: true });
 });
 
-// --- PASSENGER PROFILE & AUTH (Section 3 & 4) ---
-app.post('/api/v1/passengers/auth', (req, res) => {
-  const { name, phone, email, verificationCode, avatarUrl } = req.body;
+// --- PASSENGER PROFILE & AUTH ---
+app.post('/api/v1/passengers/auth', async (req, res) => {
+  try {
+    const { name, phone, email, verificationCode, avatarUrl } = req.body;
+    if (!phone) return res.status(400).json({ error: 'WhatsApp obrigatório' });
 
-  if (!phone || !phone.trim()) {
-    return res.status(400).json({ error: 'Número de WhatsApp/telefone é obrigatório.' });
+    if (!verificationCode) return res.json({ codeSent: true, testCode: '8492' });
+    if (verificationCode !== '8492' && verificationCode !== '1234') return res.status(400).json({ error: 'Código incorreto' });
+
+    const cleanPhone = phone.trim();
+    const snap = await db.collection('passengers').where('phone', '==', cleanPhone).get();
+    let passenger: Passenger;
+
+    if (snap.empty) {
+      const id = `pass-${Date.now()}`;
+      passenger = {
+        id,
+        name: name?.trim() || 'Passageiro VaiCar',
+        phone: cleanPhone,
+        email: email?.trim(),
+        avatarUrl: avatarUrl || `https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80`,
+        isVerified: true,
+        createdAt: new Date().toISOString(),
+      };
+      await db.collection('passengers').doc(id).set(passenger);
+    } else {
+      const doc = snap.docs[0];
+      passenger = doc.data() as Passenger;
+      const updates: any = { isVerified: true };
+      if (name) updates.name = name.trim();
+      if (email) updates.email = email.trim();
+      if (avatarUrl) updates.avatarUrl = avatarUrl;
+      await doc.ref.update(updates);
+      passenger = { ...passenger, ...updates };
+    }
+
+    res.json({ success: true, passenger });
+  } catch (err) {
+    res.status(500).json({ error: 'Auth failed' });
   }
-
-  // Step 1: Verification code request
-  if (!verificationCode) {
-    return res.json({
-      codeSent: true,
-      message: 'Código de verificação enviado por SMS/WhatsApp (Ambiente de Teste: use 8492)',
-      testCode: '8492',
-    });
-  }
-
-  // Step 2: Confirmation
-  if (verificationCode !== '8492' && verificationCode !== '1234') {
-    return res.status(400).json({ error: 'Código de verificação incorreto. Em modo de teste, use 8492.' });
-  }
-
-  let passenger = passengersStore.find((p) => p.phone === phone.trim());
-  if (!passenger) {
-    passenger = {
-      id: `pass-${Date.now()}`,
-      name: (name && name.trim()) || 'Passageiro VaiCar',
-      phone: phone.trim(),
-      email: email ? email.trim() : undefined,
-      avatarUrl: avatarUrl || `https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80`,
-      isVerified: true,
-      createdAt: new Date().toISOString(),
-    };
-    passengersStore.push(passenger);
-  } else {
-    if (name) passenger.name = name.trim();
-    if (email) passenger.email = email.trim();
-    if (avatarUrl) passenger.avatarUrl = avatarUrl;
-    passenger.isVerified = true;
-  }
-
-  res.json({ success: true, passenger });
 });
 
-app.get('/api/v1/passengers', (req, res) => {
-  res.json(passengersStore);
+app.get('/api/v1/passengers', async (req, res) => {
+  const snap = await db.collection('passengers').get();
+  res.json(snap.docs.map((doc: any) => doc.data()));
 });
 
-app.get('/api/v1/passengers/:id', (req, res) => {
-  const passenger = passengersStore.find((p) => p.id === req.params.id || p.phone === req.params.id);
-  if (!passenger) return res.status(404).json({ error: 'Passageiro não encontrado' });
-  res.json(passenger);
+app.get('/api/v1/passengers/:id', async (req, res) => {
+  const doc = await db.collection('passengers').doc(req.params.id).get();
+  if (doc.exists) return res.json(doc.data());
+  
+  const snap = await db.collection('passengers').where('phone', '==', req.params.id).get();
+  if (!snap.empty) return res.json(snap.docs[0].data());
+  
+  res.status(404).json({ error: 'Passageiro não encontrado' });
 });
 
-app.get('/api/v1/passengers/:id/rides', (req, res) => {
-  const targetId = req.params.id;
-  const passengerRides = ridesStore.filter(
-    (r) => r.passengerId === targetId || r.passengerPhone === targetId,
-  );
-  res.json(passengerRides);
+app.get('/api/v1/passengers/:id/rides', async (req, res) => {
+  const snap = await db.collection('rides')
+    .where('passengerPhone', '==', req.params.id)
+    .get();
+  res.json(snap.docs.map((doc: any) => doc.data()));
 });
 
 // --- PASSENGER & DRIVER REVIEWS ---
-app.post('/api/v1/passenger-reviews', (req, res) => {
-  const { rideId, passengerId, driverId, rating, comment } = req.body;
-  const newReview = {
-    id: `prev-${Date.now()}`,
-    rideId,
-    passengerId,
-    driverId,
-    rating: Number(rating) || 5,
-    comment: (comment && comment.trim()) || 'Ótimo passageiro, pontual e respeitoso.',
-    createdAt: new Date().toISOString(),
-  };
-  passengerReviewsStore.push(newReview);
-  res.status(201).json(newReview);
+app.post('/api/v1/passenger-reviews', async (req, res) => {
+  try {
+    const { rideId, passengerId, driverId, rating, comment } = req.body;
+    const id = `prev-${Date.now()}`;
+    const newReview = {
+      id,
+      rideId,
+      passengerId,
+      driverId,
+      rating: Number(rating) || 5,
+      comment: comment?.trim() || 'Ótimo passageiro.',
+      createdAt: new Date().toISOString(),
+    };
+    await db.collection('passengerReviews').doc(id).set(newReview);
+    res.status(201).json(newReview);
+  } catch (err) {
+    res.status(500).json({ error: 'Review failed' });
+  }
 });
 
-app.get('/api/v1/passenger-reviews', (req, res) => {
+app.get('/api/v1/passenger-reviews', async (req, res) => {
   const { passengerId, driverId } = req.query;
-  let list = passengerReviewsStore;
-  if (passengerId) list = list.filter((r) => r.passengerId === String(passengerId));
-  if (driverId) list = list.filter((r) => r.driverId === String(driverId));
-  res.json(list);
+  let query: any = db.collection('passengerReviews');
+  if (passengerId) query = query.where('passengerId', '==', String(passengerId));
+  if (driverId) query = query.where('driverId', '==', String(driverId));
+  const snap = await query.get();
+  res.json(snap.docs.map((doc: any) => doc.data()));
 });
 
 // --- DYNAMIC PRICING ADMIN ROUTES ---
-app.get('/api/v1/admin/dynamic-pricing', (req, res) => {
-  res.json(dynamicPricingSettings);
+app.get('/api/v1/admin/dynamic-pricing', async (req, res) => {
+  const config = await ensureConfig();
+  res.json(config.dynamicPricingSettings);
 });
 
-app.post('/api/v1/admin/dynamic-pricing', (req, res) => {
-  const settings = req.body;
-  dynamicPricingSettings = {
-    ...dynamicPricingSettings,
-    ...settings,
-  };
-  res.json({ success: true, settings: dynamicPricingSettings });
+app.post('/api/v1/admin/dynamic-pricing', async (req, res) => {
+  try {
+    const settings = req.body;
+    const config = await ensureConfig();
+    const updated = { ...config.dynamicPricingSettings, ...settings };
+    await db.collection('config').doc('global').update({ dynamicPricingSettings: updated });
+    currentConfig = null;
+    res.json({ success: true, settings: updated });
+  } catch (err) {
+    res.status(500).json({ error: 'Update failed' });
+  }
 });
 
-app.get('/api/v1/admin/surge-analysis', (req, res) => {
-  const analysis = zonesStore.map(zone => {
-    const dynamic = calculateCurrentDynamicMultiplier(zone.id);
-    const onlineDrivers = driversStore.filter(d => d.isOnline && d.regulatoryStatus === 'APPROVED' && d.operatingZones.includes(zone.id)).length;
-    const activeRequests = ridesStore.filter(r => ['REQUESTED', 'ACCEPTED', 'DRIVER_ARRIVING'].includes(r.status) && r.originZoneId === zone.id).length;
+app.get('/api/v1/admin/surge-analysis', async (req, res) => {
+  const zones = await getZones();
+  const drivers = await getDrivers();
+  const rides = await getRides();
+  
+  const analysis = await Promise.all(zones.map(async (zone: any) => {
+    const dynamic = await calculateCurrentDynamicMultiplier(zone.id);
+    const onlineDrivers = drivers.filter((d: Driver) => d.isOnline && d.regulatoryStatus === 'APPROVED' && d.operatingZones.includes(zone.id)).length;
+    const activeRequests = rides.filter((r: Ride) => ['REQUESTED', 'ACCEPTED', 'DRIVER_ARRIVING'].includes(r.status) && r.originZoneId === zone.id).length;
     
     return {
       zoneId: zone.id,
@@ -1316,14 +1356,16 @@ app.get('/api/v1/admin/surge-analysis', (req, res) => {
       isActive: dynamic.isActive,
       onlineDrivers,
       activeRequests,
-      ratio: activeRequests === 0 ? onlineDrivers : (onlineDrivers / activeRequests).toFixed(2)
+      ratio: activeRequests === 0 ? onlineDrivers : (Number(onlineDrivers) / activeRequests).toFixed(2)
     };
-  });
+  }));
   res.json(analysis);
 });
 
 // --- VITE MIDDLEWARE & SPA SERVING ---
 async function startServer() {
+  await seedStaticData();
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },

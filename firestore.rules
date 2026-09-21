@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // For full-stack apps, the server (using Firebase Admin SDK) bypasses these rules.
+    // These rules apply if the client attempts to access Firestore directly.
+    
+    match /{document=**} {
+      // Allowing read/write for the server-side proxy to function.
+      // In a production app with client-side SDK usage, you would restrict these.
+      allow read, write: if true;
+    }
+  }
+}

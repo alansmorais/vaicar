@@ -26,6 +26,8 @@ export interface SearchDriversResponse {
   estimatedDurationMin: number;
   originZone: Zone;
   destinationZone: Zone;
+  dynamicMultiplier: number;
+  isDynamicActive: boolean;
   results: {
     driverId: string;
     name: string;

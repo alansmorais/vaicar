@@ -317,9 +317,6 @@ export default function App() {
                 drivers={drivers}
                 rides={rides}
                 plan={plan}
-                onLoadDemo={handleLoadDemo}
-                onResetData={handleResetData}
-                onToggleDemoApproval={handleToggleDemoApproval}
                 onRefreshAll={loadData}
               />
             )}

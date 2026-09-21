@@ -1,0 +1,87 @@
+{
+  "collections": [
+    {
+      "collectionId": "drivers",
+      "documents": [],
+      "description": "Store all registered drivers in the municipality"
+    },
+    {
+      "collectionId": "passengers",
+      "documents": [],
+      "description": "Store all registered passengers"
+    },
+    {
+      "collectionId": "rides",
+      "documents": [],
+      "description": "Store all ride requests and their history"
+    },
+    {
+      "collectionId": "zones",
+      "documents": [],
+      "description": "Geographical zones in São Sebastião"
+    },
+    {
+      "collectionId": "requirements",
+      "documents": [],
+      "description": "Regulatory requirements for drivers"
+    },
+    {
+      "collectionId": "reports",
+      "documents": [],
+      "description": "User reports (complaints, issues)"
+    },
+    {
+      "collectionId": "platformCosts",
+      "documents": [],
+      "description": "Operating costs for the platform"
+    },
+    {
+      "collectionId": "reviews",
+      "documents": [],
+      "description": "Reviews of drivers by passengers"
+    },
+    {
+      "collectionId": "passengerReviews",
+      "documents": [],
+      "description": "Reviews of passengers by drivers"
+    },
+    {
+      "collectionId": "config",
+      "documents": [
+        {
+          "documentId": "global",
+          "fields": {
+            "subscriptionPlan": {
+              "id": "plan-pro",
+              "name": "VaiCar Pro",
+              "priceBrl": 49.0,
+              "billingPeriod": "mensal",
+              "description": "Acesso total, perfil verificado, 0% de comissão sobre corridas, chamadas diretas.",
+              "commissionPercent": 0,
+              "isActive": true
+            },
+            "platformFareSettings": {
+              "minBaseFare": 15.0,
+              "minRatePerKm": 3.0,
+              "minFixedRoutePrice": 25.0,
+              "isEnforced": true,
+              "updatedAt": "2026-03-01T00:00:00Z",
+              "updatedBy": "Administração Municipal"
+            },
+            "dynamicPricingSettings": {
+              "isEnabled": true,
+              "minMultiplier": 0.8,
+              "maxMultiplier": 2.5,
+              "idealDriverPassengerRatio": 3.0,
+              "minDriversThreshold": 2,
+              "activeZoneIds": [],
+              "surgeIcon": "⚡"
+            },
+            "whatsappContactEventsCount": 0
+          }
+        }
+      ],
+      "description": "Global application configuration and metrics"
+    }
+  ]
+}
