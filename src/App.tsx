@@ -22,9 +22,6 @@ import {
   fetchDrivers,
   fetchRides,
   fetchReports,
-  loadDemoData,
-  resetDemoData,
-  toggleDemoApproval,
 } from './lib/api.ts';
 
 export default function App() {
@@ -74,7 +71,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
 
   // Driver state
-  const [currentDriverId, setCurrentDriverId] = useState<string>('drv-demo-joao');
+  const [currentDriverId, setCurrentDriverId] = useState<string>('');
 
   // Legal Modal
   const [legalModalOpen, setLegalModalOpen] = useState<boolean>(false);
@@ -101,11 +98,8 @@ export default function App() {
       setRides(r);
       setReports(rep);
 
-      if (d.length > 0) {
-        const found = d.find((item) => item.id === currentDriverId);
-        if (!found) {
-          setCurrentDriverId(d[0].id);
-        }
+      if (d.length > 0 && !currentDriverId) {
+        setCurrentDriverId(d[0].id);
       }
     } catch (err: any) {
       console.error('Error loading initial data', err);
@@ -152,47 +146,7 @@ export default function App() {
     setLegalModalOpen(true);
   };
 
-  // Demo actions
-  const handleLoadDemo = async (approved: boolean = true) => {
-    try {
-      setIsLoading(true);
-      await loadDemoData(approved);
-      await loadData();
-    } catch (err: any) {
-      alert(err.message || 'Erro ao carregar DEMO');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleResetData = async () => {
-    try {
-      setIsLoading(true);
-      await resetDemoData();
-      await loadData();
-    } catch (err: any) {
-      alert(err.message || 'Erro ao resetar dados');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleToggleDemoApproval = async () => {
-    try {
-      setIsLoading(true);
-      await toggleDemoApproval();
-      await loadData();
-    } catch (err: any) {
-      alert(err.message || 'Erro ao alternar aprovação');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const currentDriver = drivers.find((d) => d.id === currentDriverId) || drivers[0];
-  const demoDriver = drivers.find((d) => d.id === 'drv-demo-joao');
-  const hasDemoDriver = !!demoDriver;
-  const demoDriverApproved = demoDriver?.regulatoryStatus === 'APPROVED';
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
@@ -220,11 +174,6 @@ export default function App() {
           regulatoryStatus: d.regulatoryStatus,
         }))}
         onOpenLegal={handleOpenLegal}
-        onLoadDemo={handleLoadDemo}
-        onResetData={handleResetData}
-        onToggleDemoApproval={handleToggleDemoApproval}
-        hasDemoDriver={hasDemoDriver}
-        demoDriverApproved={demoDriverApproved}
       />
 
       {/* Main Content Area */}
@@ -309,20 +258,14 @@ export default function App() {
                   <div className="max-w-lg mx-auto my-12 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-4">
                     <h3 className="text-xl font-black text-white">Nenhum motorista selecionado</h3>
                     <p className="text-xs text-slate-400">
-                      Você pode realizar um novo credenciamento municipal ou carregar o motorista DEMO no cabeçalho.
+                      Você pode realizar um novo credenciamento municipal para começar a atuar em São Sebastião.
                     </p>
                     <div className="flex items-center justify-center gap-3">
                       <button
-                        onClick={() => handleLoadDemo(true)}
-                        className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs cursor-pointer shadow-md"
-                      >
-                        Carregar Motorista DEMO
-                      </button>
-                      <button
                         onClick={() => setDriverSubView('ONBOARDING')}
-                        className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs cursor-pointer"
+                        className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-6 py-3 rounded-xl text-xs cursor-pointer shadow-md shadow-emerald-500/10 transition-all"
                       >
-                        Iniciar Credenciamento
+                        Iniciar Credenciamento Municipal
                       </button>
                     </div>
                   </div>

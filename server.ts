@@ -117,77 +117,8 @@ let dynamicPricingSettings: DynamicPricingSettings = {
   surgeIcon: '⚡',
 };
 
-// --- IN-MEMORY RELATIONAL DATABASE STORES (INITIAL CLEAN STATE: WITH APPROVED MOTORISTA DE BASE) ---
-const approvedDriver: Driver = {
-  id: 'drv-carlos',
-  name: 'Carlos Oliveira',
-  phone: '(12) 99745-1234',
-  email: 'carlos.oliveira@vaicar.com.br',
-  cpf: '123.456.789-00',
-  birthDate: '1982-08-15',
-  avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=400&q=80',
-  professionalCategory: 'Transporte Remunerado Individual',
-  licenseNumber: 'ALV-2026/089',
-  regulatoryStatus: 'APPROVED',
-  subscriptionStatus: 'ACTIVE',
-  isOnline: true,
-  operatingZones: ['z-centro', 'z-maresias', 'z-juquehy', 'z-boicucanga'],
-  acceptsImmediate: true,
-  acceptsScheduled: true,
-  vehicle: {
-    id: 'veh-carlos',
-    driverId: 'drv-carlos',
-    brand: 'Toyota',
-    model: 'Corolla',
-    year: 2022,
-    color: 'Prata',
-    licensePlate: 'ABC-1234',
-    passengerCapacity: 4,
-    category: 'Sedan Premium',
-    isApproved: true,
-  },
-  pricing: {
-    pricingType: 'MINIMUM_PLUS_KM',
-    minimumFare: 20.0,
-    ratePerKm: 3.5,
-    ratePerMinute: 0.5,
-    fixedRoutes: [
-      { originZoneId: 'z-centro', destinationZoneId: 'z-maresias', price: 80.0 },
-      { originZoneId: 'z-maresias', destinationZoneId: 'z-centro', price: 80.0 },
-    ],
-  },
-  documents: [
-    { id: 'doc-carlos-alvara', driverId: 'drv-carlos', requirementId: 'req-alvara', requirementName: 'Alvará Municipal', documentNumber: 'ALV-2026/089', status: 'APPROVED', verifiedAt: '2026-03-01' },
-    { id: 'doc-carlos-cnh', driverId: 'drv-carlos', requirementId: 'req-cnh-ear', requirementName: 'CNH c/ EAR', documentNumber: '12345678901', status: 'APPROVED', expiryDate: '2030-06-15', verifiedAt: '2026-03-01' },
-    { id: 'doc-carlos-vistoria', driverId: 'drv-carlos', requirementId: 'req-vistoria', requirementName: 'Laudo de Vistoria', documentNumber: 'VIST-2026/089', status: 'APPROVED', expiryDate: '2026-12-30', verifiedAt: '2026-03-01' },
-    { id: 'doc-carlos-seguro', driverId: 'drv-carlos', requirementId: 'req-seguro-app', requirementName: 'Seguro APP Passageiros', documentNumber: 'SEG-99882', status: 'APPROVED', expiryDate: '2027-02-01', verifiedAt: '2026-03-01' },
-  ],
-  ratingAverage: 4.9,
-  ratingCount: 18,
-  ridesCompleted: 42,
-  whatsappDirectNumber: '5512997451234',
-  pixKey: '(12) 99745-1234',
-  pixKeyType: 'PHONE',
-  acceptsCardMachine: true,
-  acceptedPaymentMethods: ['PIX', 'CASH', 'CARD_CREDIT', 'CARD_DEBIT'],
-  address: 'Rua Sebastião Silveira, 250 - Centro, São Sebastião - SP',
-  cnhNumber: '12345678901',
-  cnhCategory: 'B',
-  cnhExpiry: '2030-06-15',
-  hasEar: true,
-};
-
-const approvedPassenger: Passenger = {
-  id: 'pass-maria',
-  name: 'Maria Santos',
-  phone: '(12) 99999-0000',
-  email: 'maria.santos@gmail.com',
-  isVerified: true,
-  avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80',
-  createdAt: new Date().toISOString(),
-};
-
-let driversStore: Driver[] = [approvedDriver];
+// --- IN-MEMORY RELATIONAL DATABASE STORES (INITIAL CLEAN STATE) ---
+let driversStore: Driver[] = [];
 let zonesStore: Zone[] = [...defaultZones];
 let requirementsStore: RegulatoryRequirement[] = [...defaultRequirements];
 let ridesStore: Ride[] = [];
@@ -202,20 +133,9 @@ let passengerReviewsStore: {
   createdAt: string;
 }[] = [];
 let reportsStore: Report[] = [];
-let passengersStore: Passenger[] = [approvedPassenger];
+let passengersStore: Passenger[] = [];
 let platformCostsStore: PlatformCost[] = [];
 let whatsappContactEventsCount = 0;
-
-// Helper to create strictly identified DEMO data as specified in Section 20 & 21
-function createDemoData(approved: boolean = false) {
-  // Always return Carlos Oliveira as approved, or we can toggle his status based on the button
-  const demoDriver: Driver = {
-    ...approvedDriver,
-    regulatoryStatus: approved ? 'APPROVED' : 'PENDING',
-  };
-  const demoPassenger = approvedPassenger;
-  return { demoDriver, demoPassenger };
-}
 
 // --- DISTANCE & PRICE CALCULATION HELPER ---
 function calculateCurrentDynamicMultiplier(zoneId?: string): { multiplier: number; isActive: boolean } {
@@ -1152,65 +1072,6 @@ app.get('/api/v1/subscription/plan', (req, res) => {
 // Regulatory Requirements
 app.get('/api/v1/regulatory/requirements', (req, res) => {
   res.json(requirementsStore);
-});
-
-// --- DEMO MODE ENDPOINTS (Strictly Section 20 & 21) ---
-app.post('/api/v1/demo/load', (req, res) => {
-  const { approved = false } = req.body || {};
-  const { demoDriver, demoPassenger } = createDemoData(Boolean(approved));
-
-  // Remove existing demo entities if present
-  driversStore = driversStore.filter((d) => d.id !== demoDriver.id);
-  passengersStore = passengersStore.filter((p) => p.id !== demoPassenger.id);
-
-  driversStore.push(demoDriver);
-  passengersStore.push(demoPassenger);
-
-  res.json({
-    success: true,
-    message: `Conta DEMO carregada com sucesso (${approved ? 'Motorista Aprovado' : 'Motorista Pendente de Análise'}).`,
-    driver: demoDriver,
-    passenger: demoPassenger,
-  });
-});
-
-app.post('/api/v1/demo/reset', (req, res) => {
-  driversStore = [];
-  ridesStore = [];
-  reviewsStore = [];
-  passengerReviewsStore = [];
-  reportsStore = [];
-  passengersStore = [];
-  platformCostsStore = [];
-  whatsappContactEventsCount = 0;
-
-  res.json({
-    success: true,
-    message: 'Todos os dados foram resetados para 0 (Estado limpo para testes controlados).',
-  });
-});
-
-app.post('/api/v1/demo/toggle-approval', (req, res) => {
-  const demoDriver = driversStore.find((d) => d.id === 'drv-demo-joao');
-  if (!demoDriver) {
-    return res.status(404).json({ error: 'Motorista DEMO não encontrado. Carregue o DEMO primeiro.' });
-  }
-
-  const willBeApproved = demoDriver.regulatoryStatus !== 'APPROVED';
-  demoDriver.regulatoryStatus = willBeApproved ? 'APPROVED' : 'PENDING';
-  demoDriver.subscriptionStatus = willBeApproved ? 'ACTIVE' : 'TRIAL';
-  demoDriver.isOnline = willBeApproved;
-  if (demoDriver.vehicle) demoDriver.vehicle.isApproved = willBeApproved;
-  demoDriver.documents.forEach((doc) => {
-    doc.status = willBeApproved ? 'APPROVED' : 'PENDING';
-    doc.verifiedAt = willBeApproved ? new Date().toISOString() : undefined;
-  });
-
-  res.json({
-    success: true,
-    driver: demoDriver,
-    message: willBeApproved ? 'Motorista DEMO aprovado e colocado online!' : 'Motorista DEMO colocado em pendência.',
-  });
 });
 
 // --- ADMIN DRIVER AUDITING ACTIONS (Section 12) ---

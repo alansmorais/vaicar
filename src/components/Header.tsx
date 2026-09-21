@@ -9,11 +9,6 @@ interface HeaderProps {
   onSelectDriverId: (id: string) => void;
   availableDrivers: { id: string; name: string; regulatoryStatus: string }[];
   onOpenLegal: (tab: 'termos' | 'privacidade' | 'regulacao') => void;
-  onLoadDemo: (approved?: boolean) => void;
-  onResetData: () => void;
-  onToggleDemoApproval?: () => void;
-  hasDemoDriver?: boolean;
-  demoDriverApproved?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -23,14 +18,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectDriverId,
   availableDrivers,
   onOpenLegal,
-  onLoadDemo,
-  onResetData,
-  onToggleDemoApproval,
-  hasDemoDriver,
-  demoDriverApproved,
 }) => {
-  const [showDemoMenu, setShowDemoMenu] = useState(false);
-
   return (
     <header className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-white">
       {/* Top Notification / Regulatory Banner */}
@@ -45,42 +33,6 @@ export const Header: React.FC<HeaderProps> = ({
           >
             Regulação Municipal
           </button>
-        </div>
-
-        {/* Demo Mode Action Pill in Header Bar */}
-        <div className="flex items-center gap-1 bg-slate-900/80 px-2 py-0.5 rounded-full border border-emerald-400/30 text-[10px] sm:text-[11px] shrink-0">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-          {!hasDemoDriver ? (
-            <button
-              onClick={() => onLoadDemo(true)}
-              className="text-emerald-300 font-bold hover:underline cursor-pointer flex items-center gap-1"
-              title="Carrega conta de motorista e passageiro DEMO para testar o sistema"
-            >
-              <Sparkles className="w-3 h-3" />
-              <span>Carregar DEMO</span>
-            </button>
-          ) : (
-            <div className="flex items-center gap-1.5">
-              <span className="text-emerald-400 font-medium">DEMO</span>
-              {onToggleDemoApproval && (
-                <button
-                  onClick={onToggleDemoApproval}
-                  className="text-[10px] bg-emerald-700/60 hover:bg-emerald-700 px-1.5 py-0.2 rounded text-emerald-100 cursor-pointer"
-                  title="Alterna entre motorista aprovado e motorista pendente de análise"
-                >
-                  {demoDriverApproved ? 'Pendente' : 'Aprovar'}
-                </button>
-              )}
-              <button
-                onClick={onResetData}
-                className="text-slate-400 hover:text-rose-300 transition-colors cursor-pointer flex items-center gap-0.5"
-                title="Limpar tudo e voltar ao estado vazio com 0 registros"
-              >
-                <RotateCcw className="w-2.5 h-2.5" />
-                <span className="hidden sm:inline">Limpar</span>
-              </button>
-            </div>
-          )}
         </div>
       </div>
 

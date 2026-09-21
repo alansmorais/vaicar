@@ -335,35 +335,6 @@ export async function updateRidePaymentStatus(id: string, paymentStatus: string)
   return res.json();
 }
 
-// --- DEMO MODE HELPERS ---
-export async function loadDemoData(approved: boolean = false): Promise<any> {
-  const res = await fetch('/api/v1/demo/load', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ approved }),
-  });
-  if (!res.ok) throw new Error('Falha ao carregar conta DEMO');
-  return res.json();
-}
-
-export async function resetDemoData(): Promise<any> {
-  const res = await fetch('/api/v1/demo/reset', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  });
-  if (!res.ok) throw new Error('Falha ao resetar dados');
-  return res.json();
-}
-
-export async function toggleDemoApproval(): Promise<any> {
-  const res = await fetch('/api/v1/demo/toggle-approval', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  });
-  if (!res.ok) throw new Error('Falha ao alternar aprovação do DEMO');
-  return res.json();
-}
-
 // --- ADMIN DRIVER ACTIONS (Section 12) ---
 export async function adminApproveDriver(id: string): Promise<Driver> {
   const res = await fetch(`/api/v1/admin/drivers/${id}/approve`, { method: 'POST' });

@@ -590,9 +590,9 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   <div className="w-12 h-12 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
                     <Car className="w-6 h-6" />
                   </div>
-                  <h4 className="text-base font-bold text-white">Nenhum motorista cadastrado ainda.</h4>
+                  <h4 className="text-base font-bold text-white">Nenhum motorista disponível no momento.</h4>
                   <p className="text-xs text-slate-400 max-w-md mx-auto">
-                    Não há motoristas profissionais credenciados e online para esta rota no momento. Você pode testar cadastrando um motorista ou carregando a conta DEMO no topo.
+                    Não há motoristas profissionais credenciados e online para esta rota no momento. Tente novamente em alguns minutos.
                   </p>
                   <button
                     onClick={onGoToDriverSignup}
