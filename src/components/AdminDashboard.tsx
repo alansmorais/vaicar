@@ -25,6 +25,7 @@ import {
   KeyRound,
   Key,
   Scale,
+  Mail,
 } from 'lucide-react';
 import {
   verifyAdminPassword,
@@ -61,6 +62,9 @@ import {
   fetchDynamicPricingSettings,
   updateDynamicPricingSettings,
   fetchSurgeAnalysis,
+  fetchSmtpSettings,
+  saveSmtpSettings,
+  sendTestEmail,
 } from '../lib/api.ts';
 import { DynamicPricingSettings } from '../types.ts';
 
@@ -152,12 +156,72 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [fareUpdateSuccess, setFareUpdateSuccess] = useState<string>('');
   const [fareUpdateError, setFareUpdateError] = useState<string>('');
 
+  // SMTP Settings State
+  const [smtpConfigured, setSmtpConfigured] = useState<boolean>(false);
+  const [smtpUser, setSmtpUser] = useState<string>('vaicar@alansmsolutions.com');
+  const [smtpPassInput, setSmtpPassInput] = useState<string>('');
+  const [smtpSaveMsg, setSmtpSaveMsg] = useState<string>('');
+  const [smtpSaveError, setSmtpSaveError] = useState<string>('');
+  const [isSavingSmtp, setIsSavingSmtp] = useState<boolean>(false);
+
+  // Test Email State
+  const [testEmailTarget, setTestEmailTarget] = useState<string>('alanpkmorais@gmail.com');
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState<boolean>(false);
+  const [testEmailResult, setTestEmailResult] = useState<string>('');
+  const [testEmailError, setTestEmailError] = useState<string>('');
+
   useEffect(() => {
     loadCosts();
     loadFareSettings();
     loadDynamicSettings();
     loadSurgeAnalysis();
+    loadSmtpSettings();
   }, []);
+
+  const loadSmtpSettings = async () => {
+    try {
+      const data = await fetchSmtpSettings();
+      setSmtpConfigured(data.configured);
+      if (data.user) setSmtpUser(data.user);
+    } catch { }
+  };
+
+  const handleSaveSmtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!smtpPassInput.trim()) return;
+    setIsSavingSmtp(true);
+    setSmtpSaveMsg('');
+    setSmtpSaveError('');
+    try {
+      const res = await saveSmtpSettings({
+        user: smtpUser,
+        pass: smtpPassInput,
+      });
+      setSmtpSaveMsg(res.message || 'Senha salva com sucesso no banco de dados!');
+      setSmtpConfigured(true);
+      setSmtpPassInput('');
+      setTimeout(() => setSmtpSaveMsg(''), 4000);
+    } catch (err: any) {
+      setSmtpSaveError(err.message || 'Erro ao salvar senha');
+    } finally {
+      setIsSavingSmtp(false);
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    if (!testEmailTarget.trim()) return;
+    setIsSendingTestEmail(true);
+    setTestEmailResult('');
+    setTestEmailError('');
+    try {
+      const res = await sendTestEmail(testEmailTarget);
+      setTestEmailResult(`✓ ${res.message}`);
+    } catch (err: any) {
+      setTestEmailError(`⚠ ${err.message || 'Falha ao enviar e-mail de teste'}`);
+    } finally {
+      setIsSendingTestEmail(false);
+    }
+  };
 
   const loadDynamicSettings = async () => {
     try {
@@ -1711,6 +1775,132 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </table>
               </div>
             )}
+          </div>
+
+          {/* ========================================================================= */}
+          {/* SMTP / GMAIL EMAIL DISPATCH CONFIGURATION */}
+          {/* ========================================================================= */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Mail className="w-5 h-5 text-emerald-400" />
+                  <span>Serviço de E-mail & Disparo de Códigos PIN</span>
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Configure ou atualize a Senha de Aplicativo do Gmail para disparo automatizado de e-mails para passageiros.
+                </p>
+              </div>
+              <span
+                className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 self-start sm:self-auto ${
+                  smtpConfigured
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                    : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                }`}
+              >
+                {smtpConfigured ? '🟢 Conectado ao Gmail' : '🟡 Senha Pendente'}
+              </span>
+            </div>
+
+            <form onSubmit={handleSaveSmtp} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-300">E-mail Remetente (Gmail / Workspace)</label>
+                  <input
+                    type="email"
+                    value={smtpUser}
+                    onChange={(e) => setSmtpUser(e.target.value)}
+                    required
+                    placeholder="vaicar@alansmsolutions.com"
+                    className="w-full bg-slate-950 text-white text-sm px-4 py-3 rounded-xl border border-slate-800 focus:border-emerald-500 outline-none"
+                  />
+                  <p className="text-[10px] text-slate-500">Endereço de e-mail autorizado a enviar mensagens.</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-300">Senha de Aplicativo (16 dígitos)</label>
+                  <input
+                    type="password"
+                    value={smtpPassInput}
+                    onChange={(e) => setSmtpPassInput(e.target.value)}
+                    placeholder={smtpConfigured ? '•••• •••• •••• •••• (Configurada)' : 'Cole o código de 16 letras'}
+                    className="w-full bg-slate-950 text-white text-sm px-4 py-3 rounded-xl border border-slate-800 focus:border-emerald-500 outline-none font-mono"
+                  />
+                  <p className="text-[10px] text-slate-500">
+                    Gerada em: <em>myaccount.google.com/apppasswords</em>. Espaços são removidos automaticamente.
+                  </p>
+                </div>
+              </div>
+
+              {smtpSaveMsg && (
+                <div className="bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-semibold p-3 rounded-xl">
+                  ✓ {smtpSaveMsg}
+                </div>
+              )}
+
+              {smtpSaveError && (
+                <div className="bg-rose-950/50 border border-rose-500/30 text-rose-300 text-xs font-semibold p-3 rounded-xl">
+                  ⚠ {smtpSaveError}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-4 pt-2 border-b border-slate-800/80 pb-5">
+                <p className="text-[11px] text-slate-400">
+                  {smtpConfigured
+                    ? 'O sistema está pronto para enviar e-mails de validação diretamente.'
+                    : 'Caso não configure, o sistema continuará operando normalmente com o PIN exibido na tela.'}
+                </p>
+                <button
+                  type="submit"
+                  disabled={isSavingSmtp || !smtpPassInput.trim()}
+                  className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold text-xs px-6 py-3 rounded-xl transition-all cursor-pointer whitespace-nowrap shadow-lg shadow-emerald-500/20"
+                >
+                  {isSavingSmtp ? 'Salvando...' : 'Salvar Senha de E-mail'}
+                </button>
+              </div>
+            </form>
+
+            {/* Test Email Trigger Section */}
+            <div className="pt-2 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <Send className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Enviar E-mail de Teste com Código PIN</span>
+                </label>
+                <span className="text-[10px] text-slate-400">Disparo real pelo Gmail</span>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-3">
+                <input
+                  type="email"
+                  value={testEmailTarget}
+                  onChange={(e) => setTestEmailTarget(e.target.value)}
+                  placeholder="Seu e-mail de teste (ex: alanpkmorais@gmail.com)"
+                  className="w-full bg-slate-950 text-white text-xs px-3.5 py-2.5 rounded-xl border border-slate-800 focus:border-emerald-500 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleSendTestEmail}
+                  disabled={isSendingTestEmail || !testEmailTarget.trim()}
+                  className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-emerald-300 font-bold text-xs px-5 py-2.5 rounded-xl border border-emerald-500/30 transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 shrink-0"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>{isSendingTestEmail ? 'Disparando...' : 'Disparar Teste'}</span>
+                </button>
+              </div>
+
+              {testEmailResult && (
+                <div className="bg-emerald-950/50 border border-emerald-500/40 text-emerald-300 text-xs font-semibold p-3 rounded-xl animate-in fade-in">
+                  {testEmailResult}
+                </div>
+              )}
+
+              {testEmailError && (
+                <div className="bg-rose-950/60 border border-rose-500/40 text-rose-300 text-xs font-semibold p-3 rounded-xl animate-in fade-in">
+                  {testEmailError}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

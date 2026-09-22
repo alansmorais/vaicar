@@ -506,4 +506,33 @@ export async function fetchSurgeAnalysis(): Promise<any[]> {
   return res.json();
 }
 
+// --- ADMIN SMTP / EMAIL SETTINGS ---
+export async function fetchSmtpSettings(): Promise<{ configured: boolean; user: string; hasPass: boolean }> {
+  const res = await fetch('/api/v1/admin/smtp-settings');
+  if (!res.ok) return { configured: false, user: 'vaicar@alansmsolutions.com', hasPass: false };
+  return res.json();
+}
+
+export async function saveSmtpSettings(settings: { user: string; pass: string }): Promise<{ success: boolean; message: string }> {
+  const res = await fetch('/api/v1/admin/smtp-settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Falha ao salvar configurações de e-mail');
+  return data;
+}
+
+export async function sendTestEmail(targetEmail?: string): Promise<{ success: boolean; message: string; pin: string }> {
+  const res = await fetch('/api/v1/admin/test-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetEmail }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Falha ao enviar e-mail de teste');
+  return data;
+}
+
 

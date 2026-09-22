@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
@@ -19,8 +20,8 @@ import {
   DynamicPricingSettings,
 } from './src/types.ts';
 
-function getTransporter() {
-  const rawPass =
+async function getTransporter() {
+  let rawPass =
     process.env.SMTP_PASS ||
     process.env.SMTP_PASSWORD ||
     process.env.EMAIL_PASS ||
@@ -28,16 +29,31 @@ function getTransporter() {
     process.env.GMAIL_PASS ||
     '';
 
-  const cleanPass = rawPass.trim().replace(/^["']|["']$/g, '').replace(/\s+/g, '');
-  const user = (
+  let user = (
     process.env.SMTP_USER ||
     process.env.EMAIL_USER ||
     process.env.GMAIL_USER ||
     'vaicar@alansmsolutions.com'
   ).trim();
 
+  // If not found in process.env, check Firestore platformSettings
+  if (!rawPass) {
+    try {
+      const snap = await db.collection('platformSettings').doc('smtp').get();
+      if (snap.exists) {
+        const data = snap.data();
+        if (data?.pass) rawPass = data.pass;
+        if (data?.user) user = data.user;
+      }
+    } catch (dbErr: any) {
+      console.warn('[MAIL] Error reading smtp settings from Firestore:', dbErr.message);
+    }
+  }
+
+  const cleanPass = rawPass.trim().replace(/^["']|["']$/g, '').replace(/\s+/g, '');
+
   if (!cleanPass) {
-    console.warn('[MAIL] Nenhuma senha SMTP configurada nas variáveis de ambiente (SMTP_PASS).');
+    console.warn('[MAIL] Nenhuma senha SMTP configurada nas variáveis de ambiente ou Firestore.');
     return null;
   }
 
@@ -1289,6 +1305,107 @@ app.delete('/api/v1/admin/costs/:id', async (req, res) => {
   res.json({ success: true });
 });
 
+// --- ADMIN SMTP SETTINGS ---
+app.get('/api/v1/admin/smtp-settings', async (req, res) => {
+  try {
+    const snap = await db.collection('platformSettings').doc('smtp').get();
+    const data = snap.exists ? snap.data() : {};
+    const pass = data?.pass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '';
+    const user = data?.user || process.env.SMTP_USER || 'vaicar@alansmsolutions.com';
+    res.json({
+      configured: Boolean(pass),
+      user,
+      hasPass: Boolean(pass),
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get SMTP settings' });
+  }
+});
+
+app.post('/api/v1/admin/smtp-settings', async (req, res) => {
+  try {
+    const { user, pass } = req.body;
+    if (!pass) return res.status(400).json({ error: 'Senha de aplicativo obrigatória' });
+    const cleanPass = pass.trim().replace(/^["']|["']$/g, '').replace(/\s+/g, '');
+    const cleanUser = (user || 'vaicar@alansmsolutions.com').trim();
+    
+    await db.collection('platformSettings').doc('smtp').set({
+      user: cleanUser,
+      pass: cleanPass,
+      updatedAt: new Date().toISOString(),
+    });
+
+    res.json({ success: true, message: 'Configurações de e-mail salvas com sucesso!' });
+  } catch (err) {
+    res.status(500).json({ error: 'Falha ao salvar configurações de e-mail' });
+  }
+});
+
+app.post('/api/v1/admin/test-email', async (req, res) => {
+  try {
+    const { targetEmail } = req.body;
+    const dest = (targetEmail || 'alanpkmorais@gmail.com').trim();
+    if (!dest) {
+      return res.status(400).json({ error: 'E-mail de destino obrigatório para o teste' });
+    }
+
+    const mailer = await getTransporter();
+    if (!mailer) {
+      return res.status(400).json({
+        error: 'Nenhuma senha SMTP configurada. Por favor, salve a Senha de Aplicativo do Gmail primeiro.',
+      });
+    }
+
+    const testPin = Math.floor(1000 + Math.random() * 9000).toString();
+    const senderUser =
+      process.env.SMTP_USER ||
+      process.env.EMAIL_USER ||
+      process.env.GMAIL_USER ||
+      'vaicar@alansmsolutions.com';
+
+    await mailer.sendMail({
+      from: `"VaiCar São Sebastião" <${senderUser}>`,
+      to: dest,
+      subject: `🧪 Teste de Conexão VaiCar - Código PIN: ${testPin}`,
+      text: `Olá!\n\nEste é um e-mail de teste de envio do sistema VaiCar São Sebastião.\n\nSeu código de teste é: ${testPin}.\n\nSe você recebeu esta mensagem, sua integração com o Gmail está 100% ativa e funcionando perfeitamente!`,
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #020617; color: #f8fafc; padding: 32px; border-radius: 16px; max-width: 500px; margin: 0 auto; border: 1px solid #1e293b;">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <h1 style="color: #10b981; font-size: 28px; margin: 0; font-weight: 900;">VaiCar</h1>
+            <p style="color: #94a3b8; font-size: 13px; margin-top: 4px;">Transporte Municipal de São Sebastião</p>
+          </div>
+          <div style="background-color: #0f172a; padding: 24px; border-radius: 12px; text-align: center; border: 1px solid #334155;">
+            <div style="display: inline-block; padding: 6px 12px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 9999px; color: #10b981; font-size: 11px; font-weight: 700; margin-bottom: 16px;">
+              ✓ TESTE DE DISPARO SMTP
+            </div>
+            <p style="color: #cbd5e1; font-size: 14px; margin: 0 0 12px 0;">Seu código de verificação simulado é:</p>
+            <div style="font-size: 40px; font-weight: 900; letter-spacing: 10px; color: #10b981; padding: 16px; background: #020617; border-radius: 8px; border: 2px solid #10b981; margin: 8px 0;">
+              ${testPin}
+            </div>
+            <p style="color: #94a3b8; font-size: 12px; margin-top: 16px;">
+              Se você está lendo este e-mail, a conexão com sua conta Google Workspace / Gmail está <strong>ativa e validada</strong>!
+            </p>
+          </div>
+          <p style="color: #64748b; font-size: 11px; text-align: center; margin-top: 24px;">
+            Enviado em: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+          </p>
+        </div>
+      `,
+    });
+
+    res.json({
+      success: true,
+      message: `E-mail de teste com PIN ${testPin} enviado com sucesso para ${dest}!`,
+      pin: testPin,
+    });
+  } catch (err: any) {
+    console.error('[MAIL] Test email failed:', err);
+    res.status(500).json({
+      error: err.message || 'Falha ao enviar e-mail de teste. Verifique sua senha de aplicativo.',
+    });
+  }
+});
+
 // --- PASSENGER PROFILE & AUTH ---
 app.post('/api/v1/passengers/auth', async (req, res) => {
   console.log('DEBUG: Received POST /api/v1/passengers/auth');
@@ -1318,7 +1435,7 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
       
       if (cleanEmail) {
         try {
-          const mailer = getTransporter();
+          const mailer = await getTransporter();
           if (mailer) {
             const senderUser =
               process.env.SMTP_USER ||
