@@ -70,8 +70,8 @@ jobs:
           # Use local manifest for reading metadata
           sed -i 's|"webManifestUrl": "https://[^"]*"|"webManifestUrl": "http://localhost:8080/manifest.json"|g' twa-manifest.json
           
-          # Generate/update project
-          yes "" | bubblewrap update --manifest=twa-manifest.json --skipVersionUpgrade --skipConfig
+          # Generate/update project with explicit non-empty appVersionName
+          yes "1.0.0" | bubblewrap update --manifest=twa-manifest.json --appVersionName="1.0.0" --skipConfig
           
           # Restore production URLs across all generated project files so the installed app connects to the live server
           echo "=== Enforcing Production Host & URLs ==="
@@ -81,8 +81,13 @@ jobs:
           # Print strings.xml to verify production host
           find app -name "strings.xml" -exec cat {} + || true
           
-          # Build APK
-          yes "" | bubblewrap build --skipSigning
+          # Compile Android APK using Gradle directly (completely non-interactive)
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleRelease
+          else
+            yes "1.0.0" | bubblewrap build --skipSigning
+          fi
 
       - name: Robust Manual Align and Sign APK
         run: |
