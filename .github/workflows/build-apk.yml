@@ -40,8 +40,8 @@ jobs:
 
       - name: Generate Android Project and Build APK
         run: |
-          # Non-interactive project creation/update and compilation
-          bubblewrap update --manifest=twa-manifest.json --versionCode=1 --versionName="1.0.0" --skipConfig
+          # Non-interactive project creation/update and compilation by feeding newlines (Enters) to prompt answers
+          printf "\n\n\n\n\n" | bubblewrap update --manifest=twa-manifest.json
           bubblewrap build --signingKey.password="vaicar123" --signingKey.aliasPassword="vaicar123"
 
       - name: Upload Signed APK
