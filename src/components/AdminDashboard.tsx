@@ -26,6 +26,10 @@ import {
   Key,
   Scale,
   Mail,
+  Code,
+  Copy,
+  Check,
+  ExternalLink,
 } from 'lucide-react';
 import {
   verifyAdminPassword,
@@ -156,13 +160,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [fareUpdateSuccess, setFareUpdateSuccess] = useState<string>('');
   const [fareUpdateError, setFareUpdateError] = useState<string>('');
 
-  // SMTP Settings State
+  // SMTP & Apps Script Email Settings State
   const [smtpConfigured, setSmtpConfigured] = useState<boolean>(false);
+  const [hasAppsScript, setHasAppsScript] = useState<boolean>(false);
+  const [hasPass, setHasPass] = useState<boolean>(false);
+  const [appsScriptUrlInput, setAppsScriptUrlInput] = useState<string>('');
   const [smtpUser, setSmtpUser] = useState<string>('vaicar@alansmsolutions.com');
   const [smtpPassInput, setSmtpPassInput] = useState<string>('');
-  const [smtpSaveMsg, setSmtpSaveMsg] = useState<string>('');
-  const [smtpSaveError, setSmtpSaveError] = useState<string>('');
-  const [isSavingSmtp, setIsSavingSmtp] = useState<boolean>(false);
+  const [emailSaveMsg, setEmailSaveMsg] = useState<string>('');
+  const [emailSaveError, setEmailSaveError] = useState<string>('');
+  const [isSavingEmail, setIsSavingEmail] = useState<boolean>(false);
+  const [copiedScript, setCopiedScript] = useState<boolean>(false);
 
   // Test Email State
   const [testEmailTarget, setTestEmailTarget] = useState<string>('alanpkmorais@gmail.com');
@@ -182,30 +190,59 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     try {
       const data = await fetchSmtpSettings();
       setSmtpConfigured(data.configured);
+      setHasAppsScript(Boolean(data.hasAppsScript));
+      setHasPass(Boolean(data.hasPass));
+      if (data.appsScriptUrl) setAppsScriptUrlInput(data.appsScriptUrl);
       if (data.user) setSmtpUser(data.user);
     } catch { }
   };
 
-  const handleSaveSmtp = async (e: React.FormEvent) => {
+  const handleSaveEmailConfig = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!smtpPassInput.trim()) return;
-    setIsSavingSmtp(true);
-    setSmtpSaveMsg('');
-    setSmtpSaveError('');
+    setIsSavingEmail(true);
+    setEmailSaveMsg('');
+    setEmailSaveError('');
     try {
       const res = await saveSmtpSettings({
         user: smtpUser,
-        pass: smtpPassInput,
+        pass: smtpPassInput ? smtpPassInput : undefined,
+        appsScriptUrl: appsScriptUrlInput,
       });
-      setSmtpSaveMsg(res.message || 'Senha salva com sucesso no banco de dados!');
+      setEmailSaveMsg(res.message || 'Configurações de e-mail salvas com sucesso!');
       setSmtpConfigured(true);
-      setSmtpPassInput('');
-      setTimeout(() => setSmtpSaveMsg(''), 4000);
+      if (appsScriptUrlInput.trim()) setHasAppsScript(true);
+      if (smtpPassInput.trim()) {
+        setHasPass(true);
+        setSmtpPassInput('');
+      }
+      setTimeout(() => setEmailSaveMsg(''), 4000);
     } catch (err: any) {
-      setSmtpSaveError(err.message || 'Erro ao salvar senha');
+      setEmailSaveError(err.message || 'Erro ao salvar configurações de e-mail');
     } finally {
-      setIsSavingSmtp(false);
+      setIsSavingEmail(false);
     }
+  };
+
+  const handleCopyAppsScriptCode = () => {
+    const code = `function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    MailApp.sendEmail({
+      to: data.to,
+      subject: data.subject,
+      htmlBody: data.html,
+      name: "VaiCar São Sebastião"
+    });
+    return ContentService.createTextOutput(JSON.stringify({ status: "success" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+    navigator.clipboard.writeText(code);
+    setCopiedScript(true);
+    setTimeout(() => setCopiedScript(false), 3000);
   };
 
   const handleSendTestEmail = async () => {
@@ -1778,84 +1815,144 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           {/* ========================================================================= */}
-          {/* SMTP / GMAIL EMAIL DISPATCH CONFIGURATION */}
+          {/* EMAIL DISPATCH CONFIGURATION (APPS SCRIPT & SMTP) */}
           {/* ========================================================================= */}
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xl">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
               <div className="space-y-1">
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <Mail className="w-5 h-5 text-emerald-400" />
-                  <span>Serviço de E-mail & Disparo de Códigos PIN</span>
+                  <span>Serviço de Envio de E-mails & Códigos PIN</span>
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Configure ou atualize a Senha de Aplicativo do Gmail para disparo automatizado de e-mails para passageiros.
+                  Configure o envio automático de códigos PIN via <strong>Google Apps Script (Recomendado)</strong> ou <strong>SMTP Direto</strong>.
                 </p>
               </div>
               <span
                 className={`text-xs font-bold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 self-start sm:self-auto ${
-                  smtpConfigured
+                  hasAppsScript
                     ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                    : hasPass
+                    ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
                     : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                 }`}
               >
-                {smtpConfigured ? '🟢 Conectado ao Gmail' : '🟡 Senha Pendente'}
+                {hasAppsScript
+                  ? '🟢 Apps Script Ativo'
+                  : hasPass
+                  ? '🔵 SMTP Ativo'
+                  : '🟡 Configuração Pendente'}
               </span>
             </div>
 
-            <form onSubmit={handleSaveSmtp} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300">E-mail Remetente (Gmail / Workspace)</label>
-                  <input
-                    type="email"
-                    value={smtpUser}
-                    onChange={(e) => setSmtpUser(e.target.value)}
-                    required
-                    placeholder="vaicar@alansmsolutions.com"
-                    className="w-full bg-slate-950 text-white text-sm px-4 py-3 rounded-xl border border-slate-800 focus:border-emerald-500 outline-none"
-                  />
-                  <p className="text-[10px] text-slate-500">Endereço de e-mail autorizado a enviar mensagens.</p>
+            <form onSubmit={handleSaveEmailConfig} className="space-y-6">
+              {/* Option 1: Google Apps Script Webhook (Recommended) */}
+              <div className="bg-slate-950/70 border border-emerald-500/30 rounded-2xl p-5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="bg-emerald-500 text-slate-950 font-black text-[10px] px-2 py-0.5 rounded-md uppercase">
+                      Recomendado
+                    </span>
+                    <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                      <Code className="w-4 h-4 text-emerald-400" />
+                      <span>Opção 1: Webhook do Google Apps Script (100% Confiável)</span>
+                    </h4>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopyAppsScriptCode}
+                    className="text-xs font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/40 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {copiedScript ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedScript ? 'Código Copiado!' : 'Copiar Código Apps Script'}</span>
+                  </button>
                 </div>
 
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  O Google Apps Script roda diretamente nos servidores do Google, sem bloqueios de portas SMTP ou problemas de rede.
+                </p>
+
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300">Senha de Aplicativo (16 dígitos)</label>
+                  <label className="text-xs font-bold text-slate-200">
+                    URL do App da Web (Google Apps Script)
+                  </label>
                   <input
-                    type="password"
-                    value={smtpPassInput}
-                    onChange={(e) => setSmtpPassInput(e.target.value)}
-                    placeholder={smtpConfigured ? '•••• •••• •••• •••• (Configurada)' : 'Cole o código de 16 letras'}
-                    className="w-full bg-slate-950 text-white text-sm px-4 py-3 rounded-xl border border-slate-800 focus:border-emerald-500 outline-none font-mono"
+                    type="url"
+                    value={appsScriptUrlInput}
+                    onChange={(e) => setAppsScriptUrlInput(e.target.value)}
+                    placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+                    className="w-full bg-slate-900 text-white text-xs px-4 py-3 rounded-xl border border-slate-700 focus:border-emerald-500 outline-none font-mono"
                   />
-                  <p className="text-[10px] text-slate-500">
-                    Gerada em: <em>myaccount.google.com/apppasswords</em>. Espaços são removidos automaticamente.
+                  <p className="text-[10px] text-slate-400">
+                    Cole o link gerado após clicar em <em>Implantar &gt; Nova implantação &gt; App da Web (Qualquer pessoa)</em>.
                   </p>
+                </div>
+
+                {/* Instructions Accordion / Card */}
+                <div className="bg-slate-900/90 rounded-xl p-3.5 border border-slate-800 text-[11px] text-slate-300 space-y-1.5">
+                  <p className="font-bold text-emerald-400">Como criar seu Apps Script em 3 passos:</p>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-400">
+                    <li>Acesse <a href="https://script.google.com" target="_blank" rel="noreferrer" className="text-emerald-400 underline inline-flex items-center gap-0.5">script.google.com <ExternalLink className="w-2.5 h-2.5 inline" /></a> e clique em <strong>Novo projeto</strong>.</li>
+                    <li>Clique no botão <strong>"Copiar Código Apps Script"</strong> acima e cole no editor.</li>
+                    <li>Clique em <strong>Implantar &gt; Nova implantação &gt; App da Web</strong> (defina "Quem tem acesso" como <em>Qualquer pessoa</em>) e cole a URL gerada no campo acima.</li>
+                  </ol>
                 </div>
               </div>
 
-              {smtpSaveMsg && (
-                <div className="bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-semibold p-3 rounded-xl">
-                  ✓ {smtpSaveMsg}
+              {/* Option 2: Direct SMTP */}
+              <div className="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-5 space-y-4">
+                <h4 className="text-sm font-bold text-slate-300 flex items-center gap-1.5">
+                  <Mail className="w-4 h-4 text-slate-400" />
+                  <span>Opção 2: SMTP Direto (Senha de Aplicativo)</span>
+                </h4>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300">E-mail Remetente</label>
+                    <input
+                      type="email"
+                      value={smtpUser}
+                      onChange={(e) => setSmtpUser(e.target.value)}
+                      placeholder="vaicar@alansmsolutions.com"
+                      className="w-full bg-slate-900 text-white text-xs px-4 py-2.5 rounded-xl border border-slate-800 focus:border-emerald-500 outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300">Senha de Aplicativo (16 dígitos)</label>
+                    <input
+                      type="password"
+                      value={smtpPassInput}
+                      onChange={(e) => setSmtpPassInput(e.target.value)}
+                      placeholder={hasPass ? '•••• •••• •••• •••• (Configurada)' : 'Cole o código de 16 letras'}
+                      className="w-full bg-slate-900 text-white text-xs px-4 py-2.5 rounded-xl border border-slate-800 focus:border-emerald-500 outline-none font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {emailSaveMsg && (
+                <div className="bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-semibold p-3 rounded-xl animate-in fade-in">
+                  ✓ {emailSaveMsg}
                 </div>
               )}
 
-              {smtpSaveError && (
-                <div className="bg-rose-950/50 border border-rose-500/30 text-rose-300 text-xs font-semibold p-3 rounded-xl">
-                  ⚠ {smtpSaveError}
+              {emailSaveError && (
+                <div className="bg-rose-950/50 border border-rose-500/30 text-rose-300 text-xs font-semibold p-3 rounded-xl animate-in fade-in">
+                  ⚠ {emailSaveError}
                 </div>
               )}
 
               <div className="flex items-center justify-between gap-4 pt-2 border-b border-slate-800/80 pb-5">
                 <p className="text-[11px] text-slate-400">
-                  {smtpConfigured
-                    ? 'O sistema está pronto para enviar e-mails de validação diretamente.'
-                    : 'Caso não configure, o sistema continuará operando normalmente com o PIN exibido na tela.'}
+                  Salve para persistir a URL do Apps Script ou a Senha SMTP.
                 </p>
                 <button
                   type="submit"
-                  disabled={isSavingSmtp || !smtpPassInput.trim()}
+                  disabled={isSavingEmail}
                   className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold text-xs px-6 py-3 rounded-xl transition-all cursor-pointer whitespace-nowrap shadow-lg shadow-emerald-500/20"
                 >
-                  {isSavingSmtp ? 'Salvando...' : 'Salvar Senha de E-mail'}
+                  {isSavingEmail ? 'Salvando...' : 'Salvar Configurações de E-mail'}
                 </button>
               </div>
             </form>
@@ -1867,7 +1964,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <Send className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Enviar E-mail de Teste com Código PIN</span>
                 </label>
-                <span className="text-[10px] text-slate-400">Disparo real pelo Gmail</span>
+                <span className="text-[10px] text-slate-400">Disparo real em tempo real</span>
               </div>
 
               <div className="flex flex-col sm:flex-row items-center gap-3">

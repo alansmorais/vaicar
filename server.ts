@@ -89,8 +89,9 @@ async function getTransporter() {
   return createMailer(cleanPass, user, 587, false);
 }
 
-// Resilient mail sender that tries Port 587, then Port 465, then Service fallback
+// Resilient mail sender that supports Google Apps Script Webhook and SMTP fallbacks
 async function sendSystemMail(mailOptions: any) {
+  let appsScriptUrl = process.env.APPS_SCRIPT_URL || process.env.GMAIL_WEBHOOK_URL || '';
   let rawPass =
     process.env.SMTP_PASS ||
     process.env.SMTP_PASSWORD ||
@@ -106,22 +107,67 @@ async function sendSystemMail(mailOptions: any) {
     'vaicar@alansmsolutions.com'
   ).trim();
 
-  if (!rawPass) {
+  // Load from Firestore if missing from env
+  try {
+    const snap = await db.collection('platformSettings').doc('smtp').get();
+    if (!snap.exists) {
+      await db.collection('platformSettings').doc('smtp').set({
+        appsScriptUrl: 'https://script.google.com/macros/s/AKfycbyqOGDH8mb_-fOmqxzL4VXGyg9nqm7a7Usn0jL9UcAkixBvUo_aAUkteRK8FEYw4g2K/exec',
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    }
+    if (snap.exists) {
+      const data = snap.data();
+      if (data?.appsScriptUrl && !appsScriptUrl) appsScriptUrl = data.appsScriptUrl;
+      if (data?.pass && !rawPass) rawPass = data.pass;
+      if (data?.user) user = data.user;
+    }
+  } catch (dbErr: any) {
+    console.warn('[MAIL] Error reading email settings from Firestore:', dbErr.message);
+  }
+
+  // METHOD 1: Google Apps Script Webhook (Highly recommended, 100% reliable HTTPS)
+  if (appsScriptUrl && appsScriptUrl.trim().startsWith('http')) {
     try {
-      const snap = await db.collection('platformSettings').doc('smtp').get();
-      if (snap.exists) {
-        const data = snap.data();
-        if (data?.pass) rawPass = data.pass;
-        if (data?.user) user = data.user;
+      console.log('[MAIL] Sending via Google Apps Script Webhook...');
+      const webhookRes = await fetch(appsScriptUrl.trim(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          to: mailOptions.to,
+          subject: mailOptions.subject,
+          html: mailOptions.html,
+          text: mailOptions.text,
+        }),
+        redirect: 'follow',
+      });
+      
+      const responseText = await webhookRes.text();
+      console.log('[MAIL] Apps Script response:', responseText);
+
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(responseText);
+      } catch {}
+
+      if (webhookRes.ok && (!parsed || parsed.status !== 'error')) {
+        return { success: true, provider: 'apps_script' };
       }
-    } catch (dbErr: any) {
-      console.warn('[MAIL] Error reading smtp settings from Firestore:', dbErr.message);
+      console.warn('[MAIL] Apps Script returned non-success, attempting SMTP fallback...');
+    } catch (asErr: any) {
+      console.warn('[MAIL] Apps Script dispatch error:', asErr.message);
+      if (!rawPass) throw asErr;
     }
   }
 
+  // METHOD 2: Direct SMTP
   const cleanPass = rawPass.trim().replace(/^["']|["']$/g, '').replace(/\s+/g, '');
   if (!cleanPass) {
-    throw new Error('Nenhuma senha de aplicativo configurada. Salve a senha de 16 letras no painel Admin.');
+    if (!appsScriptUrl) {
+      throw new Error(
+        'Nenhum método de e-mail configurado. Adicione a URL do Google Apps Script ou a Senha de Aplicativo no Painel Admin.'
+      );
+    }
   }
 
   // Attempt 1: Port 587 (IPv4 STARTTLS)
@@ -1376,17 +1422,20 @@ app.delete('/api/v1/admin/costs/:id', async (req, res) => {
   res.json({ success: true });
 });
 
-// --- ADMIN SMTP SETTINGS ---
+// --- ADMIN SMTP / EMAIL SETTINGS ---
 app.get('/api/v1/admin/smtp-settings', async (req, res) => {
   try {
     const snap = await db.collection('platformSettings').doc('smtp').get();
     const data = snap.exists ? snap.data() : {};
     const pass = data?.pass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '';
     const user = data?.user || process.env.SMTP_USER || 'vaicar@alansmsolutions.com';
+    const appsScriptUrl = data?.appsScriptUrl || process.env.APPS_SCRIPT_URL || process.env.GMAIL_WEBHOOK_URL || '';
     res.json({
-      configured: Boolean(pass),
+      configured: Boolean(appsScriptUrl || pass),
       user,
       hasPass: Boolean(pass),
+      appsScriptUrl,
+      hasAppsScript: Boolean(appsScriptUrl),
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to get SMTP settings' });
@@ -1395,14 +1444,23 @@ app.get('/api/v1/admin/smtp-settings', async (req, res) => {
 
 app.post('/api/v1/admin/smtp-settings', async (req, res) => {
   try {
-    const { user, pass } = req.body;
-    if (!pass) return res.status(400).json({ error: 'Senha de aplicativo obrigatória' });
-    const cleanPass = pass.trim().replace(/^["']|["']$/g, '').replace(/\s+/g, '');
-    const cleanUser = (user || 'vaicar@alansmsolutions.com').trim();
+    const { user, pass, appsScriptUrl } = req.body;
+    
+    const snap = await db.collection('platformSettings').doc('smtp').get();
+    const existing = snap.exists ? snap.data() : {};
+
+    const cleanPass = pass !== undefined ? pass.trim().replace(/^["']|["']$/g, '').replace(/\s+/g, '') : (existing?.pass || '');
+    const cleanUser = (user || existing?.user || 'vaicar@alansmsolutions.com').trim();
+    const cleanAppsScriptUrl = appsScriptUrl !== undefined ? appsScriptUrl.trim() : (existing?.appsScriptUrl || '');
+
+    if (!cleanPass && !cleanAppsScriptUrl) {
+      return res.status(400).json({ error: 'Informe a URL do Google Apps Script ou a Senha de Aplicativo.' });
+    }
     
     await db.collection('platformSettings').doc('smtp').set({
       user: cleanUser,
       pass: cleanPass,
+      appsScriptUrl: cleanAppsScriptUrl,
       updatedAt: new Date().toISOString(),
     });
 

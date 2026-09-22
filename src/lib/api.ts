@@ -507,13 +507,23 @@ export async function fetchSurgeAnalysis(): Promise<any[]> {
 }
 
 // --- ADMIN SMTP / EMAIL SETTINGS ---
-export async function fetchSmtpSettings(): Promise<{ configured: boolean; user: string; hasPass: boolean }> {
+export async function fetchSmtpSettings(): Promise<{
+  configured: boolean;
+  user: string;
+  hasPass: boolean;
+  appsScriptUrl?: string;
+  hasAppsScript?: boolean;
+}> {
   const res = await fetch('/api/v1/admin/smtp-settings');
   if (!res.ok) return { configured: false, user: 'vaicar@alansmsolutions.com', hasPass: false };
   return res.json();
 }
 
-export async function saveSmtpSettings(settings: { user: string; pass: string }): Promise<{ success: boolean; message: string }> {
+export async function saveSmtpSettings(settings: {
+  user?: string;
+  pass?: string;
+  appsScriptUrl?: string;
+}): Promise<{ success: boolean; message: string }> {
   const res = await fetch('/api/v1/admin/smtp-settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
