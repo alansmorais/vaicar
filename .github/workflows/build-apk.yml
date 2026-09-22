@@ -43,6 +43,14 @@ jobs:
           BUBBLEWRAP_KEYSTORE_PASSWORD: "vaicar123"
           BUBBLEWRAP_KEY_PASSWORD: "vaicar123"
         run: |
+          # Start a local static server to serve manifest.json locally so download never fails with 404
+          python3 -m http.server 8080 --directory public &
+          sleep 2
+          
+          # Temporarily change webManifestUrl in twa-manifest.json to point to the local server
+          sed -i 's|"webManifestUrl": "https://[^"]*"|"webManifestUrl": "http://localhost:8080/manifest.json"|g' twa-manifest.json
+          cat twa-manifest.json
+          
           # Use both CLI flags and yes pipe to guarantee zero interactive prompts
           yes "" | bubblewrap update --manifest=twa-manifest.json --skipVersionUpgrade --skipConfig
           yes "" | bubblewrap build

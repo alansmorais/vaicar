@@ -2304,6 +2304,10 @@ app.get('/api/v1/admin/surge-analysis', async (req, res) => {
 });
 
 // --- VITE MIDDLEWARE & SPA SERVING ---
+app.get('/manifest.json', (req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'manifest.json'));
+});
+
 app.all('/api/*', (req, res) => {
   console.log(`[API 404] ${req.method} ${req.originalUrl}`);
   res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
