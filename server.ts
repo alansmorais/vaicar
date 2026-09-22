@@ -1,9 +1,19 @@
 import 'dotenv/config';
+import dns from 'dns';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import nodemailer from 'nodemailer';
 import { db } from './src/lib/firebaseAdmin.ts';
+
+// Force Node.js to use IPv4 instead of IPv6 to prevent ENETUNREACH in cloud containers
+try {
+  if (dns.setDefaultResultOrder) {
+    dns.setDefaultResultOrder('ipv4first');
+  }
+} catch (e) {
+  console.warn('[DNS] Could not set ipv4first default result order:', e);
+}
 import {
   Zone,
   Municipality,
@@ -19,6 +29,24 @@ import {
   PlatformFareSettings,
   DynamicPricingSettings,
 } from './src/types.ts';
+
+async function createMailer(cleanPass: string, user: string, port = 587, secure = false) {
+  return nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port,
+    secure,
+    auth: {
+      user,
+      pass: cleanPass,
+    },
+    connectionTimeout: 8000,
+    greetingTimeout: 5000,
+    socketTimeout: 10000,
+    tls: {
+      rejectUnauthorized: false,
+    },
+  } as any);
+}
 
 async function getTransporter() {
   let rawPass =
@@ -57,24 +85,67 @@ async function getTransporter() {
     return null;
   }
 
+  // Return IPv4 transport on port 587 with STARTTLS
+  return createMailer(cleanPass, user, 587, false);
+}
+
+// Resilient mail sender that tries Port 587, then Port 465, then Service fallback
+async function sendSystemMail(mailOptions: any) {
+  let rawPass =
+    process.env.SMTP_PASS ||
+    process.env.SMTP_PASSWORD ||
+    process.env.EMAIL_PASS ||
+    process.env.GMAIL_APP_PASSWORD ||
+    process.env.GMAIL_PASS ||
+    '';
+
+  let user = (
+    process.env.SMTP_USER ||
+    process.env.EMAIL_USER ||
+    process.env.GMAIL_USER ||
+    'vaicar@alansmsolutions.com'
+  ).trim();
+
+  if (!rawPass) {
+    try {
+      const snap = await db.collection('platformSettings').doc('smtp').get();
+      if (snap.exists) {
+        const data = snap.data();
+        if (data?.pass) rawPass = data.pass;
+        if (data?.user) user = data.user;
+      }
+    } catch (dbErr: any) {
+      console.warn('[MAIL] Error reading smtp settings from Firestore:', dbErr.message);
+    }
+  }
+
+  const cleanPass = rawPass.trim().replace(/^["']|["']$/g, '').replace(/\s+/g, '');
+  if (!cleanPass) {
+    throw new Error('Nenhuma senha de aplicativo configurada. Salve a senha de 16 letras no painel Admin.');
+  }
+
+  // Attempt 1: Port 587 (IPv4 STARTTLS)
   try {
-    // Uses standard Gmail transport
-    return nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user,
-        pass: cleanPass,
-      },
-      connectionTimeout: 10000,
-      greetingTimeout: 6000,
-      socketTimeout: 12000,
-      tls: {
-        rejectUnauthorized: false,
-      },
-    });
-  } catch (err: any) {
-    console.error('[MAIL] Failed to create nodemailer transport:', err.message);
-    return null;
+    const transporter587 = await createMailer(cleanPass, user, 587, false);
+    return await transporter587.sendMail(mailOptions);
+  } catch (err587: any) {
+    console.warn('[MAIL] Port 587 attempt failed, trying Port 465 SSL:', err587.message);
+    
+    // Attempt 2: Port 465 (IPv4 SMTPS)
+    try {
+      const transporter465 = await createMailer(cleanPass, user, 465, true);
+      return await transporter465.sendMail(mailOptions);
+    } catch (err465: any) {
+      console.warn('[MAIL] Port 465 attempt failed, trying service gmail:', err465.message);
+
+      // Attempt 3: Service Gmail
+      const serviceTransporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user, pass: cleanPass },
+        tls: { rejectUnauthorized: false },
+      });
+      return await serviceTransporter.sendMail(mailOptions);
+    }
   }
 }
 
@@ -1349,13 +1420,6 @@ app.post('/api/v1/admin/test-email', async (req, res) => {
       return res.status(400).json({ error: 'E-mail de destino obrigatório para o teste' });
     }
 
-    const mailer = await getTransporter();
-    if (!mailer) {
-      return res.status(400).json({
-        error: 'Nenhuma senha SMTP configurada. Por favor, salve a Senha de Aplicativo do Gmail primeiro.',
-      });
-    }
-
     const testPin = Math.floor(1000 + Math.random() * 9000).toString();
     const senderUser =
       process.env.SMTP_USER ||
@@ -1363,7 +1427,7 @@ app.post('/api/v1/admin/test-email', async (req, res) => {
       process.env.GMAIL_USER ||
       'vaicar@alansmsolutions.com';
 
-    await mailer.sendMail({
+    await sendSystemMail({
       from: `"VaiCar São Sebastião" <${senderUser}>`,
       to: dest,
       subject: `🧪 Teste de Conexão VaiCar - Código PIN: ${testPin}`,
@@ -1435,41 +1499,36 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
       
       if (cleanEmail) {
         try {
-          const mailer = await getTransporter();
-          if (mailer) {
-            const senderUser =
-              process.env.SMTP_USER ||
-              process.env.EMAIL_USER ||
-              process.env.GMAIL_USER ||
-              'vaicar@alansmsolutions.com';
-            await mailer.sendMail({
-              from: `"VaiCar São Sebastião" <${senderUser}>`,
-              to: cleanEmail,
-              subject: `Código de Acesso VaiCar: ${pin}`,
-              text: `Olá! Seu código de validação para o VaiCar São Sebastião é: ${pin}.\n\nSe não solicitou este código, por favor desconsidere este e-mail.`,
-              html: `
-                <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #020617; color: #f8fafc; padding: 24px; border-radius: 16px; max-width: 480px; margin: 0 auto; border: 1px solid #1e293b;">
-                  <div style="text-align: center; margin-bottom: 20px;">
-                    <h1 style="color: #10b981; font-size: 24px; margin: 0; font-weight: 900; letter-spacing: -0.5px;">VaiCar</h1>
-                    <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Transporte Municipal de São Sebastião</p>
-                  </div>
-                  <div style="background-color: #0f172a; padding: 20px; border-radius: 12px; text-align: center; border: 1px solid #334155;">
-                    <p style="color: #cbd5e1; font-size: 14px; margin: 0 0 12px 0;">Seu código de confirmação é:</p>
-                    <div style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #10b981; padding: 12px; background: #020617; border-radius: 8px; border: 1px solid #10b981;">
-                      ${pin}
-                    </div>
-                  </div>
-                  <p style="color: #64748b; font-size: 11px; text-align: center; margin-top: 20px;">
-                    Este código é de uso exclusivo para login no aplicativo VaiCar.
-                  </p>
+          const senderUser =
+            process.env.SMTP_USER ||
+            process.env.EMAIL_USER ||
+            process.env.GMAIL_USER ||
+            'vaicar@alansmsolutions.com';
+          await sendSystemMail({
+            from: `"VaiCar São Sebastião" <${senderUser}>`,
+            to: cleanEmail,
+            subject: `Código de Acesso VaiCar: ${pin}`,
+            text: `Olá! Seu código de validação para o VaiCar São Sebastião é: ${pin}.\n\nSe não solicitou este código, por favor desconsidere este e-mail.`,
+            html: `
+              <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #020617; color: #f8fafc; padding: 24px; border-radius: 16px; max-width: 480px; margin: 0 auto; border: 1px solid #1e293b;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                  <h1 style="color: #10b981; font-size: 24px; margin: 0; font-weight: 900; letter-spacing: -0.5px;">VaiCar</h1>
+                  <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Transporte Municipal de São Sebastião</p>
                 </div>
-              `,
-            });
-            emailSent = true;
-            console.log(`[MAIL] Successfully sent PIN ${pin} to ${cleanEmail}`);
-          } else {
-            emailErrorReason = 'Senha SMTP não detectada no ambiente de execução.';
-          }
+                <div style="background-color: #0f172a; padding: 20px; border-radius: 12px; text-align: center; border: 1px solid #334155;">
+                  <p style="color: #cbd5e1; font-size: 14px; margin: 0 0 12px 0;">Seu código de confirmação é:</p>
+                  <div style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #10b981; padding: 12px; background: #020617; border-radius: 8px; border: 1px solid #10b981;">
+                    ${pin}
+                  </div>
+                </div>
+                <p style="color: #64748b; font-size: 11px; text-align: center; margin-top: 20px;">
+                  Este código é de uso exclusivo para login no aplicativo VaiCar.
+                </p>
+              </div>
+            `,
+          });
+          emailSent = true;
+          console.log(`[MAIL] Successfully sent PIN ${pin} to ${cleanEmail}`);
         } catch (emailError: any) {
           console.warn('[MAIL] Email sending encountered an issue:', emailError?.message || emailError);
           emailErrorReason = emailError?.message || 'Falha de autenticação ou conexão com o Gmail.';
