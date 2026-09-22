@@ -116,6 +116,7 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
         vehiclePlate,
         operatingZones: selectedZones,
         avatarUrl, // <--- Added!
+        status: 'PENDING',
       });
 
       alert('Cadastro recebido com sucesso! Sua documentação foi enviada para análise da Prefeitura e Administração.');

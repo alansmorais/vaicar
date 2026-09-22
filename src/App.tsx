@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header.tsx';
+import { RoleSelector } from './components/RoleSelector.tsx';
 import { PassengerDashboard } from './components/PassengerDashboard.tsx';
 import { DriverCockpit } from './components/DriverCockpit.tsx';
 import { DriverOnboarding } from './components/DriverOnboarding.tsx';
@@ -25,9 +26,28 @@ import {
 } from './lib/api.ts';
 
 export default function App() {
-  // Navigation Role
-  const [role, setRole] = useState<UserRole>('PASSENGER');
+  // Navigation Role (null initially for role selection)
+  // Current User Role - Auto-restores persisted role from localStorage
+  const [role, setRole] = useState<UserRole | null>(() => {
+    const saved = localStorage.getItem('vaicar_user_role');
+    if (saved === 'PASSENGER' || saved === 'DRIVER' || saved === 'ADMIN' || saved === 'DEV') {
+      return saved as UserRole;
+    }
+    return null;
+  });
   const [driverSubView, setDriverSubView] = useState<'COCKPIT' | 'ONBOARDING' | 'SUBSCRIPTION'>('COCKPIT');
+
+  const handleSelectRole = (r: UserRole | null) => {
+    setRole(r);
+    if (r) {
+      localStorage.setItem('vaicar_user_role', r);
+      if (r === 'DRIVER') {
+        setDriverSubView('COCKPIT');
+      }
+    } else {
+      localStorage.removeItem('vaicar_user_role');
+    }
+  };
 
   // Application Data Stores
   const [zones, setZones] = useState<Zone[]>([]);
@@ -150,31 +170,30 @@ export default function App() {
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
-      {/* Universal Top Navigation Header */}
-      <Header
-        currentRole={role}
-        onSelectRole={(r) => {
-          setRole(r);
-          if (r === 'DRIVER') {
-            setDriverSubView('COCKPIT');
-          }
-        }}
-        activeDriverId={currentDriverId}
-        onSelectDriverId={(id) => {
-          if (id === 'new') {
-            setRole('DRIVER');
-            setDriverSubView('ONBOARDING');
-          } else {
-            setCurrentDriverId(id);
-          }
-        }}
-        availableDrivers={drivers.map((d) => ({
-          id: d.id,
-          name: d.name,
-          regulatoryStatus: d.regulatoryStatus,
-        }))}
-        onOpenLegal={handleOpenLegal}
-      />
+      {role && (
+        <Header
+          currentRole={role}
+          onSelectRole={(r) => handleSelectRole(r)}
+          onLogout={() => handleSelectRole(null)}
+          passengerName={localStorage.getItem('vaicar_passenger_name') || ''}
+          passengerAvatar={localStorage.getItem('vaicar_passenger_avatar') || ''}
+          activeDriverId={currentDriverId}
+          onSelectDriverId={(id) => {
+            if (id === 'new') {
+              handleSelectRole('DRIVER');
+              setDriverSubView('ONBOARDING');
+            } else {
+              setCurrentDriverId(id);
+            }
+          }}
+          availableDrivers={drivers.map((d) => ({
+            id: d.id,
+            name: d.name,
+            regulatoryStatus: d.regulatoryStatus,
+          }))}
+          onOpenLegal={handleOpenLegal}
+        />
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 pb-16">
@@ -187,6 +206,8 @@ export default function App() {
               </p>
             </div>
           </div>
+        ) : !role ? (
+          <RoleSelector onSelect={(r) => handleSelectRole(r)} />
         ) : (
           <>
             {/* 1. PASSENGER VIEW */}
@@ -198,8 +219,9 @@ export default function App() {
                   const r = await fetchRides();
                   setRides(r);
                 }}
+                onLogout={() => handleSelectRole(null)}
                 onGoToDriverSignup={() => {
-                  setRole('DRIVER');
+                  handleSelectRole('DRIVER');
                   setDriverSubView('ONBOARDING');
                 }}
                 onOpenLegal={handleOpenLegal}

@@ -188,6 +188,7 @@ export interface Driver {
   blockingReason?: string;
   requestedDocRequirement?: string;
   isDemo?: boolean;
+  status?: 'PENDING' | 'APPROVED' | 'REJECTED'; // Added status
 }
 
 export interface Passenger {

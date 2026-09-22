@@ -60,6 +60,18 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
   onRefreshRides,
   onGoToSubscription,
 }) => {
+  if (driver.status === 'PENDING') {
+    return (
+      <div className="max-w-lg mx-auto my-12 bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-4">
+        <h3 className="text-xl font-black text-white">Cadastro em Análise</h3>
+        <p className="text-sm text-slate-400">
+          Sua documentação foi enviada e está sendo analisada pela nossa equipe.
+          Em breve você receberá uma notificação sobre a aprovação.
+        </p>
+      </div>
+    );
+  }
+
   const [activeTab, setActiveTab] = useState<'PANEL' | 'PRICING' | 'PAYMENTS' | 'ZONES' | 'DOCS'>('PANEL');
   const [isUpdating, setIsUpdating] = useState(false);
 

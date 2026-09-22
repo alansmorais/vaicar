@@ -26,6 +26,7 @@ import {
   Lock,
   PhoneCall,
   Send,
+  LogOut,
 } from 'lucide-react';
 import { Zone, Ride, Driver, PaymentMethod, SearchDriversResponse } from '../types.ts';
 import {
@@ -48,6 +49,7 @@ interface PassengerDashboardProps {
   onGoToDriverSignup: () => void;
   initialTrackedRide?: Ride | null;
   onOpenLegal: (tab: 'termos' | 'privacidade' | 'regulacao') => void;
+  onLogout?: () => void;
 }
 
 export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
@@ -57,14 +59,27 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   onGoToDriverSignup,
   initialTrackedRide,
   onOpenLegal,
+  onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<'SOLICITAR' | 'ATUAL' | 'HISTORICO' | 'AVALIACOES' | 'PERFIL' | 'AJUDA'>('SOLICITAR');
 
-  // Passenger Profile state (persisted locally for convenience)
-  const [passengerName, setPassengerName] = useState(() => localStorage.getItem('vaicar_passenger_name') || 'Maria Santos');
-  const [passengerPhone, setPassengerPhone] = useState(() => localStorage.getItem('vaicar_passenger_phone') || '(12) 99999-0000');
-  const [passengerEmail, setPassengerEmail] = useState(() => localStorage.getItem('vaicar_passenger_email') || 'maria.santos@exemplo.com');
-  const [passengerAvatarUrl, setPassengerAvatarUrl] = useState(() => localStorage.getItem('vaicar_passenger_avatar') || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80');
+  // Passenger Profile state (persisted locally for direct login retention)
+  const [passengerName, setPassengerName] = useState(() => localStorage.getItem('vaicar_passenger_name') || '');
+  const [passengerPhone, setPassengerPhone] = useState(() => localStorage.getItem('vaicar_passenger_phone') || '');
+  const [passengerEmail, setPassengerEmail] = useState(() => localStorage.getItem('vaicar_passenger_email') || '');
+  const [passengerAvatarUrl, setPassengerAvatarUrl] = useState(
+    () => localStorage.getItem('vaicar_passenger_avatar') || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80'
+  );
+
+  const [isVerified, setIsVerified] = useState(() => {
+    const verified = localStorage.getItem('vaicar_passenger_verified');
+    const name = localStorage.getItem('vaicar_passenger_name');
+    const phone = localStorage.getItem('vaicar_passenger_phone');
+    return verified === 'true' && !!name && !!phone;
+  });
+  const [verificationCodeInput, setVerificationCodeInput] = useState('');
+  const [codeRequested, setCodeRequested] = useState(false);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
 
   const handlePassengerAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -104,10 +119,6 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
       reader.readAsDataURL(file);
     }
   };
-  const [isVerified, setIsVerified] = useState(true);
-  const [verificationCodeInput, setVerificationCodeInput] = useState('');
-  const [codeRequested, setCodeRequested] = useState(false);
-  const [authMessage, setAuthMessage] = useState<string | null>(null);
 
   // Search State
   const [originZoneId, setOriginZoneId] = useState<string>(zones[0]?.id || 'z-centro');
@@ -304,11 +315,11 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         phone: passengerPhone,
         email: passengerEmail,
         verificationCode: verificationCodeInput || undefined,
-        avatarUrl: passengerAvatarUrl, // <--- Added!
+        avatarUrl: passengerAvatarUrl,
       });
       if (res.codeSent) {
         setCodeRequested(true);
-        setAuthMessage(`Código de validação enviado! (Em ambiente de teste, utilize o código: ${res.testCode})`);
+        setAuthMessage(`Código PIN enviado! (Em ambiente de teste, utilize o PIN: ${res.testCode})`);
       } else if (res.success) {
         setIsVerified(true);
         setCodeRequested(false);
@@ -316,8 +327,10 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         setAuthMessage('Perfil verificado e salvo com sucesso!');
         localStorage.setItem('vaicar_passenger_name', passengerName);
         localStorage.setItem('vaicar_passenger_phone', passengerPhone);
-        localStorage.setItem('vaicar_passenger_email', passengerEmail);
-        localStorage.setItem('vaicar_passenger_avatar', passengerAvatarUrl); // <--- Added!
+        if (passengerEmail) localStorage.setItem('vaicar_passenger_email', passengerEmail);
+        localStorage.setItem('vaicar_passenger_avatar', passengerAvatarUrl);
+        localStorage.setItem('vaicar_passenger_verified', 'true');
+        localStorage.setItem('vaicar_user_role', 'PASSENGER');
       }
     } catch (err: any) {
       setAuthMessage(err.message || 'Erro ao validar perfil');
@@ -332,8 +345,191 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
     setTimeout(() => setReportSuccessMsg(false), 4000);
   };
 
+  // If the passenger is not yet registered or verified, display the simple onboarding gate
+  if (!isVerified) {
+    return (
+      <div className="w-full max-w-xl mx-auto px-4 py-8 space-y-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">
+          <div className="text-center space-y-2">
+            <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/20">
+              <User className="w-6 h-6" />
+            </div>
+            <h2 className="text-2xl font-black text-white">Entrar como Passageiro</h2>
+            <p className="text-xs text-slate-400 max-w-sm mx-auto">
+              Faça seu registro simples para ficar conectado diretamente na sua conta e solicitar corridas em São Sebastião.
+            </p>
+          </div>
+
+          <form onSubmit={handleSaveProfile} className="space-y-4">
+            {/* Foto de Perfil */}
+            <div className="space-y-2 bg-slate-950 p-4 rounded-2xl border border-slate-800/80">
+              <label className="text-xs font-bold text-slate-300 block">Sua Foto de Perfil (Opcional)</label>
+              <div className="flex items-center gap-4">
+                <div className="relative shrink-0">
+                  <img
+                    src={passengerAvatarUrl}
+                    alt="Sua foto"
+                    className="w-14 h-14 rounded-2xl object-cover border-2 border-emerald-500/50 shadow-md"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePassengerAvatarChange}
+                    className="hidden"
+                    id="onboarding-passenger-avatar-upload"
+                  />
+                  <label
+                    htmlFor="onboarding-passenger-avatar-upload"
+                    className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3 py-1.5 rounded-lg cursor-pointer transition-all border border-slate-700"
+                  >
+                    Escolher Foto
+                  </label>
+                  <p className="text-[10px] text-slate-400">Ajuda o motorista a te identificar no local de embarque.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-300">Nome Completo *</label>
+              <input
+                type="text"
+                placeholder="Ex: Alan Morais"
+                value={passengerName}
+                onChange={(e) => setPassengerName(e.target.value)}
+                required
+                className="w-full bg-slate-950 text-white text-sm px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-300">WhatsApp / Telefone *</label>
+              <input
+                type="tel"
+                placeholder="Ex: (12) 99999-8888"
+                value={passengerPhone}
+                onChange={(e) => setPassengerPhone(e.target.value)}
+                required
+                className="w-full bg-slate-950 text-white text-sm px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-300">E-mail *</label>
+              <input
+                type="email"
+                placeholder="Ex: alan@email.com"
+                value={passengerEmail}
+                onChange={(e) => setPassengerEmail(e.target.value)}
+                required
+                className="w-full bg-slate-950 text-white text-sm px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            {codeRequested && (
+              <div className="space-y-2 bg-emerald-950/30 p-4 rounded-2xl border border-emerald-500/40 animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-emerald-400">Código PIN de Validação</label>
+                  <span className="text-[10px] text-slate-400">PIN de Teste: <strong className="text-emerald-400">8492</strong></span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Digite o código (ex: 8492)"
+                  value={verificationCodeInput}
+                  onChange={(e) => setVerificationCodeInput(e.target.value)}
+                  required
+                  autoFocus
+                  className="w-full bg-slate-950 text-emerald-400 text-center text-lg font-mono tracking-widest px-3.5 py-2.5 rounded-xl border border-emerald-500/60 outline-none"
+                />
+                <p className="text-[11px] text-slate-400 text-center">
+                  Digite o código PIN para confirmar e acessar diretamente sua conta.
+                </p>
+              </div>
+            )}
+
+            {authMessage && (
+              <div className={`p-3 rounded-xl text-xs font-semibold ${authMessage.includes('Erro') || authMessage.includes('incorreto') ? 'bg-rose-950/50 border border-rose-500/30 text-rose-300' : 'bg-emerald-950/40 border border-emerald-500/30 text-emerald-300'}`}>
+                {authMessage}
+              </div>
+            )}
+
+            <div className="pt-2 flex flex-col gap-2">
+              <button
+                type="submit"
+                className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3 rounded-xl text-sm cursor-pointer shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
+              >
+                {codeRequested ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Confirmar PIN e Entrar</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Continuar e Validar Cadastro →</span>
+                  </>
+                )}
+              </button>
+
+              {onLogout && (
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="text-xs text-slate-400 hover:text-white py-2 cursor-pointer transition-colors"
+                >
+                  ← Voltar à seleção de perfil
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-6 space-y-6">
+      {/* Logged in Passenger Banner */}
+      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+        <div className="flex items-center gap-3">
+          <img
+            src={passengerAvatarUrl}
+            alt={passengerName}
+            className="w-11 h-11 rounded-xl object-cover border border-emerald-500/50"
+            referrerPolicy="no-referrer"
+          />
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-black text-white">Olá, {passengerName || 'Passageiro'}!</h2>
+              <span className="bg-emerald-950/70 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                <CheckCircle2 className="w-2.5 h-2.5" />
+                <span>Verificado</span>
+              </span>
+            </div>
+            <p className="text-xs text-slate-400">{passengerPhone} {passengerEmail ? `• ${passengerEmail}` : ''}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setActiveTab('PERFIL')}
+            className="text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl border border-slate-700 transition-colors cursor-pointer"
+          >
+            Meu Perfil
+          </button>
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="text-xs font-bold text-slate-400 hover:text-rose-300 bg-slate-800/60 hover:bg-rose-950/40 px-3 py-1.5 rounded-xl border border-slate-700/60 hover:border-rose-500/40 transition-colors cursor-pointer flex items-center gap-1"
+              title="Trocar perfil ou sair"
+            >
+              <LogOut className="w-3 h-3" />
+              <span>Sair</span>
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Passenger Navigation Tabs */}
       <div className="flex items-center gap-1 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800 overflow-x-auto shadow-xl scrollbar-none">
         <button

@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
+import nodemailer from 'nodemailer';
 import { db } from './src/lib/firebaseAdmin.ts';
 import {
   Zone,
@@ -17,6 +18,16 @@ import {
   PlatformFareSettings,
   DynamicPricingSettings,
 } from './src/types.ts';
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
 
 const app = express();
 const PORT = 3000;
@@ -564,7 +575,7 @@ app.post('/api/v1/drivers', async (req, res) => {
     const cleanPhone = phone.replace(/\D/g, '');
     const id = `drv-${Date.now()}`;
     const requirementsSnap = await db.collection('requirements').get();
-    const requirements = requirementsSnap.docs.map(doc => doc.data() as RegulatoryRequirement);
+    const requirements = requirementsSnap.docs.map((doc: any) => doc.data() as RegulatoryRequirement);
 
     const newDriver: Driver = {
       id,
@@ -600,7 +611,7 @@ app.post('/api/v1/drivers', async (req, res) => {
         ratePerKm: 3.5,
         fixedRoutes: [],
       },
-      documents: requirements.map((reqItem, idx) => ({
+      documents: requirements.map((reqItem: any, idx: number) => ({
         id: `doc-${Date.now()}-${idx}`,
         driverId: id,
         requirementId: reqItem.id,
@@ -1118,7 +1129,7 @@ app.get('/api/v1/subscription/plan', async (req, res) => {
 // Regulatory Requirements
 app.get('/api/v1/regulatory/requirements', async (req, res) => {
   const snap = await db.collection('requirements').get();
-  res.json(snap.docs.map(doc => doc.data()));
+  res.json(snap.docs.map((doc: any) => doc.data()));
 });
 
 // --- ADMIN DRIVER AUDITING ACTIONS ---
@@ -1216,7 +1227,7 @@ app.post('/api/v1/admin/drivers/:id/subscription/mark-paid', async (req, res) =>
 // --- PLATFORM COSTS ---
 app.get('/api/v1/admin/costs', async (req, res) => {
   const snap = await db.collection('platformCosts').get();
-  res.json(snap.docs.map(doc => doc.data()));
+  res.json(snap.docs.map((doc: any) => doc.data()));
 });
 
 app.post('/api/v1/admin/costs', async (req, res) => {
@@ -1255,14 +1266,47 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
       console.warn('DEBUG: Auth failed, missing phone');
       return res.status(400).json({ error: 'WhatsApp obrigatório' });
     }
+    
+    const cleanPhone = phone.trim();
 
-    if (!verificationCode) return res.json({ codeSent: true, testCode: '8492' });
-    if (verificationCode !== '8492' && verificationCode !== '1234') {
+    if (!verificationCode) {
+      const pin = Math.floor(1000 + Math.random() * 9000).toString();
+      
+      // Store PIN in a temporary collection or update passenger doc
+      // For simplicity, let's update the passenger doc or create a pending verification
+      // If no passenger exists, we need a way to store the PIN.
+      // Let's use a temporary pendingPins collection
+      await db.collection('pendingPins').doc(cleanPhone).set({
+        pin,
+        createdAt: new Date().toISOString(),
+      });
+      
+      try {
+        await transporter.sendMail({
+          from: `"VaiCar" <${process.env.SMTP_USER}>`,
+          to: email,
+          subject: 'Seu Código de Verificação VaiCar',
+          text: `Olá! Seu código de verificação para o VaiCar é: ${pin}.`,
+          html: `<p>Olá!</p><p>Seu código de verificação para o VaiCar é: <strong>${pin}</strong>.</p>`,
+        });
+      } catch (emailError) {
+        console.error('DEBUG: Email sending failed:', emailError);
+        return res.status(500).json({ error: 'Erro ao enviar e-mail de verificação' });
+      }
+
+      return res.json({ codeSent: true });
+    }
+    
+    // Verify PIN
+    const pinDoc = await db.collection('pendingPins').doc(cleanPhone).get();
+    if (!pinDoc.exists || pinDoc.data()?.pin !== verificationCode) {
       console.warn('DEBUG: Auth failed, invalid code:', verificationCode);
       return res.status(400).json({ error: 'Código incorreto' });
     }
+    
+    // Code is valid, remove it
+    await db.collection('pendingPins').doc(cleanPhone).delete();
 
-    const cleanPhone = phone.trim();
     console.log('DEBUG: Checking phone:', cleanPhone);
     const snap = await db.collection('passengers').where('phone', '==', cleanPhone).get();
     let passenger: any;
