@@ -2308,6 +2308,16 @@ app.get('/manifest.json', (req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'manifest.json'));
 });
 
+app.get('/.well-known/assetlinks.json', (req, res) => {
+  const assetlinksPath = path.join(process.cwd(), 'public', '.well-known', 'assetlinks.json');
+  if (fs.existsSync(assetlinksPath)) {
+    res.setHeader('Content-Type', 'application/json');
+    res.sendFile(assetlinksPath);
+  } else {
+    res.status(404).json({ error: 'assetlinks.json not found' });
+  }
+});
+
 app.all('/api/*', (req, res) => {
   console.log(`[API 404] ${req.method} ${req.originalUrl}`);
   res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });

@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.vaicar.app",
+      "sha256_cert_fingerprints": [
+        "14:6D:E9:01:0F:B0:F1:C9:9F:8B:27:C4:6E:9A:88:B9:4C:E6:9D:69:BE:88:C4:72:08:C1:21:49:57:3E:45:B6"
+      ]
+    }
+  }
+]

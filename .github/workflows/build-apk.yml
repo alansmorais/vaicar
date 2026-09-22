@@ -52,9 +52,16 @@ jobs:
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"/home/runner/android-sdk\"}" > ~/.bubblewrap/config.json
           cat ~/.bubblewrap/config.json
 
-      - name: Create Android Keystore
+      - name: Create Android Keystore and Extract Fingerprint
         run: |
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 -storepass "vaicar123" -keypass "vaicar123" -dname "CN=vaicar, OU=IT, O=VaiCar, L=SaoSebastiao, S=SP, C=BR"
+          
+          # Extract SHA-256 Fingerprint for Digital Asset Links
+          SHA256_FINGERPRINT=$(keytool -list -v -keystore android.keystore -alias android -storepass "vaicar123" | grep "SHA256:" | head -n 1 | awk '{print $2}')
+          echo "========================================================="
+          echo "  ANDROID APP SHA-256 FINGERPRINT FOR ASSETLINKS:"
+          echo "  $SHA256_FINGERPRINT"
+          echo "========================================================="
 
       - name: Generate Android Project and Build APK
         env:
