@@ -71,15 +71,38 @@ jobs:
           sed -i 's|"webManifestUrl": "https://[^"]*"|"webManifestUrl": "http://localhost:8080/manifest.json"|g' twa-manifest.json
           cat twa-manifest.json
           
-          # Use both CLI flags and yes pipe to guarantee zero interactive prompts
+          # Use both CLI flags and yes pipe to guarantee zero interactive prompts, skipping internal signing
           yes "" | bubblewrap update --manifest=twa-manifest.json --skipVersionUpgrade --skipConfig
-          yes "" | bubblewrap build
+          yes "" | bubblewrap build --skipSigning
+
+      - name: Robust Manual Align and Sign APK
+        run: |
+          # Find the built unsigned APK under gradle's output
+          UNSIGNED_APK=$(find . -name "*unsigned.apk" -print -quit)
+          echo "Found unsigned APK at: $UNSIGNED_APK"
+          if [ -z "$UNSIGNED_APK" ]; then
+            echo "Error: Unsigned APK not found!" && exit 1
+          fi
+          
+          # Find build tools (zipalign and apksigner)
+          ZIPALIGN_BIN=$(find /usr/local/lib/android/sdk/build-tools -name "zipalign" -print -quit)
+          APKSIGNER_BIN=$(find /usr/local/lib/android/sdk/build-tools -name "apksigner" -print -quit)
+          echo "Using zipalign: $ZIPALIGN_BIN"
+          echo "Using apksigner: $APKSIGNER_BIN"
+          
+          # Align the APK
+          $ZIPALIGN_BIN -v 4 "$UNSIGNED_APK" app-release-aligned.apk
+          
+          # Sign the APK manually using standard Android keystore toolchain
+          $APKSIGNER_BIN sign --ks android.keystore --ks-pass pass:vaicar123 --key-pass pass:vaicar123 --ks-key-alias android --out vaicar-release-signed.apk app-release-aligned.apk
+          
+          # Verify signature is 100% correct
+          $APKSIGNER_BIN verify vaicar-release-signed.apk
+          echo "APK successfully verified and signed!"
 
       - name: Upload Signed APK
         uses: actions/upload-artifact@v4
         with:
           name: vaicar-apk
-          path: |
-            **/build/outputs/apk/release/*.apk
-            **/build/outputs/apk/**/*.apk
+          path: ./vaicar-release-signed.apk
           if-no-files-found: error
