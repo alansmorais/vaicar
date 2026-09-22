@@ -20,29 +20,38 @@ import {
 } from './src/types.ts';
 
 function getTransporter() {
-  const rawPass = process.env.SMTP_PASS || '';
-  const cleanPass = rawPass.trim().replace(/\s+/g, '');
-  const user = (process.env.SMTP_USER || 'vaicar@alansmsolutions.com').trim();
-  const host = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
-  const port = parseInt(process.env.SMTP_PORT || '465');
+  const rawPass =
+    process.env.SMTP_PASS ||
+    process.env.SMTP_PASSWORD ||
+    process.env.EMAIL_PASS ||
+    process.env.GMAIL_APP_PASSWORD ||
+    process.env.GMAIL_PASS ||
+    '';
+
+  const cleanPass = rawPass.trim().replace(/^["']|["']$/g, '').replace(/\s+/g, '');
+  const user = (
+    process.env.SMTP_USER ||
+    process.env.EMAIL_USER ||
+    process.env.GMAIL_USER ||
+    'vaicar@alansmsolutions.com'
+  ).trim();
 
   if (!cleanPass) {
-    console.warn('[MAIL] SMTP_PASS is empty or not configured. PIN will be provided in fallback response.');
+    console.warn('[MAIL] Nenhuma senha SMTP configurada nas variáveis de ambiente (SMTP_PASS).');
     return null;
   }
 
   try {
+    // Uses standard Gmail transport
     return nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
+      service: 'gmail',
       auth: {
         user,
         pass: cleanPass,
       },
-      connectionTimeout: 7000,
-      greetingTimeout: 5000,
-      socketTimeout: 8000,
+      connectionTimeout: 10000,
+      greetingTimeout: 6000,
+      socketTimeout: 12000,
       tls: {
         rejectUnauthorized: false,
       },
@@ -1304,13 +1313,18 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
       });
 
       let emailSent = false;
+      let emailErrorReason = '';
       const cleanEmail = (email || '').trim();
       
       if (cleanEmail) {
         try {
           const mailer = getTransporter();
           if (mailer) {
-            const senderUser = process.env.SMTP_USER || 'vaicar@alansmsolutions.com';
+            const senderUser =
+              process.env.SMTP_USER ||
+              process.env.EMAIL_USER ||
+              process.env.GMAIL_USER ||
+              'vaicar@alansmsolutions.com';
             await mailer.sendMail({
               from: `"VaiCar São Sebastião" <${senderUser}>`,
               to: cleanEmail,
@@ -1336,9 +1350,12 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
             });
             emailSent = true;
             console.log(`[MAIL] Successfully sent PIN ${pin} to ${cleanEmail}`);
+          } else {
+            emailErrorReason = 'Senha SMTP não detectada no ambiente de execução.';
           }
         } catch (emailError: any) {
           console.warn('[MAIL] Email sending encountered an issue:', emailError?.message || emailError);
+          emailErrorReason = emailError?.message || 'Falha de autenticação ou conexão com o Gmail.';
           emailSent = false;
         }
       }
@@ -1347,6 +1364,7 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
         codeSent: true,
         emailSent,
         testCode: pin,
+        emailErrorReason,
         message: emailSent
           ? `Código PIN enviado para ${cleanEmail}!`
           : `Código de verificação gerado: ${pin}`,

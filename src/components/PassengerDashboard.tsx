@@ -324,9 +324,10 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         setGeneratedPin(res.testCode || '8492');
         setEmailSentSuccessfully(!!res.emailSent);
         if (res.emailSent) {
-          setAuthMessage(`Código PIN enviado para ${passengerEmail}!`);
+          setAuthMessage(`Código PIN enviado com sucesso para ${passengerEmail}! Verifique sua caixa de entrada.`);
         } else {
-          setAuthMessage(`Código PIN gerado: ${res.testCode || '8492'}. Digite-o abaixo para confirmar.`);
+          const detail = res.emailErrorReason ? ` (${res.emailErrorReason})` : '';
+          setAuthMessage(`Código de validação gerado: ${res.testCode || '8492'}${detail}`);
         }
       } else if (res.success) {
         setIsVerified(true);
