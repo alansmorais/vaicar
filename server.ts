@@ -1247,19 +1247,28 @@ app.delete('/api/v1/admin/costs/:id', async (req, res) => {
 
 // --- PASSENGER PROFILE & AUTH ---
 app.post('/api/v1/passengers/auth', async (req, res) => {
-  console.log('POST /api/v1/passengers/auth', req.body);
+  console.log('DEBUG: Received POST /api/v1/passengers/auth');
+  console.log('DEBUG: Request Body Keys:', Object.keys(req.body));
   try {
     const { name, phone, email, verificationCode, avatarUrl } = req.body;
-    if (!phone) return res.status(400).json({ error: 'WhatsApp obrigatório' });
+    if (!phone) {
+      console.warn('DEBUG: Auth failed, missing phone');
+      return res.status(400).json({ error: 'WhatsApp obrigatório' });
+    }
 
     if (!verificationCode) return res.json({ codeSent: true, testCode: '8492' });
-    if (verificationCode !== '8492' && verificationCode !== '1234') return res.status(400).json({ error: 'Código incorreto' });
+    if (verificationCode !== '8492' && verificationCode !== '1234') {
+      console.warn('DEBUG: Auth failed, invalid code:', verificationCode);
+      return res.status(400).json({ error: 'Código incorreto' });
+    }
 
     const cleanPhone = phone.trim();
+    console.log('DEBUG: Checking phone:', cleanPhone);
     const snap = await db.collection('passengers').where('phone', '==', cleanPhone).get();
-    let passenger: Passenger;
+    let passenger: any;
 
     if (snap.empty) {
+      console.log('DEBUG: Creating new passenger');
       const id = `pass-${Date.now()}`;
       passenger = {
         id,
@@ -1271,20 +1280,24 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
         createdAt: new Date().toISOString(),
       };
       await db.collection('passengers').doc(id).set(passenger);
+      console.log('DEBUG: New passenger created:', id);
     } else {
+      console.log('DEBUG: Updating existing passenger');
       const doc = snap.docs[0];
-      passenger = doc.data() as Passenger;
+      passenger = doc.data() as any;
       const updates: any = { isVerified: true };
       if (name) updates.name = name.trim();
       if (email) updates.email = email.trim();
       if (avatarUrl) updates.avatarUrl = avatarUrl;
       await doc.ref.update(updates);
       passenger = { ...passenger, ...updates };
+      console.log('DEBUG: Passenger updated:', doc.id);
     }
 
     res.json({ success: true, passenger });
-  } catch (err) {
-    res.status(500).json({ error: 'Auth failed' });
+  } catch (err: any) {
+    console.error('DEBUG: Passenger Auth Failed:', err);
+    res.status(500).json({ error: 'Auth failed', details: err.message });
   }
 });
 
