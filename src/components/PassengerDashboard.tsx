@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   MapPin,
   Calendar,
@@ -44,6 +44,7 @@ import {
   getWhatsAppContact,
 } from '../lib/api.ts';
 import { LiveRideTracker } from './LiveRideTracker.tsx';
+import { realtimeSync, broadcastLocalRideCreated, broadcastLocalRideUpdate } from '../lib/realtimeSync.ts';
 
 interface PassengerDashboardProps {
   zones: Zone[];
@@ -165,21 +166,75 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
     }
   }, [initialTrackedRide]);
 
+  // Stable ref to avoid stale closures in event listeners and polling intervals
+  const activeRideRef = useRef<Ride | null>(activeRide);
+  useEffect(() => {
+    activeRideRef.current = activeRide;
+  }, [activeRide]);
+
+  // Real-Time Event Sync via SSE and BroadcastChannel (< 1ms cross-tab, instantaneous from server)
+  useEffect(() => {
+    const unsubscribe = realtimeSync.subscribe((event) => {
+      if (event.type === 'RIDE_UPDATED' || event.type === 'RIDE_CREATED') {
+        const payloadRide = event.payload as Ride | undefined;
+        // If this event matches our current active ride, update state immediately!
+        if (activeRideRef.current && payloadRide && payloadRide.id === activeRideRef.current.id) {
+          setActiveRide(payloadRide);
+        } else if (activeRideRef.current?.id) {
+          // Check if our active ride was updated
+          fetchRide(activeRideRef.current.id)
+            .then((fresh) => {
+              if (fresh) setActiveRide(fresh);
+            })
+            .catch(() => {});
+        }
+        // Always trigger parent rides refresh immediately
+        onRefreshRides();
+      } else if (event.type === 'RIDE_DELETED') {
+        if (activeRideRef.current && event.payload?.id === activeRideRef.current.id) {
+          setActiveRide(null);
+        }
+        onRefreshRides();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [onRefreshRides]);
+
   // Keep active ride synced with updated rides from backend
   useEffect(() => {
     if (activeRide) {
       const refreshed = allRides.find((r) => r.id === activeRide.id);
       if (refreshed) {
-        if (refreshed.status !== activeRide.status || refreshed.updatedAt !== activeRide.updatedAt) {
+        if (
+          refreshed.status !== activeRide.status ||
+          refreshed.updatedAt !== activeRide.updatedAt ||
+          refreshed.paymentStatus !== activeRide.paymentStatus
+        ) {
           setActiveRide(refreshed);
         }
       }
     } else {
       // Auto-restore any active in-progress ride belonging to this passenger (newest first)
+      const isCandidateMyRide = (r: Ride) => {
+        const cleanP1 = (r.passengerPhone || '').replace(/\D/g, '');
+        const cleanP2 = (passengerPhone || '').replace(/\D/g, '');
+        if (cleanP1 && cleanP2 && (cleanP1 === cleanP2 || cleanP1.endsWith(cleanP2) || cleanP2.endsWith(cleanP1))) {
+          return true;
+        }
+        const n1 = (r.passengerName || '').trim().toLowerCase();
+        const n2 = (passengerName || '').trim().toLowerCase();
+        if (n1 && n2 && (n1 === n2 || n1.includes(n2) || n2.includes(n1))) {
+          return true;
+        }
+        return false;
+      };
+
       const activeCandidates = allRides
-        .filter((r) =>
-          (r.passengerPhone === passengerPhone || r.passengerName === passengerName) &&
-          ['REQUESTED', 'ACCEPTED', 'DRIVER_ARRIVING', 'PASSENGER_PICKED_UP', 'IN_PROGRESS'].includes(r.status)
+        .filter(
+          (r) =>
+            isCandidateMyRide(r) &&
+            ['REQUESTED', 'ACCEPTED', 'DRIVER_ARRIVING', 'PASSENGER_PICKED_UP', 'IN_PROGRESS'].includes(r.status),
         )
         .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
@@ -188,9 +243,9 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         setActiveTab('ATUAL');
       }
     }
-  }, [allRides, activeRide?.id, activeRide?.status, activeRide?.updatedAt, passengerPhone, passengerName]);
+  }, [allRides, activeRide?.id, activeRide?.status, activeRide?.updatedAt, activeRide?.paymentStatus, passengerPhone, passengerName]);
 
-  // Real-time direct polling for active ride: when waiting for driver or in-transit, poll every 1.5s
+  // Direct fast polling fallback (every 1s) for active ride: guaranteed sync under all network conditions
   useEffect(() => {
     if (
       !activeRide ||
@@ -201,20 +256,27 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
       return;
     }
 
+    const currentRideId = activeRide.id;
     const interval = setInterval(async () => {
       try {
-        const fresh = await fetchRide(activeRide.id);
-        if (fresh && (fresh.status !== activeRide.status || fresh.updatedAt !== activeRide.updatedAt)) {
-          setActiveRide(fresh);
-          onRefreshRides();
+        const fresh = await fetchRide(currentRideId);
+        if (fresh) {
+          if (
+            fresh.status !== activeRideRef.current?.status ||
+            fresh.updatedAt !== activeRideRef.current?.updatedAt ||
+            fresh.paymentStatus !== activeRideRef.current?.paymentStatus
+          ) {
+            setActiveRide(fresh);
+            onRefreshRides();
+          }
         }
       } catch {
         // ignore background poll error
       }
-    }, 1500);
+    }, 1000);
 
     return () => clearInterval(interval);
-  }, [activeRide?.id, activeRide?.status, activeRide?.updatedAt, onRefreshRides]);
+  }, [activeRide?.id, activeRide?.status, onRefreshRides]);
 
   // Ensure default zones if available
   useEffect(() => {
@@ -307,6 +369,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
       setSelectedDriverForRequest(null);
       setActiveRide(newRide);
       setActiveTab('ATUAL');
+      broadcastLocalRideCreated(newRide);
       onRefreshRides();
     } catch (err: any) {
       alert(err.message || 'Erro ao solicitar corrida');
@@ -322,6 +385,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
     try {
       const updated = await updateRideStatus(activeRide.id, 'CANCELLED_BY_PASSENGER', 'Cancelado pelo passageiro');
       setActiveRide(updated);
+      broadcastLocalRideUpdate(updated);
       onRefreshRides();
     } catch (err: any) {
       alert(err.message || 'Erro ao cancelar corrida');
@@ -332,6 +396,9 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
     if (!activeRide) return;
     try {
       const updated = await updateRidePaymentStatus(activeRide.id, 'PAID');
+      if (updated && (updated as any).id) {
+        broadcastLocalRideUpdate(updated as any);
+      }
       setActiveRide(updated);
       onRefreshRides();
     } catch (err: any) {

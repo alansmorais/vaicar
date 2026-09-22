@@ -238,6 +238,71 @@ async function sendSystemMail(mailOptions: any) {
 const app = express();
 const PORT = 3000;
 
+// --- LIVE REAL-TIME SSE BROADCAST EVENT BUS ---
+type LiveEventType =
+  | 'RIDE_CREATED'
+  | 'RIDE_UPDATED'
+  | 'RIDE_DELETED'
+  | 'DRIVER_UPDATED'
+  | 'SYSTEM_PING'
+  | 'CONNECTED';
+
+interface LiveEventMessage {
+  type: LiveEventType;
+  payload?: any;
+  timestamp: string;
+}
+
+const liveClients = new Set<express.Response>();
+
+function broadcastLiveEvent(type: LiveEventType, payload?: any) {
+  const message: LiveEventMessage = {
+    type,
+    payload,
+    timestamp: new Date().toISOString(),
+  };
+  const eventPayload = `data: ${JSON.stringify(message)}\n\n`;
+
+  for (const client of Array.from(liveClients)) {
+    try {
+      client.write(eventPayload);
+    } catch {
+      liveClients.delete(client);
+    }
+  }
+}
+
+// Server-Sent Events (SSE) Live Stream Endpoint for instantaneous driver <-> passenger sync
+app.get('/api/v1/live/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof (res as any).flushHeaders === 'function') {
+    (res as any).flushHeaders();
+  }
+
+  // Initial handshake
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED', timestamp: new Date().toISOString() })}\n\n`);
+
+  liveClients.add(res);
+
+  // Keep-alive ping every 12 seconds so connections don't drop behind reverse proxies
+  const keepAliveTimer = setInterval(() => {
+    try {
+      res.write(`: ping\n\n`);
+    } catch {
+      clearInterval(keepAliveTimer);
+      liveClients.delete(res);
+    }
+  }, 12000);
+
+  req.on('close', () => {
+    clearInterval(keepAliveTimer);
+    liveClients.delete(res);
+  });
+});
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -1111,6 +1176,7 @@ app.post('/api/v1/rides', async (req, res) => {
     };
 
     await db.collection('rides').doc(id).set(newRide);
+    broadcastLiveEvent('RIDE_CREATED', newRide);
     res.status(201).json(newRide);
   } catch (err: any) {
     console.error('Error in /api/v1/rides:', err);
@@ -1129,6 +1195,7 @@ app.patch('/api/v1/drivers/:id/payment-settings', async (req, res) => {
     if (Array.isArray(acceptedPaymentMethods)) updates.acceptedPaymentMethods = acceptedPaymentMethods;
 
     await db.collection('drivers').doc(req.params.id).update(updates);
+    broadcastLiveEvent('DRIVER_UPDATED', { id: req.params.id, ...updates });
     res.json(updates);
   } catch (err) {
     res.status(500).json({ error: 'Update failed' });
@@ -1143,6 +1210,7 @@ app.patch('/api/v1/rides/:id/payment-status', async (req, res) => {
     if (paymentStatus) updates.paymentStatus = paymentStatus;
 
     await db.collection('rides').doc(req.params.id).update(updates);
+    broadcastLiveEvent('RIDE_UPDATED', { id: req.params.id, ...updates });
     res.json(updates);
   } catch (err) {
     res.status(500).json({ error: 'Update failed' });
@@ -1155,7 +1223,9 @@ app.get('/api/v1/rides', async (req, res) => {
   let query: any = db.collection('rides');
   if (driverId) query = query.where('driverId', '==', driverId);
   const snap = await query.get();
-  res.json(snap.docs.map((doc: any) => doc.data()));
+  const all = snap.docs.map((doc: any) => doc.data() as Ride);
+  all.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  res.json(all);
 });
 
 // Get Ride Details
@@ -1219,7 +1289,9 @@ app.patch('/api/v1/rides/:id/status', async (req, res) => {
     if (cancellationReason) updates.cancellationReason = cancellationReason;
 
     await docRef.update(updates);
-    res.json({ ...ride, ...updates });
+    const updatedRide = { ...ride, ...updates };
+    broadcastLiveEvent('RIDE_UPDATED', updatedRide);
+    res.json(updatedRide);
   } catch (err) {
     res.status(500).json({ error: 'Update status failed' });
   }
@@ -1240,6 +1312,7 @@ app.post('/api/v1/rides/cleanup', async (req, res) => {
     }
     if (count > 0) {
       await batch.commit();
+      broadcastLiveEvent('RIDE_DELETED', { count });
     }
     res.json({ success: true, deleted: count });
   } catch (err: any) {
@@ -1251,6 +1324,7 @@ app.delete('/api/v1/rides/:id', async (req, res) => {
   try {
     const docRef = db.collection('rides').doc(req.params.id);
     await docRef.delete();
+    broadcastLiveEvent('RIDE_DELETED', { id: req.params.id });
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: 'Delete failed: ' + err.message });
@@ -1286,6 +1360,8 @@ app.post('/api/v1/admin/cleanup-fictitious', async (req, res) => {
     }
 
     await batch.commit();
+    broadcastLiveEvent('RIDE_DELETED', { removedDrivers, removedRides });
+    broadcastLiveEvent('DRIVER_UPDATED', { removedDrivers });
     res.json({ success: true, removedDrivers, removedRides });
   } catch (err: any) {
     res.status(500).json({ error: 'Cleanup failed: ' + err.message });
@@ -1296,6 +1372,7 @@ app.delete('/api/v1/drivers/:id', async (req, res) => {
   try {
     const docRef = db.collection('drivers').doc(req.params.id);
     await docRef.delete();
+    broadcastLiveEvent('DRIVER_UPDATED', { deletedId: req.params.id });
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: 'Delete driver failed: ' + err.message });

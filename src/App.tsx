@@ -24,6 +24,7 @@ import {
   fetchRides,
   fetchReports,
 } from './lib/api.ts';
+import { realtimeSync } from './lib/realtimeSync.ts';
 
 export default function App() {
   // Navigation Role (null initially for role selection)
@@ -132,7 +133,29 @@ export default function App() {
     loadData();
   }, []);
 
-  // Poll rides and drivers every 2 seconds for live real-time updates
+  // Instant Real-Time sync for all rides and drivers across tabs and server push
+  useEffect(() => {
+    const unsubscribe = realtimeSync.subscribe((event) => {
+      if (event.type === 'RIDE_UPDATED' || event.type === 'RIDE_CREATED' || event.type === 'RIDE_DELETED') {
+        fetchRides()
+          .then((freshRides) => {
+            if (freshRides) setRides(freshRides);
+          })
+          .catch(() => {});
+      }
+      if (event.type === 'DRIVER_UPDATED') {
+        fetchDrivers()
+          .then((freshDrivers) => {
+            if (freshDrivers) setDrivers(freshDrivers);
+          })
+          .catch(() => {});
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Fail-safe background heartbeat poll (every 2.5s) to guarantee consistency under network disconnects
   useEffect(() => {
     let active = true;
     const interval = setInterval(async () => {
@@ -147,7 +170,7 @@ export default function App() {
       } catch (err) {
         console.error('Error in background update poll:', err);
       }
-    }, 2000);
+    }, 2500);
 
     return () => {
       active = false;

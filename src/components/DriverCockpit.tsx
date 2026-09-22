@@ -30,6 +30,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Driver, Zone, Ride, RegulatoryRequirement, PaymentMethod, PlatformFareSettings } from '../types.ts';
+import { realtimeSync, broadcastLocalRideUpdate } from '../lib/realtimeSync.ts';
 import {
   updateDriverAvailability,
   updateDriverPricing,
@@ -208,6 +209,16 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     prevPendingCountRef.current = pendingRequests.length;
   }, [pendingRequests.length, soundEnabled]);
 
+  // Real-time instant sync: update cockpit the exact millisecond a ride is created or modified
+  useEffect(() => {
+    const unsubscribe = realtimeSync.subscribe((event) => {
+      if (event.type === 'RIDE_CREATED' || event.type === 'RIDE_UPDATED' || event.type === 'RIDE_DELETED') {
+        onRefreshRides();
+      }
+    });
+    return () => unsubscribe();
+  }, [onRefreshRides]);
+
   const completedTodayCount = driverRides.filter((r) => r.status === 'COMPLETED').length;
   const estimatedRevenue = driverRides
     .filter((r) => r.status === 'COMPLETED')
@@ -334,8 +345,11 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
   const handleConfirmRidePayment = async (rideId: string) => {
     try {
       setIsUpdating(true);
-      await updateRidePaymentStatus(rideId, 'CONFIRMED_BY_DRIVER');
-      onRefreshRides();
+      const updated = await updateRidePaymentStatus(rideId, 'CONFIRMED_BY_DRIVER');
+      if (updated && (updated as any).id) {
+        broadcastLocalRideUpdate(updated as any);
+      }
+      await onRefreshRides();
     } catch (err: any) {
       alert(err.message || 'Erro ao confirmar recebimento da corrida');
     } finally {
@@ -406,7 +420,8 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
   const handleAcceptRide = async (rideId: string) => {
     try {
       setIsUpdating(true);
-      await updateRideStatus(rideId, 'ACCEPTED');
+      const updated = await updateRideStatus(rideId, 'ACCEPTED');
+      broadcastLocalRideUpdate(updated);
       await onRefreshRides();
     } catch (err: any) {
       alert(err.message || 'Erro ao aceitar corrida');
@@ -418,7 +433,8 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
   const handleDeclineRide = async (rideId: string) => {
     try {
       setIsUpdating(true);
-      await updateRideStatus(rideId, 'CANCELLED_BY_DRIVER', 'Recusado pelo motorista');
+      const updated = await updateRideStatus(rideId, 'CANCELLED_BY_DRIVER', 'Recusado pelo motorista');
+      broadcastLocalRideUpdate(updated);
       await onRefreshRides();
     } catch (err: any) {
       alert(err.message || 'Erro ao recusar');
@@ -431,7 +447,8 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     if (!activeRide) return;
     try {
       setIsUpdating(true);
-      await updateRideStatus(activeRide.id, nextStatus);
+      const updated = await updateRideStatus(activeRide.id, nextStatus);
+      broadcastLocalRideUpdate(updated);
       await onRefreshRides();
     } catch (err: any) {
       alert(err.message || 'Erro ao atualizar status');
@@ -449,7 +466,8 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     if (!reason) return;
     try {
       setIsUpdating(true);
-      await updateRideStatus(activeRide.id, 'CANCELLED_BY_DRIVER', reason);
+      const updated = await updateRideStatus(activeRide.id, 'CANCELLED_BY_DRIVER', reason);
+      broadcastLocalRideUpdate(updated);
       await onRefreshRides();
     } catch (err: any) {
       alert(err.message || 'Erro ao cancelar corrida');

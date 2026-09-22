@@ -392,14 +392,20 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
 
         {/* Timeline of milestones */}
         <div className="space-y-3 pt-1">
-          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">Progresso da Viagem</h4>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Progresso da Viagem</h4>
+            <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 bg-emerald-950/70 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Tempo Real Ativo
+            </span>
+          </div>
           
           <div className="relative border-l-2 border-slate-800 ml-3.5 pl-5 space-y-4 text-xs">
             
             {/* Step 1: Requested */}
             <div className="relative">
-              <span className="absolute -left-[27px] top-0.5 bg-emerald-500 text-slate-950 rounded-full p-0.5">
-                <CheckCircle2 className="w-3.5 h-3.5 fill-emerald-500 text-slate-950" />
+              <span className="absolute -left-[27px] top-0.5 bg-emerald-500 text-slate-950 rounded-full p-0.5 flex items-center justify-center shadow-md">
+                <CheckCircle2 className="w-4 h-4 fill-emerald-400 text-slate-950 stroke-[2.5]" />
               </span>
               <div>
                 <span className="font-bold text-white block">Viagem Solicitada</span>
@@ -409,11 +415,19 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
 
             {/* Step 2: Accepted */}
             <div className="relative">
-              <span className={`absolute -left-[27px] top-0.5 rounded-full p-0.5 ${
-                statusInfo.step >= 2 ? 'bg-emerald-500 text-slate-950' : 'bg-slate-900 text-slate-600 border border-slate-800'
-              }`}>
-                <CheckCircle2 className="w-3.5 h-3.5 fill-current" />
-              </span>
+              {statusInfo.step > 2 ? (
+                <span className="absolute -left-[27px] top-0.5 bg-emerald-500 text-slate-950 rounded-full p-0.5 flex items-center justify-center shadow-md">
+                  <CheckCircle2 className="w-4 h-4 fill-emerald-400 text-slate-950 stroke-[2.5]" />
+                </span>
+              ) : statusInfo.step === 2 ? (
+                <span className="absolute -left-[27px] top-0.5 bg-emerald-500/20 border-2 border-emerald-400 text-emerald-400 rounded-full w-5 h-5 flex items-center justify-center animate-pulse shadow-md">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                </span>
+              ) : (
+                <span className="absolute -left-[27px] top-0.5 bg-slate-900 border border-slate-700/80 rounded-full w-5 h-5 flex items-center justify-center">
+                  <span className="w-2 h-2 rounded-full bg-slate-600" />
+                </span>
+              )}
               <div className={statusInfo.step >= 2 ? '' : 'opacity-40'}>
                 <span className="font-bold text-white block">Motorista Confirmado</span>
                 <span className="text-[10px] text-slate-400 block">{driverFirstName} aceitou seu convite</span>
@@ -422,11 +436,19 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
 
             {/* Step 3: Arriving */}
             <div className="relative">
-              <span className={`absolute -left-[27px] top-0.5 rounded-full p-0.5 ${
-                statusInfo.step >= 3 ? 'bg-emerald-500 text-slate-950' : 'bg-slate-900 text-slate-600 border border-slate-800'
-              }`}>
-                <CheckCircle2 className="w-3.5 h-3.5 fill-current" />
-              </span>
+              {statusInfo.step > 3 ? (
+                <span className="absolute -left-[27px] top-0.5 bg-emerald-500 text-slate-950 rounded-full p-0.5 flex items-center justify-center shadow-md">
+                  <CheckCircle2 className="w-4 h-4 fill-emerald-400 text-slate-950 stroke-[2.5]" />
+                </span>
+              ) : statusInfo.step === 3 ? (
+                <span className="absolute -left-[27px] top-0.5 bg-emerald-500/20 border-2 border-emerald-400 text-emerald-400 rounded-full w-5 h-5 flex items-center justify-center animate-pulse shadow-md">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                </span>
+              ) : (
+                <span className="absolute -left-[27px] top-0.5 bg-slate-900 border border-slate-700/80 rounded-full w-5 h-5 flex items-center justify-center">
+                  <span className="w-2 h-2 rounded-full bg-slate-600" />
+                </span>
+              )}
               <div className={statusInfo.step >= 3 ? '' : 'opacity-40'}>
                 <span className="font-bold text-white block">Motorista no Local de Embarque</span>
                 <span className="text-[10px] text-slate-400 block">{driverFirstName} chegando com o veículo</span>
@@ -435,14 +457,39 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
 
             {/* Step 4: Picked up & In Progress */}
             <div className="relative">
-              <span className={`absolute -left-[27px] top-0.5 rounded-full p-0.5 ${
-                statusInfo.step >= 5 ? 'bg-emerald-500 text-slate-950' : 'bg-slate-900 text-slate-600 border border-slate-800'
-              }`}>
-                <CheckCircle2 className="w-3.5 h-3.5 fill-current" />
-              </span>
-              <div className={statusInfo.step >= 5 ? '' : 'opacity-40'}>
+              {statusInfo.step >= 6 ? (
+                <span className="absolute -left-[27px] top-0.5 bg-emerald-500 text-slate-950 rounded-full p-0.5 flex items-center justify-center shadow-md">
+                  <CheckCircle2 className="w-4 h-4 fill-emerald-400 text-slate-950 stroke-[2.5]" />
+                </span>
+              ) : statusInfo.step >= 4 ? (
+                <span className="absolute -left-[27px] top-0.5 bg-emerald-500/20 border-2 border-emerald-400 text-emerald-400 rounded-full w-5 h-5 flex items-center justify-center animate-pulse shadow-md">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                </span>
+              ) : (
+                <span className="absolute -left-[27px] top-0.5 bg-slate-900 border border-slate-700/80 rounded-full w-5 h-5 flex items-center justify-center">
+                  <span className="w-2 h-2 rounded-full bg-slate-600" />
+                </span>
+              )}
+              <div className={statusInfo.step >= 4 ? '' : 'opacity-40'}>
                 <span className="font-bold text-white block">Viagem em Andamento</span>
                 <span className="text-[10px] text-slate-400 block">Deslocamento monitorado pela plataforma em tempo real</span>
+              </div>
+            </div>
+
+            {/* Step 5: Completed */}
+            <div className="relative">
+              {statusInfo.step >= 6 ? (
+                <span className="absolute -left-[27px] top-0.5 bg-emerald-500 text-slate-950 rounded-full p-0.5 flex items-center justify-center shadow-md">
+                  <CheckCircle2 className="w-4 h-4 fill-emerald-400 text-slate-950 stroke-[2.5]" />
+                </span>
+              ) : (
+                <span className="absolute -left-[27px] top-0.5 bg-slate-900 border border-slate-700/80 rounded-full w-5 h-5 flex items-center justify-center">
+                  <span className="w-2 h-2 rounded-full bg-slate-600" />
+                </span>
+              )}
+              <div className={statusInfo.step >= 6 ? '' : 'opacity-40'}>
+                <span className="font-bold text-white block">Destino e Pagamento</span>
+                <span className="text-[10px] text-slate-400 block">Chegada ao destino final e acerto direto</span>
               </div>
             </div>
 
