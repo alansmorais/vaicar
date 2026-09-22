@@ -39,10 +39,13 @@ jobs:
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 -storepass "vaicar123" -keypass "vaicar123" -dname "CN=vaicar, OU=IT, O=VaiCar, L=SaoSebastiao, S=SP, C=BR"
 
       - name: Generate Android Project and Build APK
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: "vaicar123"
+          BUBBLEWRAP_KEY_PASSWORD: "vaicar123"
         run: |
-          # Non-interactive project creation/update and compilation by feeding newlines (Enters) to prompt answers
-          printf "\n\n\n\n\n" | bubblewrap update --manifest=twa-manifest.json
-          bubblewrap build --signingKey.password="vaicar123" --signingKey.aliasPassword="vaicar123"
+          # Use both CLI flags and yes pipe to guarantee zero interactive prompts
+          yes "" | bubblewrap update --manifest=twa-manifest.json --skipVersionUpgrade --skipConfig
+          yes "" | bubblewrap build
 
       - name: Upload Signed APK
         uses: actions/upload-artifact@v4
