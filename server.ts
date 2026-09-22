@@ -1119,6 +1119,15 @@ app.post('/api/v1/rides', async (req, res) => {
     const { passengerName, passengerPhone, passengerAvatarUrl, driverId, originZoneId, originAddress, originLandmark, originMapsLink, destinationZoneId, destinationAddress, destinationLandmark, destinationMapsLink, passengerCount = 1, scheduledTime, isImmediate = true, paymentMethod = 'PIX', paymentChangeFor, savedCard } = req.body;
     if (!passengerName || !passengerPhone || !driverId || !originZoneId || !destinationZoneId) return res.status(400).json({ error: 'Dados incompletos.' });
 
+    // Verify if passenger is blocked
+    const passengerSnap = await db.collection('passengers').where('phone', '==', passengerPhone).get();
+    if (!passengerSnap.empty) {
+      const pData = passengerSnap.docs[0].data();
+      if (pData?.isBlocked) {
+        return res.status(403).json({ error: 'Sua conta de passageiro foi bloqueada temporariamente pela moderação.' });
+      }
+    }
+
     const driverDoc = await db.collection('drivers').doc(driverId).get();
     if (!driverDoc.exists) return res.status(404).json({ error: 'Motorista não encontrado.' });
     const driver = driverDoc.data() as Driver;
@@ -1856,6 +1865,15 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
     const phoneDigits = cleanPhone.replace(/\D/g, '') || cleanPhone;
     let cleanEmail = (email || '').trim().toLowerCase();
 
+    // Check if passenger is blocked
+    const passengerSnap = await db.collection('passengers').where('phone', '==', cleanPhone).get();
+    if (!passengerSnap.empty) {
+      const pData = passengerSnap.docs[0].data();
+      if (pData?.isBlocked) {
+        return res.status(403).json({ error: 'Seu acesso como passageiro foi bloqueado temporária ou permanentemente pela moderação da plataforma.' });
+      }
+    }
+
     // Se o email não foi fornecido, tentamos buscar no banco para ver se é login de usuário existente
     if (!cleanEmail) {
       const snap = await db.collection('passengers').where('phone', '==', cleanPhone).get();
@@ -2167,6 +2185,22 @@ app.get('/api/v1/passengers/:id', async (req, res) => {
   if (!snap.empty) return res.json(snap.docs[0].data());
   
   res.status(404).json({ error: 'Passageiro não encontrado' });
+});
+
+app.patch('/api/v1/admin/passengers/:id/block', async (req, res) => {
+  try {
+    const { isBlocked } = req.body;
+    const id = req.params.id;
+    const docRef = db.collection('passengers').doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Passageiro não encontrado' });
+    }
+    await docRef.update({ isBlocked: !!isBlocked });
+    res.json({ success: true, isBlocked: !!isBlocked });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Falha ao alterar status do passageiro', details: err.message });
+  }
 });
 
 app.get('/api/v1/passengers/:id/rides', async (req, res) => {

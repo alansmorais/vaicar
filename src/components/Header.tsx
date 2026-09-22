@@ -60,9 +60,12 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => onSelectRole('PASSENGER')}
             className="flex items-center gap-1.5 sm:gap-2.5 cursor-pointer group"
           >
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-500/20 group-hover:scale-105 transition-transform shrink-0">
-              <Car className="w-4 h-4 sm:w-6 sm:h-6 text-slate-950 font-bold" />
-            </div>
+            <img
+              src="https://raw.githubusercontent.com/alansmorais/vaicar/refs/heads/main/images/vaicar_logo.png"
+              alt="VaiCar Logo"
+              className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover border-2 border-emerald-500/80 shadow-lg group-hover:scale-105 transition-transform shrink-0"
+              referrerPolicy="no-referrer"
+            />
             <div>
               <div className="flex items-center gap-1">
                 <span className="font-extrabold text-base sm:text-xl tracking-tight text-white">

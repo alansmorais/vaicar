@@ -71,6 +71,8 @@ import {
   sendTestEmail,
   cleanupFictitious,
   deleteDriver,
+  fetchPassengers,
+  togglePassengerBlock,
 } from '../lib/api.ts';
 import { DynamicPricingSettings } from '../types.ts';
 
@@ -119,7 +121,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pwdChangeSuccess, setPwdChangeSuccess] = useState('');
 
   // Dashboard Tabs
-  const [tab, setTab] = useState<'METRICS' | 'DRIVERS' | 'RIDES' | 'FINANCES' | 'FARES' | 'DINAMICA' | 'ZONES' | 'REPORTS'>('METRICS');
+  const [tab, setTab] = useState<'METRICS' | 'DRIVERS' | 'PASSENGERS' | 'RIDES' | 'FINANCES' | 'FARES' | 'DINAMICA' | 'ZONES' | 'REPORTS'>('METRICS');
 
   // Dynamic Pricing State
   const [dynamicSettings, setDynamicSettings] = useState<DynamicPricingSettings>({
@@ -188,13 +190,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [testEmailResult, setTestEmailResult] = useState<string>('');
   const [testEmailError, setTestEmailError] = useState<string>('');
 
+  // Passenger Management State
+  const [passengers, setPassengers] = useState<any[]>([]);
+  const [passengerSearch, setPassengerSearch] = useState<string>('');
+  const [isPassengerLoading, setIsPassengerLoading] = useState<boolean>(false);
+
   useEffect(() => {
     loadCosts();
     loadFareSettings();
     loadDynamicSettings();
     loadSurgeAnalysis();
     loadSmtpSettings();
+    loadPassengersList();
   }, []);
+
+  const loadPassengersList = async () => {
+    try {
+      setIsPassengerLoading(true);
+      const data = await fetchPassengers();
+      setPassengers(data || []);
+    } catch (err) {
+      console.error('Failed to load passengers', err);
+    } finally {
+      setIsPassengerLoading(false);
+    }
+  };
+
+  const handleTogglePassengerBlock = async (pId: string, currentBlocked: boolean) => {
+    try {
+      await togglePassengerBlock(pId, !currentBlocked);
+      setPassengers(prev => prev.map(p => p.id === pId ? { ...p, isBlocked: !currentBlocked } : p));
+    } catch (err: any) {
+      console.error('Error toggling passenger block:', err);
+    }
+  };
 
   const loadSmtpSettings = async () => {
     try {
@@ -719,6 +748,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const totalOperationalCosts = costs.reduce((acc, c) => acc + c.amountBrl, 0);
   const netIncome = metrics.monthlyRecurringRevenue - totalOperationalCosts;
 
+  // Filter passengers
+  const filteredPassengers = passengers.filter((p: any) => {
+    const q = passengerSearch.toLowerCase().trim();
+    if (!q) return true;
+    return (
+      (p.name || '').toLowerCase().includes(q) ||
+      (p.phone || '').includes(q) ||
+      (p.email || '').toLowerCase().includes(q)
+    );
+  });
+
   return (
     <div className="w-full max-w-6xl mx-auto px-4 py-6 space-y-6">
       {/* Password Change Modal (Inside Dashboard) */}
@@ -927,6 +967,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           Zonas & Bairros ({zones.length})
+        </button>
+
+        <button
+          onClick={() => setTab('PASSENGERS')}
+          className={`px-4 py-2 rounded-xl font-bold cursor-pointer transition-all whitespace-nowrap flex items-center gap-1.5 ${
+            tab === 'PASSENGERS' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white bg-slate-900'
+          }`}
+        >
+          <Users className="w-3.5 h-3.5" />
+          <span>Passageiros ({passengers.length})</span>
         </button>
 
         <button
@@ -2305,6 +2355,123 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB: PASSENGERS */}
+      {/* ========================================================================= */}
+      {tab === 'PASSENGERS' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-bold text-white">Gestão de Passageiros</h3>
+              <p className="text-xs text-slate-400">Gerencie contas, consulte cadastros e bloqueie ou bana passageiros infratores.</p>
+            </div>
+            <button
+              onClick={loadPassengersList}
+              disabled={isPassengerLoading}
+              className="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-xs font-bold text-slate-300 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isPassengerLoading ? 'animate-spin' : ''}`} />
+              <span>Atualizar Lista</span>
+            </button>
+          </div>
+
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+            <input
+              type="text"
+              placeholder="Buscar por nome, WhatsApp ou e-mail..."
+              value={passengerSearch}
+              onChange={(e) => setPassengerSearch(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl py-3 pl-10 pr-4 text-sm text-white placeholder-slate-500 outline-none focus:border-emerald-500 transition-colors"
+            />
+          </div>
+
+          {isPassengerLoading ? (
+            <div className="text-center py-12 bg-slate-900 rounded-2xl border border-slate-800">
+              <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin mx-auto mb-3" />
+              <p className="text-xs text-slate-400">Carregando passageiros...</p>
+            </div>
+          ) : filteredPassengers.length === 0 ? (
+            <div className="text-center py-12 bg-slate-900 rounded-2xl border border-slate-800 text-slate-500 text-xs">
+              Nenhum passageiro encontrado.
+            </div>
+          ) : (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-800 bg-slate-950/40 text-slate-400 font-bold uppercase tracking-wider">
+                      <th className="p-4">Passageiro</th>
+                      <th className="p-4">WhatsApp / E-mail</th>
+                      <th className="p-4">Cadastro em</th>
+                      <th className="p-4">Status</th>
+                      <th className="p-4 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {filteredPassengers.map((p) => (
+                      <tr key={p.id} className="hover:bg-slate-950/20 transition-colors">
+                        <td className="p-4 flex items-center gap-3">
+                          <img
+                            src={p.avatarUrl || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80"}
+                            alt={p.name}
+                            className={`w-9 h-9 rounded-full object-cover border-2 ${p.isBlocked ? 'border-rose-500/50' : 'border-slate-800'}`}
+                            referrerPolicy="no-referrer"
+                          />
+                          <div>
+                            <div className="font-bold text-white flex items-center gap-1.5">
+                              {p.name}
+                              {p.isDemo && (
+                                <span className="text-[9px] bg-slate-800 text-slate-400 border border-slate-700 px-1 rounded font-bold">
+                                  Demo
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-500">ID: {p.id}</span>
+                          </div>
+                        </td>
+                        <td className="p-4 space-y-0.5">
+                          <div className="text-white font-medium">{p.phone}</div>
+                          {p.email && <div className="text-[10px] text-slate-400">{p.email}</div>}
+                        </td>
+                        <td className="p-4 text-slate-400">
+                          {p.createdAt ? new Date(p.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                        </td>
+                        <td className="p-4">
+                          {p.isBlocked ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              <span>Banido / Bloqueado</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              <span>Ativo</span>
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-4 text-right">
+                          <button
+                            onClick={() => handleTogglePassengerBlock(p.id, !!p.isBlocked)}
+                            className={`px-3 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                              p.isBlocked
+                                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow shadow-emerald-500/10'
+                                : 'bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/25 hover:border-transparent'
+                            }`}
+                          >
+                            {p.isBlocked ? 'Desbloquear Acesso' : 'Bloquear / Banir'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

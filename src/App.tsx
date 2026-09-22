@@ -222,8 +222,14 @@ export default function App() {
       <main className="flex-1 pb-16">
         {isLoading ? (
           <div className="flex items-center justify-center min-h-[50vh]">
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-10 h-10 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
+            <div className="flex flex-col items-center gap-4">
+              <img
+                src="https://raw.githubusercontent.com/alansmorais/vaicar/refs/heads/main/images/vaicar_logo.png"
+                alt="VaiCar Logo"
+                className="w-16 h-16 rounded-full object-cover border-2 border-emerald-500/80 shadow-md animate-pulse"
+                referrerPolicy="no-referrer"
+              />
+              <div className="w-8 h-8 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
               <p className="text-xs text-slate-400 font-bold tracking-wider uppercase">
                 Carregando VaiCar São Sebastião...
               </p>

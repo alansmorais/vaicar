@@ -593,4 +593,17 @@ export async function sendTestEmail(targetEmail?: string): Promise<{ success: bo
   return data;
 }
 
+// --- PASSENGER ADMINISTRATION ---
+export async function fetchPassengers(): Promise<any[]> {
+  return safeFetchJson<any[]>('/api/v1/passengers', undefined, 'Falha ao buscar passageiros');
+}
+
+export async function togglePassengerBlock(id: string, isBlocked: boolean): Promise<any> {
+  return safeFetchJson<any>(`/api/v1/admin/passengers/${id}/block`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ isBlocked }),
+  }, 'Falha ao alterar status do passageiro');
+}
+
 

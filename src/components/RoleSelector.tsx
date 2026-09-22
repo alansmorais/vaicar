@@ -9,7 +9,13 @@ interface RoleSelectorProps {
 export const RoleSelector: React.FC<RoleSelectorProps> = ({ onSelect }) => {
   return (
     <div className="min-h-[80vh] flex flex-col items-center justify-center p-4 sm:p-6 text-center space-y-8 max-w-2xl mx-auto">
-      <div className="space-y-3">
+      <div className="space-y-4 flex flex-col items-center">
+        <img
+          src="https://raw.githubusercontent.com/alansmorais/vaicar/refs/heads/main/images/vaicar_logo.png"
+          alt="VaiCar Logo"
+          className="w-24 h-24 rounded-full object-cover border-4 border-emerald-500/80 shadow-xl"
+          referrerPolicy="no-referrer"
+        />
         <div className="inline-flex items-center gap-2 bg-emerald-950/60 border border-emerald-500/30 px-3.5 py-1.5 rounded-full text-emerald-400 text-xs font-bold">
           <ShieldCheck className="w-4 h-4" />
           <span>Transporte Legalizado • São Sebastião SP</span>
