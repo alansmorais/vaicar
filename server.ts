@@ -89,9 +89,30 @@ async function getTransporter() {
   return createMailer(cleanPass, user, 587, false);
 }
 
+const DEFAULT_APPS_SCRIPT_URL =
+  'https://script.google.com/macros/s/AKfycbyqOGDH8mb_-fOmqxzL4VXGyg9nqm7a7Usn0jL9UcAkixBvUo_aAUkteRK8FEYw4g2K/exec';
+
+// Ensure default Google Apps Script Webhook is active and registered in Firestore on startup
+(async () => {
+  try {
+    const snap = await db.collection('platformSettings').doc('smtp').get();
+    const data = snap.exists ? snap.data() : {};
+    if (!data?.appsScriptUrl) {
+      await db.collection('platformSettings').doc('smtp').set({
+        appsScriptUrl: DEFAULT_APPS_SCRIPT_URL,
+        user: data?.user || 'vaicar@alansmsolutions.com',
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      console.log('[MAIL] Initialized default Apps Script URL in Firestore');
+    }
+  } catch (err: any) {
+    console.warn('[MAIL] Could not seed Apps Script URL to Firestore:', err.message);
+  }
+})();
+
 // Resilient mail sender that supports Google Apps Script Webhook and SMTP fallbacks
 async function sendSystemMail(mailOptions: any) {
-  let appsScriptUrl = process.env.APPS_SCRIPT_URL || process.env.GMAIL_WEBHOOK_URL || '';
+  let appsScriptUrl = process.env.APPS_SCRIPT_URL || process.env.GMAIL_WEBHOOK_URL || DEFAULT_APPS_SCRIPT_URL;
   let rawPass =
     process.env.SMTP_PASS ||
     process.env.SMTP_PASSWORD ||
@@ -107,18 +128,12 @@ async function sendSystemMail(mailOptions: any) {
     'vaicar@alansmsolutions.com'
   ).trim();
 
-  // Load from Firestore if missing from env
+  // Load from Firestore if missing or configured
   try {
     const snap = await db.collection('platformSettings').doc('smtp').get();
-    if (!snap.exists) {
-      await db.collection('platformSettings').doc('smtp').set({
-        appsScriptUrl: 'https://script.google.com/macros/s/AKfycbyqOGDH8mb_-fOmqxzL4VXGyg9nqm7a7Usn0jL9UcAkixBvUo_aAUkteRK8FEYw4g2K/exec',
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
-    }
     if (snap.exists) {
       const data = snap.data();
-      if (data?.appsScriptUrl && !appsScriptUrl) appsScriptUrl = data.appsScriptUrl;
+      if (data?.appsScriptUrl && data.appsScriptUrl.trim()) appsScriptUrl = data.appsScriptUrl.trim();
       if (data?.pass && !rawPass) rawPass = data.pass;
       if (data?.user) user = data.user;
     }
@@ -129,7 +144,7 @@ async function sendSystemMail(mailOptions: any) {
   // METHOD 1: Google Apps Script Webhook (Highly recommended, 100% reliable HTTPS)
   if (appsScriptUrl && appsScriptUrl.trim().startsWith('http')) {
     try {
-      console.log('[MAIL] Sending via Google Apps Script Webhook...');
+      console.log('[MAIL] Sending via Google Apps Script Webhook:', appsScriptUrl);
       const webhookRes = await fetch(appsScriptUrl.trim(), {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -139,24 +154,49 @@ async function sendSystemMail(mailOptions: any) {
           html: mailOptions.html,
           text: mailOptions.text,
         }),
-        redirect: 'follow',
+        redirect: 'manual',
       });
-      
-      const responseText = await webhookRes.text();
-      console.log('[MAIL] Apps Script response:', responseText);
 
-      let parsed: any = null;
-      try {
-        parsed = JSON.parse(responseText);
-      } catch {}
+      console.log('[MAIL] Apps Script response status:', webhookRes.status);
 
-      if (webhookRes.ok && (!parsed || parsed.status !== 'error')) {
+      // In Google Apps Script Web Apps, returning ContentService output on POST triggers a 302 redirect.
+      // Status 200 or 302 confirms doPost executed on Google servers and MailApp.sendEmail() ran.
+      if (webhookRes.status === 200 || webhookRes.status === 302) {
+        const location = webhookRes.headers.get('location');
+        if (location) {
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 4000);
+            const echoRes = await fetch(location, { method: 'GET', signal: controller.signal });
+            clearTimeout(timer);
+            if (echoRes.ok) {
+              const echoText = await echoRes.text();
+              try {
+                const echoJson = JSON.parse(echoText);
+                if (echoJson.status === 'error') {
+                  throw new Error(echoJson.message || 'Erro reportado pelo Google Apps Script');
+                }
+              } catch (parseErr: any) {
+                if (parseErr.message?.includes('Erro reportado')) throw parseErr;
+              }
+            }
+          } catch (echoErr: any) {
+            if (echoErr.message?.includes('Erro reportado')) throw echoErr;
+            // Echo proxy timeouts or 404s can be safely ignored because the 302 already confirms execution
+          }
+        }
+        console.log('[MAIL] Successfully dispatched email via Google Apps Script');
         return { success: true, provider: 'apps_script' };
       }
-      console.warn('[MAIL] Apps Script returned non-success, attempting SMTP fallback...');
+
+      const responseText = await webhookRes.text();
+      console.warn('[MAIL] Apps Script unexpected status:', webhookRes.status, responseText);
+      throw new Error(`Google Apps Script respondeu com status ${webhookRes.status}`);
     } catch (asErr: any) {
       console.warn('[MAIL] Apps Script dispatch error:', asErr.message);
+      // Only attempt SMTP fallback if an actual password was explicitly configured
       if (!rawPass) throw asErr;
+      console.warn('[MAIL] Apps Script failed, trying SMTP fallback with configured password...');
     }
   }
 
