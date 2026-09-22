@@ -437,6 +437,32 @@ async function seedStaticData() {
     }
     await batch.commit();
   }
+
+  // Automatic purge of fictitious "Carlos" records and legacy cancelled test rides
+  try {
+    const driversSnap = await db.collection('drivers').get();
+    for (const doc of driversSnap.docs) {
+      const data = doc.data() as any;
+      if (data?.name && data.name.toLowerCase().includes('carlos')) {
+        await doc.ref.delete();
+        console.log(`[CLEANUP] Deleted fictitious driver: ${data.name} (${doc.id})`);
+      }
+    }
+
+    const ridesSnap = await db.collection('rides').get();
+    for (const doc of ridesSnap.docs) {
+      const data = doc.data() as any;
+      if (
+        (data?.driverName && data.driverName.toLowerCase().includes('carlos')) ||
+        ['CANCELLED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'REJECTED', 'EXPIRED'].includes(data?.status)
+      ) {
+        await doc.ref.delete();
+        console.log(`[CLEANUP] Purged stale ride (${doc.id}) with driver "${data?.driverName || 'unknown'}"`);
+      }
+    }
+  } catch (err: any) {
+    console.warn('[CLEANUP] Error during startup cleanup:', err.message);
+  }
 }
 
 // Global state variables will now be loaded from DB where needed
@@ -469,7 +495,8 @@ async function getDrivers(): Promise<Driver[]> {
 
 async function getRides(): Promise<Ride[]> {
   const snap = await db.collection('rides').get();
-  return snap.docs.map((doc: any) => doc.data() as Ride);
+  const list = snap.docs.map((doc: any) => doc.data() as Ride);
+  return list.sort((a: Ride, b: Ride) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 }
 
 async function getZones(): Promise<Zone[]> {
@@ -1148,11 +1175,11 @@ app.patch('/api/v1/rides/:id/status', async (req, res) => {
 
     const { status, cancellationReason } = req.body;
     const validTransitions: Record<string, string[]> = {
-      REQUESTED: ['ACCEPTED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER'],
-      ACCEPTED: ['DRIVER_ARRIVING', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER'],
-      DRIVER_ARRIVING: ['PASSENGER_PICKED_UP', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER'],
-      PASSENGER_PICKED_UP: ['IN_PROGRESS'],
-      IN_PROGRESS: ['COMPLETED'],
+      REQUESTED: ['ACCEPTED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED', 'REJECTED'],
+      ACCEPTED: ['DRIVER_ARRIVING', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
+      DRIVER_ARRIVING: ['PASSENGER_PICKED_UP', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
+      PASSENGER_PICKED_UP: ['IN_PROGRESS', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
+      IN_PROGRESS: ['COMPLETED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
     };
 
     const allowed = validTransitions[ride.status];
@@ -1164,8 +1191,10 @@ app.patch('/api/v1/rides/:id/status', async (req, res) => {
       PASSENGER_PICKED_UP: 'Passageiro a bordo',
       IN_PROGRESS: 'Em andamento',
       COMPLETED: 'Finalizada',
+      CANCELLED: 'Cancelada',
       CANCELLED_BY_PASSENGER: 'Cancelado pelo passageiro',
       CANCELLED_BY_DRIVER: 'Recusado pelo motorista',
+      REJECTED: 'Recusada',
     };
 
     const updates: any = {
@@ -1193,6 +1222,83 @@ app.patch('/api/v1/rides/:id/status', async (req, res) => {
     res.json({ ...ride, ...updates });
   } catch (err) {
     res.status(500).json({ error: 'Update status failed' });
+  }
+});
+
+// Delete or Cleanup Rides
+app.post('/api/v1/rides/cleanup', async (req, res) => {
+  try {
+    const snap = await db.collection('rides').get();
+    const batch = db.batch();
+    let count = 0;
+    for (const doc of snap.docs) {
+      const data = doc.data() as Ride;
+      if (['COMPLETED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED', 'EXPIRED', 'REJECTED'].includes(data.status)) {
+        batch.delete(doc.ref);
+        count++;
+      }
+    }
+    if (count > 0) {
+      await batch.commit();
+    }
+    res.json({ success: true, deleted: count });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Cleanup failed: ' + err.message });
+  }
+});
+
+app.delete('/api/v1/rides/:id', async (req, res) => {
+  try {
+    const docRef = db.collection('rides').doc(req.params.id);
+    await docRef.delete();
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Delete failed: ' + err.message });
+  }
+});
+
+// Administrative full cleanup of fictitious drivers and test rides
+app.post('/api/v1/admin/cleanup-fictitious', async (req, res) => {
+  try {
+    let removedDrivers = 0;
+    let removedRides = 0;
+    const batch = db.batch();
+
+    const driversSnap = await db.collection('drivers').get();
+    for (const doc of driversSnap.docs) {
+      const data = doc.data() as any;
+      if (data?.name && data.name.toLowerCase().includes('carlos')) {
+        batch.delete(doc.ref);
+        removedDrivers++;
+      }
+    }
+
+    const ridesSnap = await db.collection('rides').get();
+    for (const doc of ridesSnap.docs) {
+      const data = doc.data() as any;
+      if (
+        (data?.driverName && data.driverName.toLowerCase().includes('carlos')) ||
+        ['CANCELLED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'REJECTED', 'EXPIRED'].includes(data?.status)
+      ) {
+        batch.delete(doc.ref);
+        removedRides++;
+      }
+    }
+
+    await batch.commit();
+    res.json({ success: true, removedDrivers, removedRides });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Cleanup failed: ' + err.message });
+  }
+});
+
+app.delete('/api/v1/drivers/:id', async (req, res) => {
+  try {
+    const docRef = db.collection('drivers').doc(req.params.id);
+    await docRef.delete();
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Delete driver failed: ' + err.message });
   }
 });
 

@@ -69,6 +69,8 @@ import {
   fetchSmtpSettings,
   saveSmtpSettings,
   sendTestEmail,
+  cleanupFictitious,
+  deleteDriver,
 } from '../lib/api.ts';
 import { DynamicPricingSettings } from '../types.ts';
 
@@ -815,6 +817,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <span>Trocar Senha</span>
           </button>
           <button
+            onClick={async () => {
+              if (window.confirm('Executar limpeza de motoristas fictícios e corridas canceladas/antigas?')) {
+                try {
+                  setIsUpdating(true);
+                  const res = await cleanupFictitious();
+                  alert(`Limpeza concluída! Removidos: ${res.removedDrivers} motoristas e ${res.removedRides} corridas residuais.`);
+                  onRefreshAll();
+                } catch (err: any) {
+                  alert(err.message || 'Erro na limpeza');
+                } finally {
+                  setIsUpdating(false);
+                }
+              }
+            }}
+            disabled={isUpdating}
+            className="bg-slate-800/80 hover:bg-rose-950/60 hover:text-rose-300 text-slate-400 text-xs font-semibold px-3 py-2 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+            title="Remove perfis de teste e corridas canceladas/órfãs"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Limpar Testes</span>
+          </button>
+          <button
             onClick={onRefreshAll}
             className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
           >
@@ -1123,6 +1147,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           [Teste] Ativar Assinatura
                         </button>
                       )}
+
+                      <button
+                        onClick={async () => {
+                          if (window.confirm(`Excluir permanentemente o motorista ${d.name}? Esta ação não pode ser desfeita.`)) {
+                            try {
+                              setIsUpdating(true);
+                              await deleteDriver(d.id);
+                              onRefreshAll();
+                            } catch (err: any) {
+                              alert(err.message || 'Erro ao excluir motorista');
+                            } finally {
+                              setIsUpdating(false);
+                            }
+                          }
+                        }}
+                        className="bg-slate-800 hover:bg-rose-950 text-rose-400 p-2 rounded-lg cursor-pointer transition-colors"
+                        title="Excluir motorista permanentemente do sistema"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
 

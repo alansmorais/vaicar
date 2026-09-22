@@ -225,6 +225,30 @@ export async function updateRideStatus(
   return res.json();
 }
 
+export async function cleanupRides(): Promise<{ success: boolean; deleted: number }> {
+  return safeFetchJson<{ success: boolean; deleted: number }>('/api/v1/rides/cleanup', {
+    method: 'POST',
+  }, 'Falha ao limpar histórico de corridas');
+}
+
+export async function deleteRide(id: string): Promise<{ success: boolean }> {
+  const res = await fetch(`/api/v1/rides/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Falha ao excluir corrida');
+  return res.json();
+}
+
+export async function cleanupFictitious(): Promise<{ success: boolean; removedDrivers: number; removedRides: number }> {
+  const res = await fetch('/api/v1/admin/cleanup-fictitious', { method: 'POST' });
+  if (!res.ok) throw new Error('Falha ao limpar dados fictícios');
+  return res.json();
+}
+
+export async function deleteDriver(id: string): Promise<{ success: boolean }> {
+  const res = await fetch(`/api/v1/drivers/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Falha ao excluir motorista');
+  return res.json();
+}
+
 export async function getWhatsAppContact(id: string): Promise<{
   whatsappUrl: string;
   whatsappDirectNumber: string;

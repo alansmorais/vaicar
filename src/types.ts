@@ -26,8 +26,10 @@ export type RideStatus =
   | 'PASSENGER_PICKED_UP'
   | 'IN_PROGRESS'
   | 'COMPLETED'
+  | 'CANCELLED'
   | 'CANCELLED_BY_PASSENGER'
   | 'CANCELLED_BY_DRIVER'
+  | 'REJECTED'
   | 'EXPIRED';
 
 export type PricingType = 'FIXED_ROUTE' | 'KM_ONLY' | 'MINIMUM_PLUS_KM' | 'COMPOSITE';

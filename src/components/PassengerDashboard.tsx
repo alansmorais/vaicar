@@ -28,11 +28,13 @@ import {
   Send,
   LogOut,
   Navigation,
+  XCircle,
 } from 'lucide-react';
 import { Zone, Ride, Driver, PaymentMethod, SearchDriversResponse } from '../types.ts';
 import {
   searchDrivers,
   createRide,
+  fetchRide,
   updateRideStatus,
   updateRidePaymentStatus,
   submitReview,
@@ -168,23 +170,51 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
     if (activeRide) {
       const refreshed = allRides.find((r) => r.id === activeRide.id);
       if (refreshed) {
-        setActiveRide(refreshed);
-      } else {
-        // If it was cancelled or deleted from server
-        setActiveRide(null);
+        if (refreshed.status !== activeRide.status || refreshed.updatedAt !== activeRide.updatedAt) {
+          setActiveRide(refreshed);
+        }
       }
     } else {
-      // Auto-restore any active in-progress ride belonging to this passenger
-      const active = allRides.find((r) =>
-        (r.passengerPhone === passengerPhone || r.passengerName === passengerName) &&
-        ['REQUESTED', 'ACCEPTED', 'DRIVER_ARRIVING', 'PASSENGER_PICKED_UP', 'IN_PROGRESS'].includes(r.status)
-      );
-      if (active) {
-        setActiveRide(active);
+      // Auto-restore any active in-progress ride belonging to this passenger (newest first)
+      const activeCandidates = allRides
+        .filter((r) =>
+          (r.passengerPhone === passengerPhone || r.passengerName === passengerName) &&
+          ['REQUESTED', 'ACCEPTED', 'DRIVER_ARRIVING', 'PASSENGER_PICKED_UP', 'IN_PROGRESS'].includes(r.status)
+        )
+        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+      if (activeCandidates.length > 0) {
+        setActiveRide(activeCandidates[0]);
         setActiveTab('ATUAL');
       }
     }
-  }, [allRides, activeRide, passengerPhone, passengerName]);
+  }, [allRides, activeRide?.id, activeRide?.status, activeRide?.updatedAt, passengerPhone, passengerName]);
+
+  // Real-time direct polling for active ride: when waiting for driver or in-transit, poll every 1.5s
+  useEffect(() => {
+    if (
+      !activeRide ||
+      ['COMPLETED', 'CANCELLED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'REJECTED', 'EXPIRED'].includes(
+        activeRide.status,
+      )
+    ) {
+      return;
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const fresh = await fetchRide(activeRide.id);
+        if (fresh && (fresh.status !== activeRide.status || fresh.updatedAt !== activeRide.updatedAt)) {
+          setActiveRide(fresh);
+          onRefreshRides();
+        }
+      } catch {
+        // ignore background poll error
+      }
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [activeRide?.id, activeRide?.status, activeRide?.updatedAt, onRefreshRides]);
 
   // Ensure default zones if available
   useEffect(() => {
@@ -1122,7 +1152,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
       {/* ========================================================================= */}
       {activeTab === 'ATUAL' && (
         <div className="space-y-6">
-          {!activeRide || ['CANCELLED_BY_PASSENGER', 'CANCELLED_BY_DRIVER', 'EXPIRED'].includes(activeRide.status) ? (
+          {!activeRide ? (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-10 text-center space-y-3">
               <div className="w-14 h-14 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
                 <Car className="w-7 h-7" />
@@ -1137,6 +1167,60 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               >
                 Solicitar uma Corrida Agora
               </button>
+            </div>
+          ) : activeRide.status.startsWith('CANCELLED') || activeRide.status === 'REJECTED' || activeRide.status === 'EXPIRED' ? (
+            <div className="bg-slate-900 border border-rose-500/30 rounded-2xl p-8 text-center space-y-4 shadow-xl">
+              <div className="w-14 h-14 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto">
+                <XCircle className="w-8 h-8" />
+              </div>
+              <div className="space-y-1">
+                <span className="text-[11px] font-bold text-rose-400 bg-rose-950/80 px-2.5 py-1 rounded-full border border-rose-500/20 uppercase tracking-wider">
+                  Corrida Cancelada
+                </span>
+                <h3 className="text-xl font-black text-white pt-2">
+                  {activeRide.status === 'CANCELLED_BY_DRIVER'
+                    ? `O motorista ${activeRide.driverName} não pôde atender a esta chamada`
+                    : 'Esta corrida foi cancelada'}
+                </h3>
+                <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
+                  {activeRide.cancellationReason
+                    ? `Motivo: "${activeRide.cancellationReason}"`
+                    : 'O trajeto foi interrompido e você não foi cobrado por esta viagem.'}
+                </p>
+              </div>
+
+              <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800 text-xs text-slate-300 max-w-sm mx-auto space-y-1 text-left">
+                <div className="flex items-center gap-1.5 text-slate-400">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>Origem: <strong className="text-white">{activeRide.originAddress.split(',')[0]}</strong></span>
+                </div>
+                <div className="flex items-center gap-1.5 text-slate-400">
+                  <Navigation className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                  <span>Destino: <strong className="text-white">{activeRide.destinationAddress.split(',')[0]}</strong></span>
+                </div>
+              </div>
+
+              <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+                <button
+                  onClick={() => {
+                    setActiveRide(null);
+                    setActiveTab('SOLICITAR');
+                  }}
+                  className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer shadow-lg transition-all"
+                >
+                  <Car className="w-4 h-4" />
+                  <span>Solicitar Nova Corrida</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveRide(null);
+                    setActiveTab('HISTORICO');
+                  }}
+                  className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer transition-all"
+                >
+                  <span>Ver Histórico</span>
+                </button>
+              </div>
             </div>
           ) : (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
@@ -1163,7 +1247,13 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               </div>
 
               {/* Live GPS Map & Progress Simulation Component */}
-              <LiveRideTracker ride={activeRide} />
+              <LiveRideTracker
+                ride={activeRide}
+                onDismiss={() => {
+                  setActiveRide(null);
+                  setActiveTab('SOLICITAR');
+                }}
+              />
 
               {/* Driver and Vehicle card */}
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-4">

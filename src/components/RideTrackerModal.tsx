@@ -83,6 +83,16 @@ export const RideTrackerModal: React.FC<RideTrackerModalProps> = ({
       desc: 'O motorista não pôde atender a corrida neste momento.',
       color: 'text-rose-400 bg-rose-950/60 border-rose-500/30',
     },
+    CANCELLED: {
+      title: 'Corrida Cancelada',
+      desc: 'A corrida foi cancelada e o trajeto interrompido.',
+      color: 'text-rose-400 bg-rose-950/60 border-rose-500/30',
+    },
+    REJECTED: {
+      title: 'Solicitação Recusada',
+      desc: 'A solicitação de corrida não pôde ser atendida.',
+      color: 'text-rose-400 bg-rose-950/60 border-rose-500/30',
+    },
     EXPIRED: {
       title: 'Tempo Expirado',
       desc: 'A solicitação expirou sem resposta.',

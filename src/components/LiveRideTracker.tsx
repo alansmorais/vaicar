@@ -10,19 +10,73 @@ import {
   TrendingUp, 
   PhoneCall, 
   ChevronRight,
-  Info
+  Info,
+  XCircle,
+  RotateCcw
 } from 'lucide-react';
 import { Ride } from '../types.ts';
 
 interface LiveRideTrackerProps {
   ride: Ride;
+  onDismiss?: () => void;
 }
 
-export function LiveRideTracker({ ride }: LiveRideTrackerProps) {
+export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
   const [progress, setProgress] = useState(0.1);
   const [simulatedEtaMin, setSimulatedEtaMin] = useState(ride.estimatedDurationMin);
   const [simulatedDistanceKm, setSimulatedDistanceKm] = useState(ride.estimatedDistanceKm);
   const animationRef = useRef<number | null>(null);
+
+  const driverFirstName = ride.driverName?.split(' ')[0] || 'Motorista';
+  const originName = ride.originAddress.split(',')[0];
+  const destName = ride.destinationAddress.split(',')[0];
+
+  // If the ride is cancelled, rejected or expired, do NOT render the map trajectory or animated car
+  if (ride.status.startsWith('CANCELLED') || ride.status === 'REJECTED' || ride.status === 'EXPIRED') {
+    return (
+      <div className="bg-slate-950/60 rounded-2xl border border-rose-500/30 overflow-hidden shadow-xl p-6 sm:p-8 text-center space-y-4">
+        <div className="w-14 h-14 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center mx-auto">
+          <XCircle className="w-8 h-8" />
+        </div>
+        <div className="space-y-1">
+          <span className="text-[10px] font-bold text-rose-400 bg-rose-950/80 px-2.5 py-1 rounded-full border border-rose-500/30 uppercase tracking-widest">
+            Corrida Cancelada
+          </span>
+          <h3 className="text-xl font-black text-white pt-1">
+            {ride.status === 'CANCELLED_BY_DRIVER' ? 'O motorista não pôde atender a esta chamada' : 'Esta corrida foi cancelada'}
+          </h3>
+          <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
+            {ride.cancellationReason
+              ? `Motivo informado: "${ride.cancellationReason}"`
+              : 'O trajeto foi interrompido e você não foi cobrado.'}
+          </p>
+        </div>
+
+        <div className="bg-slate-900/60 rounded-xl p-3 border border-slate-800 text-xs text-slate-300 max-w-sm mx-auto space-y-1 text-left">
+          <div className="flex items-center gap-1.5 text-slate-400">
+            <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>Origem: <strong className="text-white">{originName}</strong></span>
+          </div>
+          <div className="flex items-center gap-1.5 text-slate-400">
+            <Navigation className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+            <span>Destino: <strong className="text-white">{destName}</strong></span>
+          </div>
+        </div>
+
+        {onDismiss && (
+          <div className="pt-2">
+            <button
+              onClick={onDismiss}
+              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all shadow-lg cursor-pointer"
+            >
+              <Car className="w-4 h-4" />
+              <span>Solicitar Nova Corrida</span>
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // Define physical positions based on ride status
   // 1. DRIVER_ARRIVING: Driver moving from a mock start point to origin
@@ -74,10 +128,6 @@ export function LiveRideTracker({ ride }: LiveRideTrackerProps) {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
   }, [ride.status, ride.id]);
-
-  // Coordinates for rendering the SVG path
-  const originName = ride.originAddress.split(',')[0];
-  const destName = ride.destinationAddress.split(',')[0];
 
   // Draw simulated path points in SVG
   const width = 500;
@@ -176,7 +226,7 @@ export function LiveRideTracker({ ride }: LiveRideTrackerProps) {
       default:
         return {
           title: 'Processando viagem',
-          desc: 'Sincronizando dados com a prefeitura...',
+          desc: 'Sincronizando dados com a plataforma...',
           color: 'text-slate-400 bg-slate-900',
           step: 1
         };
@@ -308,11 +358,11 @@ export function LiveRideTracker({ ride }: LiveRideTrackerProps) {
             <div>
               <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Status do Carro</span>
               <span className="text-xs font-black text-white">
-                {ride.status === 'ACCEPTED' || ride.status === 'DRIVER_ARRIVING' ? 'Carlos a caminho do embarque' : ''}
+                {ride.status === 'ACCEPTED' || ride.status === 'DRIVER_ARRIVING' ? `${driverFirstName} a caminho do embarque` : ''}
                 {ride.status === 'PASSENGER_PICKED_UP' ? 'Aguardando partida' : ''}
                 {ride.status === 'IN_PROGRESS' ? 'Em direção ao destino' : ''}
                 {ride.status === 'COMPLETED' ? 'Chegou ao destino' : ''}
-                {ride.status === 'REQUESTED' ? 'Localizando Carlos...' : ''}
+                {ride.status === 'REQUESTED' ? `Aguardando confirmação de ${driverFirstName}...` : ''}
               </span>
             </div>
           </div>
@@ -366,7 +416,7 @@ export function LiveRideTracker({ ride }: LiveRideTrackerProps) {
               </span>
               <div className={statusInfo.step >= 2 ? '' : 'opacity-40'}>
                 <span className="font-bold text-white block">Motorista Confirmado</span>
-                <span className="text-[10px] text-slate-400 block">Carlos aceitou seu convite</span>
+                <span className="text-[10px] text-slate-400 block">{driverFirstName} aceitou seu convite</span>
               </div>
             </div>
 
@@ -379,7 +429,7 @@ export function LiveRideTracker({ ride }: LiveRideTrackerProps) {
               </span>
               <div className={statusInfo.step >= 3 ? '' : 'opacity-40'}>
                 <span className="font-bold text-white block">Motorista no Local de Embarque</span>
-                <span className="text-[10px] text-slate-400 block">Carlos chegando com o veículo</span>
+                <span className="text-[10px] text-slate-400 block">{driverFirstName} chegando com o veículo</span>
               </div>
             </div>
 
@@ -392,7 +442,7 @@ export function LiveRideTracker({ ride }: LiveRideTrackerProps) {
               </span>
               <div className={statusInfo.step >= 5 ? '' : 'opacity-40'}>
                 <span className="font-bold text-white block">Viagem em Andamento</span>
-                <span className="text-[10px] text-slate-400 block">Deslocamento monitorado pela prefeitura</span>
+                <span className="text-[10px] text-slate-400 block">Deslocamento monitorado pela plataforma em tempo real</span>
               </div>
             </div>
 

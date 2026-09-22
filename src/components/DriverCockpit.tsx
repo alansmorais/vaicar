@@ -167,8 +167,10 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     }
   };
 
-  // Filter rides for this driver
-  const driverRides = rides.filter((r) => r.driverId === driver.id);
+  // Filter rides for this driver (sort newest first so activeRide is always the latest)
+  const driverRides = rides
+    .filter((r) => r.driverId === driver.id)
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   const pendingRequests = driverRides.filter((r) => r.status === 'REQUESTED');
   const activeRide = driverRides.find((r) =>
     ['ACCEPTED', 'DRIVER_ARRIVING', 'PASSENGER_PICKED_UP', 'IN_PROGRESS'].includes(r.status),
@@ -405,9 +407,9 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     try {
       setIsUpdating(true);
       await updateRideStatus(rideId, 'ACCEPTED');
-      onRefreshRides();
+      await onRefreshRides();
     } catch (err: any) {
-      alert(err.message || 'Erro ao aceitar');
+      alert(err.message || 'Erro ao aceitar corrida');
     } finally {
       setIsUpdating(false);
     }
@@ -417,7 +419,7 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     try {
       setIsUpdating(true);
       await updateRideStatus(rideId, 'CANCELLED_BY_DRIVER', 'Recusado pelo motorista');
-      onRefreshRides();
+      await onRefreshRides();
     } catch (err: any) {
       alert(err.message || 'Erro ao recusar');
     } finally {
@@ -430,9 +432,27 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     try {
       setIsUpdating(true);
       await updateRideStatus(activeRide.id, nextStatus);
-      onRefreshRides();
+      await onRefreshRides();
     } catch (err: any) {
       alert(err.message || 'Erro ao atualizar status');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleCancelActiveRideByDriver = async () => {
+    if (!activeRide) return;
+    const reason = window.prompt(
+      'Informe o motivo do cancelamento (ex: Passageiro não compareceu, Problema no veículo):',
+      'Passageiro não compareceu ao embarque',
+    );
+    if (!reason) return;
+    try {
+      setIsUpdating(true);
+      await updateRideStatus(activeRide.id, 'CANCELLED_BY_DRIVER', reason);
+      await onRefreshRides();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao cancelar corrida');
     } finally {
       setIsUpdating(false);
     }
@@ -1008,6 +1028,15 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                       FINALIZAR CORRIDA E CONFIRMAR RECEBIMENTO ✔
                     </button>
                   )}
+
+                  <button
+                    onClick={handleCancelActiveRideByDriver}
+                    disabled={isUpdating}
+                    className="px-4 py-3 bg-slate-800 hover:bg-rose-950/60 hover:text-rose-300 text-slate-400 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                    title="Cancelar corrida caso o passageiro desista ou não compareça"
+                  >
+                    Cancelar Viagem
+                  </button>
                 </div>
               </div>
             </div>
