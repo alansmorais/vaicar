@@ -63,16 +63,25 @@ jobs:
           BUBBLEWRAP_KEYSTORE_PASSWORD: "vaicar123"
           BUBBLEWRAP_KEY_PASSWORD: "vaicar123"
         run: |
-          # Start a local static server to serve manifest.json locally so download never fails with 404
+          # Start a local static server to serve manifest.json locally so download never fails during generation
           python3 -m http.server 8080 --directory public &
           sleep 2
           
-          # Temporarily change webManifestUrl in twa-manifest.json to point to the local server
+          # Use local manifest for reading metadata
           sed -i 's|"webManifestUrl": "https://[^"]*"|"webManifestUrl": "http://localhost:8080/manifest.json"|g' twa-manifest.json
-          cat twa-manifest.json
           
-          # Use both CLI flags and yes pipe to guarantee zero interactive prompts, skipping internal signing
+          # Generate/update project
           yes "" | bubblewrap update --manifest=twa-manifest.json --skipVersionUpgrade --skipConfig
+          
+          # Restore production URLs across all generated project files so the installed app connects to the live server
+          echo "=== Enforcing Production Host & URLs ==="
+          find . -type f \( -name "*.xml" -o -name "*.json" -o -name "*.gradle" \) -exec sed -i 's|http://localhost:8080|https://ais-pre-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app|g' {} +
+          find . -type f \( -name "*.xml" -o -name "*.json" -o -name "*.gradle" \) -exec sed -i 's|localhost:8080|ais-pre-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app|g' {} +
+          
+          # Print strings.xml to verify production host
+          find app -name "strings.xml" -exec cat {} + || true
+          
+          # Build APK
           yes "" | bubblewrap build --skipSigning
 
       - name: Robust Manual Align and Sign APK
