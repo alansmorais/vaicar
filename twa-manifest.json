@@ -1,0 +1,30 @@
+{
+  "packageId": "com.vaicar.app",
+  "host": "ais-pre-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app",
+  "name": "VaiCar — Transporte Local",
+  "launcherName": "VaiCar",
+  "themeColor": "#10b981",
+  "navigationColor": "#0f172a",
+  "navigationColorDark": "#0f172a",
+  "navigationDividerColor": "#000000",
+  "navigationDividerColorDark": "#000000",
+  "backgroundColor": "#0f172a",
+  "enableNotifications": true,
+  "startUrl": "/",
+  "iconUrl": "https://raw.githubusercontent.com/alansmorais/vaicar/refs/heads/main/images/vaicar_logo.png",
+  "maskableIconUrl": "https://raw.githubusercontent.com/alansmorais/vaicar/refs/heads/main/images/vaicar_logo.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "android"
+  },
+  "appVersionCode": 1,
+  "appVersionName": "1.0.0",
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://ais-pre-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app/manifest.json",
+  "fallbackType": "customtabs",
+  "display": "standalone",
+  "orientation": "portrait",
+  "features": {},
+  "alphaDependencies": {}
+}
