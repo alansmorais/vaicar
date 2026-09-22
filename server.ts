@@ -23,6 +23,11 @@ const PORT = 3000;
 
 app.use(express.json());
 
+app.all('/api/*', (req, res, next) => {
+  console.log(`[API LOG] ${req.method} ${req.originalUrl}`);
+  next();
+});
+
 // --- IN-MEMORY RELATIONAL DATABASE STORE ---
 
 const municipalitySS: Municipality = {
@@ -1228,6 +1233,7 @@ app.delete('/api/v1/admin/costs/:id', async (req, res) => {
 
 // --- PASSENGER PROFILE & AUTH ---
 app.post('/api/v1/passengers/auth', async (req, res) => {
+  console.log('POST /api/v1/passengers/auth', req.body);
   try {
     const { name, phone, email, verificationCode, avatarUrl } = req.body;
     if (!phone) return res.status(400).json({ error: 'WhatsApp obrigatório' });
@@ -1363,6 +1369,11 @@ app.get('/api/v1/admin/surge-analysis', async (req, res) => {
 });
 
 // --- VITE MIDDLEWARE & SPA SERVING ---
+app.all('/api/*', (req, res) => {
+  console.log(`[API 404] ${req.method} ${req.originalUrl}`);
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+});
+
 async function startServer() {
   await seedStaticData();
 

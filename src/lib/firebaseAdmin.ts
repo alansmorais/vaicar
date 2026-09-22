@@ -46,7 +46,8 @@ class QueryWrapper {
       empty: snap.empty,
       docs: snap.docs.map(d => ({
         id: d.id,
-        data: () => d.data()
+        data: () => d.data(),
+        ref: new DocWrapper(d.ref)
       })),
       size: snap.size
     };

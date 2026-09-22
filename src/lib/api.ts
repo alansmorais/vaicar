@@ -110,16 +110,11 @@ export async function searchDrivers(
   destinationZoneId: string,
   passengerCount: number = 1,
 ): Promise<SearchDriversResponse> {
-  const res = await fetch('/api/v1/search/drivers', {
+  return safeFetchJson<SearchDriversResponse>('/api/v1/search/drivers', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ originZoneId, destinationZoneId, passengerCount }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || 'Erro na busca de motoristas');
-  }
-  return res.json();
+  }, 'Erro na busca de motoristas');
 }
 
 export async function fetchDrivers(status?: string, onlyOnline?: boolean): Promise<Driver[]> {
@@ -187,16 +182,11 @@ export async function submitDriverDocument(id: string, docData: any): Promise<an
 }
 
 export async function createRide(rideData: any): Promise<Ride> {
-  const res = await fetch('/api/v1/rides', {
+  return safeFetchJson<Ride>('/api/v1/rides', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(rideData),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Falha ao solicitar corrida');
-  }
-  return res.json();
+  }, 'Falha ao solicitar corrida');
 }
 
 export async function fetchRide(id: string): Promise<Ride> {
@@ -453,26 +443,19 @@ export async function passengerAuth(params: {
   verificationCode?: string;
   avatarUrl?: string;
 }): Promise<any> {
-  const res = await fetch('/api/v1/passengers/auth', {
+  return safeFetchJson<any>('/api/v1/passengers/auth', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Falha na autenticação');
-  return data;
+  }, 'Falha na autenticação');
 }
 
 export async function fetchPassenger(id: string): Promise<any> {
-  const res = await fetch(`/api/v1/passengers/${id}`);
-  if (!res.ok) return null;
-  return res.json();
+  return safeFetchJson<any>(`/api/v1/passengers/${id}`, undefined, 'Passageiro não encontrado');
 }
 
 export async function fetchPassengerRides(passengerId: string): Promise<Ride[]> {
-  const res = await fetch(`/api/v1/passengers/${passengerId}/rides`);
-  if (!res.ok) return [];
-  return res.json();
+  return safeFetchJson<Ride[]>(`/api/v1/passengers/${passengerId}/rides`, undefined, 'Falha ao buscar histórico do passageiro');
 }
 
 export async function submitPassengerReview(review: {
