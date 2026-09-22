@@ -82,6 +82,19 @@ export async function fetchZones(): Promise<Zone[]> {
   return meta.zones;
 }
 
+export async function createZone(zoneData: {
+  name: string;
+  distanceFromCenterKm?: number;
+  lat?: number;
+  lng?: number;
+}): Promise<Zone> {
+  return safeFetchJson<Zone>('/api/v1/zones', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(zoneData),
+  }, 'Falha ao cadastrar zona de atendimento');
+}
+
 export async function fetchRegulatoryRequirements(): Promise<RegulatoryRequirement[]> {
   const meta = await fetchMeta();
   return meta.requirements;

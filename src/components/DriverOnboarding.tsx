@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { ShieldCheck, Car, User, CheckCircle2, ArrowRight } from 'lucide-react';
-import { Zone, Driver } from '../types.ts';
-import { registerDriver } from '../lib/api.ts';
+import React, { useState, useEffect } from 'react';
+import { ShieldCheck, Car, User, CheckCircle2, ArrowRight, MapPin, Plus, Sparkles } from 'lucide-react';
+import { Zone, Driver, VAICAR_SUBSCRIPTION_TIERS } from '../types.ts';
+import { registerDriver, createZone } from '../lib/api.ts';
 
 interface DriverOnboardingProps {
   zones: Zone[];
@@ -35,7 +35,21 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
   const [vehicleColor, setVehicleColor] = useState('Prata');
   const [vehiclePlate, setVehiclePlate] = useState('SSB-4D21');
 
-  // Zones
+  // Zones & Custom Zones
+  const [allZonesList, setAllZonesList] = useState<Zone[]>(zones);
+  const [customZoneInput, setCustomZoneInput] = useState('');
+  const [isAddingZone, setIsAddingZone] = useState(false);
+  const [zoneMessage, setZoneMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAllZonesList((prev) => {
+      const map = new Map<string, Zone>();
+      zones.forEach((z) => map.set(z.id, z));
+      prev.forEach((z) => map.set(z.id, z));
+      return Array.from(map.values());
+    });
+  }, [zones]);
+
   const [selectedZones, setSelectedZones] = useState<string[]>([
     'z-centro',
     'z-maresias',
@@ -89,6 +103,34 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
       setSelectedZones(selectedZones.filter((id) => id !== zoneId));
     } else {
       setSelectedZones([...selectedZones, zoneId]);
+    }
+  };
+
+  const handleAddCustomZone = async (nameToAdd?: string) => {
+    const targetName = (nameToAdd || customZoneInput).trim();
+    if (!targetName) return;
+
+    try {
+      setIsAddingZone(true);
+      setZoneMessage(null);
+      const created = await createZone({ name: targetName });
+
+      setAllZonesList((prev) => {
+        const exists = prev.some((z) => z.id === created.id || z.name.toLowerCase() === created.name.toLowerCase());
+        return exists ? prev : [...prev, created];
+      });
+
+      if (!selectedZones.includes(created.id)) {
+        setSelectedZones((prev) => [...prev, created.id]);
+      }
+
+      setCustomZoneInput('');
+      setZoneMessage(`Zona "${created.name}" adicionada e selecionada!`);
+      setTimeout(() => setZoneMessage(null), 5000);
+    } catch (err: any) {
+      setZoneMessage(err.message || 'Erro ao cadastrar zona');
+    } finally {
+      setIsAddingZone(false);
     }
   };
 
@@ -398,12 +440,77 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
             <div>
               <h3 className="font-bold text-white text-base">Onde você deseja atender?</h3>
               <p className="text-xs text-slate-400">
-                Selecione as praias e bairros de São Sebastião onde você aceita receber chamadas.
+                Selecione as praias e bairros onde você aceita receber chamadas. Você também pode cadastrar novos bairros.
               </p>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-60 overflow-y-auto p-1">
-              {zones.map((zone) => {
+            {/* Add Custom Zone Form */}
+            <div className="bg-slate-950 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                <h4 className="text-xs font-bold text-white">Não encontrou seu bairro ou praia no menu?</h4>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Você pode adicionar qualquer localidade de São Sebastião (ex: Enseada, Canto do Mar, Morro do Abrigo, etc.):
+              </p>
+
+              {/* Quick suggestions */}
+              <div className="flex flex-wrap gap-1.5">
+                {['Enseada', 'Canto do Mar', 'Morro do Abrigo', 'Topolândia', 'Jaraguá', 'Cigarras'].map((sug) => {
+                  const isSelected = allZonesList.some(
+                    (z) => z.name.toLowerCase() === sug.toLowerCase() && selectedZones.includes(z.id)
+                  );
+                  return (
+                    <button
+                      key={sug}
+                      type="button"
+                      disabled={isAddingZone}
+                      onClick={() => handleAddCustomZone(sug)}
+                      className={`text-[11px] px-2.5 py-1 rounded-lg border font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                        isSelected
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                          : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-emerald-500'
+                      }`}
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>{sug}</span>
+                      {isSelected && <span className="text-[9px] font-bold">✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Manual input */}
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <MapPin className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={customZoneInput}
+                    onChange={(e) => setCustomZoneInput(e.target.value)}
+                    placeholder="Digite o nome da sua zona/praia..."
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={isAddingZone || !customZoneInput.trim()}
+                  onClick={() => handleAddCustomZone()}
+                  className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-4 py-2 rounded-xl transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Adicionar</span>
+                </button>
+              </div>
+
+              {zoneMessage && (
+                <p className="text-[11px] font-bold text-emerald-400">{zoneMessage}</p>
+              )}
+            </div>
+
+            {/* Zones Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto p-1">
+              {allZonesList.map((zone) => {
                 const selected = selectedZones.includes(zone.id);
                 return (
                   <div
@@ -415,25 +522,49 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
                         : 'bg-slate-950 border-slate-800 text-slate-400'
                     }`}
                   >
-                    <span>{zone.name}</span>
+                    <span className="truncate pr-1">{zone.name}</span>
                     <input
                       type="checkbox"
                       checked={selected}
                       onChange={() => {}}
-                      className="accent-emerald-500 pointer-events-none"
+                      className="accent-emerald-500 pointer-events-none shrink-0"
                     />
                   </div>
                 );
               })}
             </div>
 
-            <div className="bg-emerald-950/40 border border-emerald-500/30 p-4 rounded-2xl space-y-1 text-xs text-emerald-300">
-              <div className="font-bold flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Mensalidade Fixa VaiCar Pro: R$ 49/mês</span>
+            {/* Tiered Subscription Breakdown Banner */}
+            <div className="bg-emerald-950/40 border border-emerald-500/30 p-4 rounded-2xl space-y-2 text-xs text-emerald-300">
+              <div className="font-bold flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span className="text-white">Mensalidade Escalonada VaiCar:</span>
+                </div>
+                <span className="text-[11px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded font-bold">
+                  0% de Comissão
+                </span>
               </div>
-              <p className="text-[11px] text-slate-300">
-                Você ganha 100% de cada corrida sem nenhuma taxa percentual. Pague apenas a assinatura mensal da tecnologia.
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-1 text-[11px]">
+                <div className="bg-slate-900/90 p-2 rounded-lg border border-emerald-500/40 text-center">
+                  <span className="block text-slate-400 text-[10px]">1º Registro</span>
+                  <span className="font-black text-emerald-400">R$ 0 / mês</span>
+                </div>
+                <div className="bg-slate-900/90 p-2 rounded-lg border border-slate-800 text-center">
+                  <span className="block text-slate-400 text-[10px]">Próximos 9 (2º-10º)</span>
+                  <span className="font-black text-white">R$ 60 / mês</span>
+                </div>
+                <div className="bg-slate-900/90 p-2 rounded-lg border border-slate-800 text-center">
+                  <span className="block text-slate-400 text-[10px]">11º ao 20º</span>
+                  <span className="font-black text-white">R$ 80 / mês</span>
+                </div>
+                <div className="bg-slate-900/90 p-2 rounded-lg border border-slate-800 text-center">
+                  <span className="block text-slate-400 text-[10px]">21º ao 100º</span>
+                  <span className="font-black text-white">R$ 100 / mês</span>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                Você ganha 100% do valor de cada corrida. Fique com todo o rendimento das suas viagens.
               </p>
             </div>
 

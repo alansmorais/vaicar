@@ -55,10 +55,10 @@ export default function App() {
   const [rides, setRides] = useState<Ride[]>([]);
   const [plan, setPlan] = useState<SubscriptionPlan>({
     id: 'plan-vaicar-pro',
-    name: 'VaiCar Pro',
-    priceBrl: 49,
+    name: 'VaiCar Pro Escalonado',
+    priceBrl: 100,
     billingPeriod: 'Mês',
-    description: 'Acesso total à tecnologia de transporte legalizado',
+    description: 'Acesso total à tecnologia de transporte legalizado sem cobrança de comissão',
     commissionPercent: 0,
     isActive: true,
   });
@@ -76,7 +76,7 @@ export default function App() {
     expiredSubscriptions: 0,
     cancelledSubscriptions: 0,
     pendingSubscriptions: 0,
-    subscriptionPriceBrl: 49,
+    subscriptionPriceBrl: 100,
     monthlyRecurringRevenue: 0,
     totalSubscriptionRevenueMonth: 0,
     totalSubscriptionRevenueYear: 0,

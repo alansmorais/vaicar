@@ -27,6 +27,7 @@ import {
   VolumeX,
   Scale,
   Navigation,
+  Sparkles,
 } from 'lucide-react';
 import { Driver, Zone, Ride, RegulatoryRequirement, PaymentMethod, PlatformFareSettings } from '../types.ts';
 import {
@@ -38,6 +39,7 @@ import {
   updateDriverPaymentSettings,
   updateRidePaymentStatus,
   fetchFareSettings,
+  createZone,
 } from '../lib/api.ts';
 
 interface DriverCockpitProps {
@@ -91,6 +93,21 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
   const [newOrigZone, setNewOrigZone] = useState(allZones[0]?.id || '');
   const [newDestZone, setNewDestZone] = useState(allZones[1]?.id || '');
   const [newRoutePrice, setNewRoutePrice] = useState(40);
+
+  // Custom zones management state
+  const [customZonesList, setCustomZonesList] = useState<Zone[]>(allZones);
+  const [newZoneInput, setNewZoneInput] = useState('');
+  const [isAddingZone, setIsAddingZone] = useState(false);
+  const [zoneActionMessage, setZoneActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    setCustomZonesList((prev) => {
+      const mergedMap = new Map<string, Zone>();
+      allZones.forEach((z) => mergedMap.set(z.id, z));
+      prev.forEach((z) => mergedMap.set(z.id, z));
+      return Array.from(mergedMap.values());
+    });
+  }, [allZones]);
 
   // Platform fare floor state
   const [fareSettings, setFareSettings] = useState<PlatformFareSettings>({
@@ -343,6 +360,44 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
       alert(err.message || 'Erro ao atualizar zonas');
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleAddCustomZone = async (zoneNameToAdd?: string) => {
+    const targetName = (zoneNameToAdd || newZoneInput).trim();
+    if (!targetName) return;
+
+    try {
+      setIsAddingZone(true);
+      setZoneActionMessage(null);
+      const created = await createZone({ name: targetName });
+
+      // Update local zones list if not present
+      setCustomZonesList((prev) => {
+        const exists = prev.some((z) => z.id === created.id || z.name.toLowerCase() === created.name.toLowerCase());
+        return exists ? prev : [...prev, created];
+      });
+
+      // Automatically add to driver's operating zones if not already selected
+      if (!driver.operatingZones.includes(created.id)) {
+        const updatedZones = [...driver.operatingZones, created.id];
+        const updated = await updateDriverAvailability(driver.id, driver.isOnline, updatedZones);
+        onRefreshDriver(updated);
+      }
+
+      setNewZoneInput('');
+      setZoneActionMessage({
+        type: 'success',
+        text: `Bairro/Zona "${created.name}" cadastrada com sucesso e ativada para você!`,
+      });
+      setTimeout(() => setZoneActionMessage(null), 6000);
+    } catch (err: any) {
+      setZoneActionMessage({
+        type: 'error',
+        text: err.message || 'Erro ao adicionar nova zona.',
+      });
+    } finally {
+      setIsAddingZone(false);
     }
   };
 
@@ -1424,42 +1479,149 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
 
       {/* TAB 3: OPERATING ZONES */}
       {activeTab === 'ZONES' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5">
-          <div>
-            <h2 className="text-xl font-black text-white">Minhas Zonas de Atendimento</h2>
-            <p className="text-xs text-slate-400">
-              Selecione as praias e bairros de São Sebastião onde você atende. Você só receberá solicitações originadas nas zonas ativas.
-            </p>
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+            <div>
+              <h2 className="text-xl font-black text-white">Minhas Zonas de Atendimento</h2>
+              <p className="text-xs text-slate-400">
+                Selecione as praias e bairros de São Sebastião onde você atende. Você só receberá solicitações originadas nas zonas ativas.
+              </p>
+            </div>
+            <div className="text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-xl font-bold self-start sm:self-auto">
+              {driver.operatingZones.length} zonas ativas
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {allZones.map((zone) => {
-              const isSelected = driver.operatingZones.includes(zone.id);
-              return (
-                <div
-                  key={zone.id}
-                  onClick={() => handleToggleZone(zone.id)}
-                  className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between text-xs font-bold ${
-                    isSelected
-                      ? 'bg-emerald-500/10 border-emerald-500 text-white shadow'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <MapPin
-                      className={`w-3.5 h-3.5 ${isSelected ? 'text-emerald-400' : 'text-slate-600'}`}
+          {/* Add Custom Zone Card */}
+          <div className="bg-slate-950 border border-emerald-500/30 rounded-2xl p-5 space-y-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-black text-white">
+                  Adicionar Bairro ou Praia Personalizada
+                </h3>
+              </div>
+              <p className="text-xs text-slate-400">
+                O motorista pode colocar as zonas dele por mais que não apareça no menu padrão. Adicione bairros como <strong>Enseada</strong>, <strong>Canto do Mar</strong>, <strong>Morro do Abrigo</strong>, etc.
+              </p>
+            </div>
+
+            {/* Quick-add chips */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                Sugestões rápidas de São Sebastião:
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  'Enseada',
+                  'Canto do Mar',
+                  'Morro do Abrigo',
+                  'Topolândia',
+                  'Jaraguá',
+                  'Cigarras',
+                  'Boracéia',
+                  'Pontal da Cruz',
+                ].map((sug) => {
+                  const alreadyActive = customZonesList.some(
+                    (z) => z.name.toLowerCase() === sug.toLowerCase() && driver.operatingZones.includes(z.id)
+                  );
+                  return (
+                    <button
+                      key={sug}
+                      type="button"
+                      disabled={isAddingZone || alreadyActive}
+                      onClick={() => handleAddCustomZone(sug)}
+                      className={`text-xs px-2.5 py-1 rounded-lg border font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                        alreadyActive
+                          ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 opacity-60 cursor-default'
+                          : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-emerald-500 hover:text-white'
+                      }`}
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>{sug}</span>
+                      {alreadyActive && <span className="text-[10px] ml-0.5 font-bold">✓ Ativo</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Form to type any custom neighborhood */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleAddCustomZone();
+              }}
+              className="flex flex-col sm:flex-row gap-2 pt-1"
+            >
+              <div className="relative flex-1">
+                <MapPin className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={newZoneInput}
+                  onChange={(e) => setNewZoneInput(e.target.value)}
+                  placeholder="Nome do bairro ou praia (ex: Enseada, Morro do Abrigo, Canto do Mar...)"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isAddingZone || !newZoneInput.trim()}
+                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs px-5 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>{isAddingZone ? 'Adicionando...' : 'Adicionar e Ativar'}</span>
+              </button>
+            </form>
+
+            {zoneActionMessage && (
+              <div
+                className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                  zoneActionMessage.type === 'success'
+                    ? 'bg-emerald-950/80 border border-emerald-500/50 text-emerald-300'
+                    : 'bg-red-950/80 border border-red-500/50 text-red-300'
+                }`}
+              >
+                <CheckCircle className="w-4 h-4" />
+                <span>{zoneActionMessage.text}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Zones list grid */}
+          <div className="space-y-2">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+              Zonas Cadastradas na Plataforma ({customZonesList.length}):
+            </span>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {customZonesList.map((zone) => {
+                const isSelected = driver.operatingZones.includes(zone.id);
+                return (
+                  <div
+                    key={zone.id}
+                    onClick={() => handleToggleZone(zone.id)}
+                    className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between text-xs font-bold ${
+                      isSelected
+                        ? 'bg-emerald-500/10 border-emerald-500 text-white shadow'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 pr-1">
+                      <MapPin
+                        className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-emerald-400' : 'text-slate-600'}`}
+                      />
+                      <span className="truncate">{zone.name}</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => {}}
+                      className="accent-emerald-500 pointer-events-none shrink-0"
                     />
-                    <span>{zone.name}</span>
                   </div>
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => {}}
-                    className="accent-emerald-500 pointer-events-none"
-                  />
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       )}

@@ -274,17 +274,24 @@ const defaultZones: Zone[] = [
   { id: 'z-centro', municipalityId: 'mun-ss', name: 'Centro Histórico', slug: 'centro', lat: -23.8078, lng: -45.4058, distanceFromCenterKm: 0, isActive: true },
   { id: 'z-sao-francisco', municipalityId: 'mun-ss', name: 'São Francisco', slug: 'sao-francisco', lat: -23.7667, lng: -45.4167, distanceFromCenterKm: 5.5, isActive: true },
   { id: 'z-pontal', municipalityId: 'mun-ss', name: 'Pontal da Cruz', slug: 'pontal-da-cruz', lat: -23.7850, lng: -45.3980, distanceFromCenterKm: 3.2, isActive: true },
+  { id: 'z-morro-do-abrigo', municipalityId: 'mun-ss', name: 'Morro do Abrigo', slug: 'morro-do-abrigo', lat: -23.7780, lng: -45.4120, distanceFromCenterKm: 3.8, isActive: true },
+  { id: 'z-topolandia', municipalityId: 'mun-ss', name: 'Topolândia', slug: 'topolandia', lat: -23.8150, lng: -45.4180, distanceFromCenterKm: 1.8, isActive: true },
   { id: 'z-barequecaba', municipalityId: 'mun-ss', name: 'Barequeçaba', slug: 'barequecaba', lat: -23.8340, lng: -45.4380, distanceFromCenterKm: 7.0, isActive: true },
+  { id: 'z-cigarras', municipalityId: 'mun-ss', name: 'Cigarras', slug: 'cigarras', lat: -23.7400, lng: -45.3980, distanceFromCenterKm: 8.5, isActive: true },
+  { id: 'z-jaragua', municipalityId: 'mun-ss', name: 'Jaraguá', slug: 'jaragua', lat: -23.7280, lng: -45.4200, distanceFromCenterKm: 10.0, isActive: true },
+  { id: 'z-enseada', municipalityId: 'mun-ss', name: 'Enseada', slug: 'enseada', lat: -23.7220, lng: -45.4290, distanceFromCenterKm: 11.0, isActive: true },
+  { id: 'z-canto-do-mar', municipalityId: 'mun-ss', name: 'Canto do Mar', slug: 'canto-do-mar', lat: -23.7150, lng: -45.4350, distanceFromCenterKm: 13.5, isActive: true },
   { id: 'z-guaeca', municipalityId: 'mun-ss', name: 'Guaecá', slug: 'guaeca', lat: -23.8290, lng: -45.4650, distanceFromCenterKm: 11.5, isActive: true },
   { id: 'z-toque-grande', municipalityId: 'mun-ss', name: 'Toque-Toque Grande', slug: 'toque-toque-grande', lat: -23.8375, lng: -45.5136, distanceFromCenterKm: 16.0, isActive: true },
   { id: 'z-toque-pequeno', municipalityId: 'mun-ss', name: 'Toque-Toque Pequeno', slug: 'toque-toque-pequeno', lat: -23.8300, lng: -45.5350, distanceFromCenterKm: 19.5, isActive: true },
   { id: 'z-pauba', municipalityId: 'mun-ss', name: 'Paúba', slug: 'pauba', lat: -23.7950, lng: -45.5560, distanceFromCenterKm: 23.0, isActive: true },
-  { id: 'z-maresias', municipalityId: 'mun-ss', name: 'Maresias', slug: 'maresias', lat: -23.7915, lng: -45.5684, distanceFromCenterKm: 26.5, isActive: true },
   { id: 'z-santiago', municipalityId: 'mun-ss', name: 'Santiago', slug: 'santiago', lat: -23.7930, lng: -45.5450, distanceFromCenterKm: 21.0, isActive: true },
-  { id: 'z-camburi', municipalityId: 'mun-ss', name: 'Camburi', slug: 'camburi', lat: -23.7745, lng: -45.6420, distanceFromCenterKm: 36.0, isActive: true },
+  { id: 'z-maresias', municipalityId: 'mun-ss', name: 'Maresias', slug: 'maresias', lat: -23.7915, lng: -45.5684, distanceFromCenterKm: 26.5, isActive: true },
   { id: 'z-boicucanga', municipalityId: 'mun-ss', name: 'Boiçucanga', slug: 'boicucanga', lat: -23.7820, lng: -45.6170, distanceFromCenterKm: 33.0, isActive: true },
+  { id: 'z-camburi', municipalityId: 'mun-ss', name: 'Camburi', slug: 'camburi', lat: -23.7745, lng: -45.6420, distanceFromCenterKm: 36.0, isActive: true },
   { id: 'z-juquehy', municipalityId: 'mun-ss', name: 'Juquehy', slug: 'juquehy', lat: -23.7660, lng: -45.7270, distanceFromCenterKm: 48.0, isActive: true },
   { id: 'z-barra-do-una', municipalityId: 'mun-ss', name: 'Barra do Una', slug: 'barra-do-una', lat: -23.7680, lng: -45.7600, distanceFromCenterKm: 55.0, isActive: true },
+  { id: 'z-boraceia', municipalityId: 'mun-ss', name: 'Boracéia', slug: 'boraceia', lat: -23.7650, lng: -45.8500, distanceFromCenterKm: 62.0, isActive: true },
 ];
 
 const defaultRequirements: RegulatoryRequirement[] = [
@@ -328,12 +335,18 @@ const defaultRequirements: RegulatoryRequirement[] = [
 
 let subscriptionPlan: SubscriptionPlan = {
   id: 'plan-pro',
-  name: 'VaiCar Pro',
-  priceBrl: 49.0, // Configurable by Admin
+  name: 'VaiCar Pro Escalonado',
+  priceBrl: 100.0,
   billingPeriod: 'mensal',
-  description: 'Acesso total, perfil verificado, 0% de comissão sobre corridas, chamadas diretas.',
+  description: 'Mensalidade escalonada: R$ 0 para o 1º registro, R$ 60 para os próximos 9 (2º-10º), R$ 80 (11º-20º) e R$ 100 (21º-100º). 0% de comissão.',
   commissionPercent: 0,
   isActive: true,
+  tiers: [
+    { range: '1º Registro', priceBrl: 0, label: 'R$ 0 / mês', description: 'Gratuito / Isenção total para o 1º motorista pioneiro.', highlight: true },
+    { range: 'Próximos 9 (2º ao 10º)', priceBrl: 60, label: 'R$ 60 / mês', description: 'R$ 60 por mês para os 9 motoristas seguintes.' },
+    { range: '11º ao 20º', priceBrl: 80, label: 'R$ 80 / mês', description: 'R$ 80 por mês para os registros de 11 a 20.' },
+    { range: '21º ao 100º', priceBrl: 100, label: 'R$ 100 / mês', description: 'R$ 100 por mês para os registros de 21 a 100.' },
+  ],
 };
 
 let platformFareSettings: PlatformFareSettings = {
@@ -395,14 +408,25 @@ async function getGlobalConfig() {
   return doc.data() as any;
 }
 
+function getTierForRegistrationIndex(regIndex: number): { feeBrl: number; tierName: string; isFree: boolean } {
+  if (regIndex <= 1) {
+    return { feeBrl: 0, tierName: '1º Registro (Pioneiro VIP - Grátis)', isFree: true };
+  } else if (regIndex <= 10) {
+    return { feeBrl: 60, tierName: 'Próximos 9: 2º ao 10º (R$ 60/mês)', isFree: false };
+  } else if (regIndex <= 20) {
+    return { feeBrl: 80, tierName: '11º ao 20º (R$ 80/mês)', isFree: false };
+  } else {
+    return { feeBrl: 100, tierName: '21º ao 100º (R$ 100/mês)', isFree: false };
+  }
+}
+
 async function seedStaticData() {
-  const zonesSnap = await db.collection('zones').limit(1).get();
-  if (zonesSnap.empty) {
-    const batch = db.batch();
-    for (const zone of defaultZones) {
-      batch.set(db.collection('zones').doc(zone.id), zone);
+  for (const zone of defaultZones) {
+    const docRef = db.collection('zones').doc(zone.id);
+    const existing = await docRef.get();
+    if (!existing.exists) {
+      await docRef.set(zone);
     }
-    await batch.commit();
   }
 
   const reqsSnap = await db.collection('requirements').limit(1).get();
@@ -428,7 +452,19 @@ async function ensureConfig() {
 // Helpers to get collections easily
 async function getDrivers(): Promise<Driver[]> {
   const snap = await db.collection('drivers').get();
-  return snap.docs.map((doc: any) => doc.data() as Driver);
+  const rawList = snap.docs.map((doc: any) => doc.data() as Driver);
+  return rawList.map((d: Driver, idx: number) => {
+    const regIdx = d.registrationIndex && d.registrationIndex > 0 ? d.registrationIndex : (idx + 1);
+    const tier = getTierForRegistrationIndex(regIdx);
+    const monthlyFee = typeof d.monthlyFeeBrl === 'number' ? d.monthlyFeeBrl : tier.feeBrl;
+    const tierName = d.subscriptionTierName || tier.tierName;
+    return {
+      ...d,
+      registrationIndex: regIdx,
+      monthlyFeeBrl: monthlyFee,
+      subscriptionTierName: tierName,
+    };
+  });
 }
 
 async function getRides(): Promise<Ride[]> {
@@ -554,7 +590,9 @@ async function computePlatformMetrics(): Promise<PlatformMetrics> {
   const pendingSubsCount = drivers.filter((d: Driver) => ['PAYMENT_PENDING', 'TRIAL'].includes(d.subscriptionStatus)).length;
 
   const totalCosts = platformCosts.reduce((sum: number, c: PlatformCost) => sum + c.amountBrl, 0);
-  const monthlyRevenue = activeSubsCount * config.subscriptionPlan.priceBrl;
+  const monthlyRevenue = drivers
+    .filter((d: Driver) => d.subscriptionStatus === 'ACTIVE')
+    .reduce((sum: number, d: Driver) => sum + (typeof d.monthlyFeeBrl === 'number' ? d.monthlyFeeBrl : 100), 0);
   const yearlyRevenue = monthlyRevenue * 12;
   const netIncome = monthlyRevenue - totalCosts;
 
@@ -607,7 +645,11 @@ app.get('/api/v1/meta', async (req, res) => {
       municipality: municipalitySS,
       zones: zones.filter((z) => z.isActive),
       requirements,
-      subscriptionPlan: config.subscriptionPlan,
+      subscriptionPlan: {
+        ...config.subscriptionPlan,
+        ...subscriptionPlan,
+        tiers: subscriptionPlan.tiers,
+      },
       metrics,
       fareSettings: config.platformFareSettings,
     });
@@ -697,6 +739,42 @@ app.get('/api/v1/zones', async (req, res) => {
   res.json(zones);
 });
 
+// Create/add custom zone (allows drivers to add non-listed neighborhoods e.g. Enseada, Canto do Mar, Morro do Abrigo, etc.)
+app.post('/api/v1/zones', async (req, res) => {
+  try {
+    const { name, slug, lat, lng, distanceFromCenterKm } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Nome da zona é obrigatório' });
+    }
+    const cleanName = name.trim();
+    const zoneSlug = slug || cleanName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const id = `z-${zoneSlug}`;
+
+    // Check if zone already exists by id
+    const docRef = db.collection('zones').doc(id);
+    const existing = await docRef.get();
+    if (existing.exists) {
+      return res.json(existing.data());
+    }
+
+    const newZone: Zone = {
+      id,
+      municipalityId: 'mun-ss',
+      name: cleanName,
+      slug: zoneSlug,
+      lat: typeof lat === 'number' ? lat : -23.8078,
+      lng: typeof lng === 'number' ? lng : -45.4058,
+      distanceFromCenterKm: typeof distanceFromCenterKm === 'number' ? distanceFromCenterKm : 8.0,
+      isActive: true,
+    };
+
+    await docRef.set(newZone);
+    res.status(201).json(newZone);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Falha ao cadastrar zona' });
+  }
+});
+
 // Search Drivers
 app.post('/api/v1/search/drivers', async (req, res) => {
   try {
@@ -783,6 +861,10 @@ app.post('/api/v1/drivers', async (req, res) => {
     const requirementsSnap = await db.collection('requirements').get();
     const requirements = requirementsSnap.docs.map((doc: any) => doc.data() as RegulatoryRequirement);
 
+    const currentDriversSnap = await db.collection('drivers').get();
+    const registrationIndex = currentDriversSnap.size + 1;
+    const tier = getTierForRegistrationIndex(registrationIndex);
+
     const newDriver: Driver = {
       id,
       name,
@@ -794,7 +876,10 @@ app.post('/api/v1/drivers', async (req, res) => {
       professionalCategory: professionalCategory || 'Transporte Remunerado Municipal',
       licenseNumber: licenseNumber || 'REG-PENDENTE',
       regulatoryStatus: 'SUBMITTED',
-      subscriptionStatus: 'TRIAL',
+      subscriptionStatus: registrationIndex === 1 ? 'ACTIVE' : 'TRIAL',
+      registrationIndex,
+      monthlyFeeBrl: tier.feeBrl,
+      subscriptionTierName: tier.tierName,
       isOnline: false,
       operatingZones: operatingZones.length ? operatingZones : ['z-centro'],
       acceptsImmediate: true,
@@ -1329,7 +1414,11 @@ app.get('/api/v1/admin/metrics', async (req, res) => {
 // Subscription Plan
 app.get('/api/v1/subscription/plan', async (req, res) => {
   const config = await ensureConfig();
-  res.json(config.subscriptionPlan);
+  res.json({
+    ...config.subscriptionPlan,
+    ...subscriptionPlan,
+    tiers: subscriptionPlan.tiers,
+  });
 });
 
 // Regulatory Requirements

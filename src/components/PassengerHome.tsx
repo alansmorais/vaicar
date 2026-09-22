@@ -362,7 +362,7 @@ export const PassengerHome: React.FC<PassengerHomeProps> = ({
             Você define seu preço. Você fica com 100% da corrida.
           </h3>
           <p className="text-xs text-slate-300 max-w-lg">
-            Sem taxa percentual abusiva por corrida. Pague apenas uma mensalidade de <strong>R$49/mês</strong> e receba chamadas diretamente de passageiros locais e turistas.
+            Sem taxa percentual por corrida. Mensalidade a partir de <strong>R$ 0/mês</strong> (1º cadastro grátis, R$ 60 para os 9 seguintes) e receba chamadas diretamente de passageiros locais e turistas.
           </p>
         </div>
         <button

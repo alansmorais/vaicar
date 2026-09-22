@@ -189,6 +189,10 @@ export interface Driver {
   requestedDocRequirement?: string;
   isDemo?: boolean;
   status?: 'PENDING' | 'APPROVED' | 'REJECTED'; // Added status
+  registrationIndex?: number; // 1 para 1º registro, 2..10 para próximos 9, etc.
+  monthlyFeeBrl?: number; // R$ 0, R$ 60, R$ 80 ou R$ 100
+  subscriptionTierName?: string;
+  customZones?: string[];
 }
 
 export interface Passenger {
@@ -302,6 +306,55 @@ export interface Report {
   createdAt: string;
 }
 
+export interface SubscriptionTier {
+  range: string;
+  priceBrl: number;
+  label: string;
+  description: string;
+  highlight?: boolean;
+}
+
+export const VAICAR_SUBSCRIPTION_TIERS: SubscriptionTier[] = [
+  {
+    range: '1º Registro',
+    priceBrl: 0,
+    label: 'R$ 0 / mês',
+    description: 'Gratuito / Isenção total para o primeiro motorista cadastrado na plataforma.',
+    highlight: true,
+  },
+  {
+    range: 'Próximos 9 (2º ao 10º)',
+    priceBrl: 60,
+    label: 'R$ 60 / mês',
+    description: 'Tarifa especial de adesão para os 9 motoristas seguintes.',
+  },
+  {
+    range: '11º ao 20º',
+    priceBrl: 80,
+    label: 'R$ 80 / mês',
+    description: 'Mensalidade para os motoristas da fase de expansão inicial.',
+  },
+  {
+    range: '21º ao 100º',
+    priceBrl: 100,
+    label: 'R$ 100 / mês',
+    description: 'Mensalidade consolidada da plataforma VaiCar (21º ao 100º registro).',
+  },
+];
+
+export function getDriverFeeFromIndex(index?: number): { fee: number; tierLabel: string; isFree: boolean } {
+  const safeIndex = index && index > 0 ? index : 1;
+  if (safeIndex === 1) {
+    return { fee: 0, tierLabel: '1º Registro (Pioneiro VIP - Grátis)', isFree: true };
+  } else if (safeIndex <= 10) {
+    return { fee: 60, tierLabel: `Motorista #${safeIndex} (Próximos 9: 2º ao 10º)`, isFree: false };
+  } else if (safeIndex <= 20) {
+    return { fee: 80, tierLabel: `Motorista #${safeIndex} (11º ao 20º)`, isFree: false };
+  } else {
+    return { fee: 100, tierLabel: `Motorista #${safeIndex} (21º ao 100º)`, isFree: false };
+  }
+}
+
 export interface SubscriptionPlan {
   id: string;
   name: string;
@@ -310,6 +363,7 @@ export interface SubscriptionPlan {
   description: string;
   commissionPercent: number; // 0%
   isActive: boolean;
+  tiers?: SubscriptionTier[];
 }
 
 export interface PlatformMetrics {
