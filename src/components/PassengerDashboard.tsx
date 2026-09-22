@@ -80,6 +80,8 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [verificationCodeInput, setVerificationCodeInput] = useState('');
   const [codeRequested, setCodeRequested] = useState(false);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [generatedPin, setGeneratedPin] = useState<string | null>(null);
+  const [emailSentSuccessfully, setEmailSentSuccessfully] = useState<boolean>(false);
 
   const handlePassengerAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -319,7 +321,13 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
       });
       if (res.codeSent) {
         setCodeRequested(true);
-        setAuthMessage(`Código PIN enviado! (Em ambiente de teste, utilize o PIN: ${res.testCode})`);
+        setGeneratedPin(res.testCode || '8492');
+        setEmailSentSuccessfully(!!res.emailSent);
+        if (res.emailSent) {
+          setAuthMessage(`Código PIN enviado para ${passengerEmail}!`);
+        } else {
+          setAuthMessage(`Código PIN gerado: ${res.testCode || '8492'}. Digite-o abaixo para confirmar.`);
+        }
       } else if (res.success) {
         setIsVerified(true);
         setCodeRequested(false);
@@ -429,11 +437,20 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
             </div>
 
             {codeRequested && (
-              <div className="space-y-2 bg-emerald-950/30 p-4 rounded-2xl border border-emerald-500/40 animate-in fade-in">
+              <div className="space-y-3 bg-emerald-950/30 p-4 rounded-2xl border border-emerald-500/40 animate-in fade-in">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-emerald-400">Código PIN de Validação</label>
-                  <span className="text-[10px] text-slate-400">PIN de Teste: <strong className="text-emerald-400">8492</strong></span>
+                  {emailSentSuccessfully ? (
+                    <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-500/30">
+                      ✉️ Enviado ao e-mail
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-slate-400">
+                      PIN: <strong className="text-emerald-400">{generatedPin || '8492'}</strong>
+                    </span>
+                  )}
                 </div>
+
                 <input
                   type="text"
                   placeholder="Digite o código (ex: 8492)"
@@ -443,9 +460,22 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   autoFocus
                   className="w-full bg-slate-950 text-emerald-400 text-center text-lg font-mono tracking-widest px-3.5 py-2.5 rounded-xl border border-emerald-500/60 outline-none"
                 />
-                <p className="text-[11px] text-slate-400 text-center">
-                  Digite o código PIN para confirmar e acessar diretamente sua conta.
-                </p>
+
+                {/* Quick Auto-fill button */}
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <p className="text-[11px] text-slate-400">
+                    {emailSentSuccessfully
+                      ? 'Verifique sua caixa de entrada ou preencha rapidamente:'
+                      : 'Utilize o PIN gerado ou clique no botão ao lado:'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setVerificationCodeInput(generatedPin || '8492')}
+                    className="shrink-0 text-[11px] bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold px-2.5 py-1 rounded-lg border border-emerald-500/40 cursor-pointer transition-all"
+                  >
+                    Inserir PIN ({generatedPin || '8492'})
+                  </button>
+                </div>
               </div>
             )}
 
