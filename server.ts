@@ -1054,18 +1054,18 @@ app.post('/api/v1/rides', async (req, res) => {
       driverAvatar: driver.avatarUrl,
       originZoneId,
       originAddress: originAddress || originZone?.name || 'Origem',
-      originLat: originZone ? originZone.lat : undefined,
-      originLng: originZone ? originZone.lng : undefined,
-      originLandmark,
-      originMapsLink,
+      originLat: originZone ? originZone.lat : -23.8078,
+      originLng: originZone ? originZone.lng : -45.4058,
+      originLandmark: originLandmark || '',
+      originMapsLink: originMapsLink || '',
       destinationZoneId,
       destinationAddress: destinationAddress || destinationZone?.name || 'Destino',
-      destinationLat: destinationZone ? destinationZone.lat : undefined,
-      destinationLng: destinationZone ? destinationZone.lng : undefined,
-      destinationLandmark,
-      destinationMapsLink,
-      passengerCount: Number(passengerCount),
-      scheduledTime,
+      destinationLat: destinationZone ? destinationZone.lat : -23.8078,
+      destinationLng: destinationZone ? destinationZone.lng : -45.4058,
+      destinationLandmark: destinationLandmark || '',
+      destinationMapsLink: destinationMapsLink || '',
+      passengerCount: Number(passengerCount) || 1,
+      scheduledTime: scheduledTime || null,
       isImmediate: Boolean(isImmediate),
       estimatedPrice,
       estimatedDistanceKm,
@@ -1074,9 +1074,9 @@ app.post('/api/v1/rides', async (req, res) => {
       isDynamicPricingActive: dynamic.isActive,
       status: 'REQUESTED',
       paymentMethod: paymentMethod as any,
-      paymentChangeFor: paymentChangeFor ? Number(paymentChangeFor) : undefined,
-      savedCard,
-      pixKey: driver.pixKey || driver.phone,
+      paymentChangeFor: paymentChangeFor ? Number(paymentChangeFor) : null,
+      savedCard: savedCard || null,
+      pixKey: driver.pixKey || driver.phone || '',
       paymentStatus: 'PENDING',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -1085,8 +1085,9 @@ app.post('/api/v1/rides', async (req, res) => {
 
     await db.collection('rides').doc(id).set(newRide);
     res.status(201).json(newRide);
-  } catch (err) {
-    res.status(500).json({ error: 'Ride request failed' });
+  } catch (err: any) {
+    console.error('Error in /api/v1/rides:', err);
+    res.status(500).json({ error: 'Ride request failed', details: err?.message || String(err) });
   }
 });
 

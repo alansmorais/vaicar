@@ -249,21 +249,21 @@ export interface Ride {
   destinationLandmark?: string;
   destinationMapsLink?: string;
   passengerCount: number;
-  scheduledTime?: string;
+  scheduledTime?: string | null;
   isImmediate: boolean;
   estimatedPrice: number;
   estimatedDistanceKm: number;
   estimatedDurationMin: number;
   status: RideStatus;
   paymentMethod: PaymentMethod;
-  paymentChangeFor?: number;
+  paymentChangeFor?: number | null;
   savedCard?: {
     id: string;
     last4: string;
     brand: string;
     type: 'CREDIT' | 'DEBIT';
     nickname?: string;
-  };
+  } | null;
   pixKey?: string;
   pixQrCodePayload?: string;
   paymentStatus?: 'PENDING' | 'PAID' | 'CONFIRMED_BY_DRIVER';

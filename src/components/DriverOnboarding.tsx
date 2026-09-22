@@ -161,7 +161,7 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
         status: 'PENDING',
       });
 
-      alert('Cadastro recebido com sucesso! Sua documentação foi enviada para análise da Prefeitura e Administração.');
+      alert('Cadastro recebido com sucesso! Sua documentação foi enviada para análise administrativa.');
       onDriverRegistered(newDriver);
     } catch (err: any) {
       alert(err.message || 'Erro ao cadastrar motorista');

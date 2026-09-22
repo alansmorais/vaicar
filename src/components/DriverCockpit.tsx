@@ -447,7 +447,7 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
         expiryDate: '2027-12-31',
         fileUrl: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=600&q=80',
       });
-      alert('Documento enviado para análise da Prefeitura/Administração!');
+      alert('Documento enviado para análise administrativa!');
       // Update local state
       const doc = driver.documents.find((d) => d.requirementId === reqId);
       if (doc) doc.status = 'IN_REVIEW';

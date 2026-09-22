@@ -22,6 +22,22 @@ import firebaseConfig from '../../firebase-applet-config.json';
 const app = initializeApp(firebaseConfig);
 const firestore = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
+function sanitizeForFirestore(data: any): any {
+  if (data === undefined) return null;
+  if (data === null || typeof data !== 'object') return data;
+  if (data instanceof Date) return data;
+  if (Array.isArray(data)) {
+    return data.map((item) => sanitizeForFirestore(item));
+  }
+  const clean: any = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) {
+      clean[key] = sanitizeForFirestore(value);
+    }
+  }
+  return clean;
+}
+
 class DocWrapper {
   constructor(public _d: DocumentReference<DocumentData>) {}
   get id() { return this._d.id; }
@@ -33,8 +49,8 @@ class DocWrapper {
       data: () => snap.data(),
     };
   }
-  set(data: any) { return setDoc(this._d, data); }
-  update(data: any) { return updateDoc(this._d, data); }
+  set(data: any) { return setDoc(this._d, sanitizeForFirestore(data)); }
+  update(data: any) { return updateDoc(this._d, sanitizeForFirestore(data)); }
   delete() { return deleteDoc(this._d); }
 }
 
@@ -75,7 +91,8 @@ export const db: any = {
   batch: () => {
     const b = writeBatch(firestore);
     return {
-      set: (docWrapper: DocWrapper, data: any) => b.set(docWrapper._d, data),
+      set: (docWrapper: DocWrapper, data: any) => b.set(docWrapper._d, sanitizeForFirestore(data)),
+      update: (docWrapper: DocWrapper, data: any) => b.update(docWrapper._d, sanitizeForFirestore(data)),
       commit: () => b.commit()
     };
   },
