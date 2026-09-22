@@ -19,15 +19,26 @@ import {
   DynamicPricingSettings,
 } from './src/types.ts';
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+let transporter: any = null;
+
+function getTransporter() {
+  if (!transporter) {
+    if (!process.env.SMTP_PASS) {
+      console.warn("SMTP_PASS not set, email functionality will be disabled");
+      return null;
+    }
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+  }
+  return transporter;
+}
 
 const app = express();
 const PORT = 3000;
@@ -1282,7 +1293,9 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
       });
       
       try {
-        await transporter.sendMail({
+        const mailer = getTransporter();
+        if (!mailer) throw new Error('Email server not configured');
+        await mailer.sendMail({
           from: `"VaiCar" <${process.env.SMTP_USER}>`,
           to: email,
           subject: 'Seu Código de Verificação VaiCar',
