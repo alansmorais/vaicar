@@ -67,18 +67,20 @@ jobs:
           python3 -m http.server 8080 --directory public &
           sleep 2
           
-          # Use local manifest for reading metadata
+          # Temporarily set webManifestUrl to local server for initial reading
           sed -i 's|"webManifestUrl": "https://[^"]*"|"webManifestUrl": "http://localhost:8080/manifest.json"|g' twa-manifest.json
           
           # Generate/update project with explicit non-empty appVersionName
           yes "1.0.0" | bubblewrap update --manifest=twa-manifest.json --appVersionName="1.0.0" --skipConfig
           
-          # Restore production URLs across all generated project files so the installed app connects to the live server
-          echo "=== Enforcing Production Host & URLs ==="
-          find . -type f \( -name "*.xml" -o -name "*.json" -o -name "*.gradle" \) -exec sed -i 's|http://localhost:8080|https://ais-pre-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app|g' {} +
-          find . -type f \( -name "*.xml" -o -name "*.json" -o -name "*.gradle" \) -exec sed -i 's|localhost:8080|ais-pre-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app|g' {} +
+          # Restore live app URL in twa-manifest.json and strings.xml
+          echo "=== Setting Live App URL ==="
+          sed -i 's|"webManifestUrl": "http://localhost:8080/manifest.json"|"webManifestUrl": "https://ais-dev-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app/manifest.json"|g' twa-manifest.json
+          find . -type f \( -name "*.xml" -o -name "*.json" \) -exec sed -i 's|http://localhost:8080/|https://ais-dev-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app/|g' {} +
+          find . -type f \( -name "*.xml" -o -name "*.json" \) -exec sed -i 's|http://localhost:8080|https://ais-dev-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app|g' {} +
           
-          # Print strings.xml to verify production host
+          # Print strings.xml to verify production host and URLs
+          echo "=== Generated strings.xml ==="
           find app -name "strings.xml" -exec cat {} + || true
           
           # Compile Android APK using Gradle directly (completely non-interactive)

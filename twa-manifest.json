@@ -1,6 +1,6 @@
 {
   "packageId": "com.vaicar.app",
-  "host": "ais-pre-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app",
+  "host": "ais-dev-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app",
   "name": "VaiCar — Transporte Local",
   "launcherName": "VaiCar",
   "themeColor": "#10b981",
@@ -21,7 +21,7 @@
   "appVersionCode": 1,
   "appVersionName": "1.0.0",
   "generatorApp": "bubblewrap-cli",
-  "webManifestUrl": "https://ais-pre-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app/manifest.json",
+  "webManifestUrl": "https://ais-dev-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app/manifest.json",
   "fallbackType": "customtabs",
   "display": "standalone",
   "orientation": "portrait",
