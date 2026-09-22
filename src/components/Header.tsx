@@ -79,10 +79,11 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Passenger Profile Badge (When logged in as Passenger) */}
-        {currentRole === 'PASSENGER' ? (
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 bg-slate-800/80 border border-slate-700/60 py-1 px-2.5 rounded-xl">
+        {/* Right side controls: Profile Badge + Global Role Switcher */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Passenger Profile Badge (When logged in as Passenger) */}
+          {currentRole === 'PASSENGER' && (
+            <div className="hidden min-[500px]:flex items-center gap-2 bg-slate-800/80 border border-slate-700/60 py-1 px-2.5 rounded-xl">
               {passengerAvatar ? (
                 <img
                   src={passengerAvatar}
@@ -96,33 +97,27 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
               )}
               <div className="text-left">
-                <p className="text-xs font-bold text-white truncate max-w-[120px] sm:max-w-[180px]">
+                <p className="text-xs font-bold text-white truncate max-w-[100px] sm:max-w-[140px]">
                   {passengerName || 'Passageiro'}
                 </p>
                 <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-semibold">
                   <CheckCircle2 className="w-2.5 h-2.5" />
-                  <span>Passageiro</span>
+                  <span>Conectado</span>
                 </div>
               </div>
             </div>
+          )}
 
-            {onLogout && (
-              <button
-                onClick={onLogout}
-                className="text-xs text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-800 p-2 rounded-xl border border-slate-700/50 cursor-pointer transition-colors"
-                title="Sair da conta"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        ) : (
-          /* Role Switcher Pills for Non-Passenger (Driver, Admin, Dev) */
+          {/* Role Switcher Pills - ALWAYS VISIBLE */}
           <div className="flex items-center bg-slate-800/90 p-0.5 sm:p-1 rounded-xl border border-slate-700/60 shadow-inner shrink-0">
             <button
               id="role-passenger-btn"
               onClick={() => onSelectRole('PASSENGER')}
-              className="flex items-center gap-1 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold transition-all cursor-pointer text-slate-300 hover:text-white hover:bg-slate-700/50"
+              className={`flex items-center gap-1 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
+                currentRole === 'PASSENGER'
+                  ? 'bg-emerald-500 text-slate-950 shadow-md font-bold'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+              }`}
             >
               <Compass className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
               <span className="hidden min-[380px]:inline">Passageiro</span>
@@ -168,7 +163,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden sm:inline">Dev</span>
             </button>
           </div>
-        )}
+        </div>
 
         {/* Driver Quick Selector when in Driver Role */}
         {currentRole === 'DRIVER' && availableDrivers.length > 0 && (

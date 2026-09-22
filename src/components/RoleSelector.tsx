@@ -1,8 +1,9 @@
 import React from 'react';
-import { User, Car, ShieldCheck } from 'lucide-react';
+import { User, Car, ShieldCheck, Shield } from 'lucide-react';
+import { UserRole } from '../types.ts';
 
 interface RoleSelectorProps {
-  onSelect: (role: 'PASSENGER' | 'DRIVER') => void;
+  onSelect: (role: UserRole) => void;
 }
 
 export const RoleSelector: React.FC<RoleSelectorProps> = ({ onSelect }) => {
@@ -62,6 +63,18 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({ onSelect }) => {
           <span className="text-xs font-bold text-slate-300 bg-slate-800 border border-slate-700 px-3 py-1 rounded-xl group-hover:border-emerald-500/50">
             Painel do Motorista →
           </span>
+        </button>
+      </div>
+
+      {/* Direct link to Admin Panel */}
+      <div className="pt-2">
+        <button
+          id="btn-select-admin-direct"
+          onClick={() => onSelect('ADMIN')}
+          className="inline-flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-emerald-400 bg-slate-900/80 hover:bg-slate-900 px-4 py-2.5 rounded-2xl border border-slate-800 hover:border-emerald-500/40 cursor-pointer transition-all shadow-md"
+        >
+          <Shield className="w-4 h-4 text-emerald-400" />
+          <span>Acessar Painel do Administrador (Tarifas, E-mail & Gestão)</span>
         </button>
       </div>
     </div>
