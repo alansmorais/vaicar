@@ -30,8 +30,16 @@ jobs:
 
       - name: Configure Bubblewrap Non-Interactively
         run: |
+          # Create a custom SDK layout that Bubblewrap expects, linking to the pre-installed SDK
+          mkdir -p /home/runner/android-sdk
+          ln -s $ANDROID_HOME/cmdline-tools/latest /home/runner/android-sdk/tools
+          ln -s $ANDROID_HOME/build-tools /home/runner/android-sdk/build-tools
+          ln -s $ANDROID_HOME/platforms /home/runner/android-sdk/platforms
+          ln -s $ANDROID_HOME/platform-tools /home/runner/android-sdk/platform-tools
+          ln -s $ANDROID_HOME/licenses /home/runner/android-sdk/licenses
+          
           mkdir -p ~/.bubblewrap
-          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
+          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"/home/runner/android-sdk\"}" > ~/.bubblewrap/config.json
           cat ~/.bubblewrap/config.json
 
       - name: Create Android Keystore
