@@ -21,7 +21,21 @@ import {
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err) {
+    console.error('[EXPRESS MIDDLEWARE ERROR]', err);
+    if (req.path.startsWith('/api') || req.originalUrl.startsWith('/api')) {
+      return res.status(err.status || 400).json({
+        error: err.message || 'Erro no formato da requisição (payload)',
+        code: err.code || 'BAD_REQUEST'
+      });
+    }
+  }
+  next(err);
+});
 
 app.all('/api/*', (req, res, next) => {
   console.log(`[API LOG] ${req.method} ${req.originalUrl}`);
