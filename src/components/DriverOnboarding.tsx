@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Car, User, CheckCircle2, ArrowRight, MapPin, Plus, Sparkles } from 'lucide-react';
 import { Zone, Driver, VAICAR_SUBSCRIPTION_TIERS } from '../types.ts';
-import { registerDriver, createZone } from '../lib/api.ts';
+import { registerDriver, createZone, driverAuth } from '../lib/api.ts';
 
 interface DriverOnboardingProps {
   zones: Zone[];
@@ -16,6 +16,13 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
 }) => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Login State
+  const [isLoginMode, setIsLoginMode] = useState(false);
+  const [pinSent, setPinSent] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [loginPhone, setLoginPhone] = useState('');
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
 
   // Form State
   const [name, setName] = useState('');
@@ -134,6 +141,37 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
     }
   };
 
+  const handleDriverLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthMessage(null);
+    try {
+      setIsLoading(true);
+      if (!pinSent) {
+        // Step 1: Send PIN
+        const res = await driverAuth({ phone: loginPhone });
+        if (res.codeSent) {
+          setPinSent(true);
+          setAuthMessage('Código PIN enviado ao seu e-mail cadastrado. Verifique sua caixa de entrada.');
+        } else {
+          setAuthMessage('Erro ao enviar PIN de acesso.');
+        }
+      } else {
+        // Step 2: Confirm PIN
+        const res = await driverAuth({ phone: loginPhone, verificationCode: pinInput });
+        if (res.success && res.driver) {
+          setAuthMessage('Login efetuado com sucesso!');
+          onDriverRegistered(res.driver);
+        } else {
+          setAuthMessage('Erro ao confirmar PIN de acesso.');
+        }
+      }
+    } catch (err: any) {
+      setAuthMessage(err.message || 'Erro na autenticação do motorista');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !cpf || !phone || !vehicleModel || !vehiclePlate) {
@@ -182,42 +220,143 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
         </p>
       </div>
 
-      {/* Steps Indicator */}
-      <div className="flex items-center justify-between bg-slate-900 p-3 rounded-2xl border border-slate-800 text-xs font-bold">
+      {/* Alternador Credenciamento vs Login */}
+      <div className="grid grid-cols-2 gap-2 bg-slate-900 p-1.5 rounded-2xl border border-slate-800">
         <button
           type="button"
-          onClick={() => setStep(1)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${
-            step === 1 ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400'
+          onClick={() => {
+            setIsLoginMode(false);
+            setAuthMessage(null);
+          }}
+          className={`py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+            !isLoginMode
+              ? 'bg-emerald-500 text-slate-950 font-black shadow-md'
+              : 'text-slate-400 hover:text-white'
           }`}
         >
-          <span>1. Dados Pessoais</span>
+          Novo Credenciamento
         </button>
-        <span className="text-slate-600">➔</span>
         <button
           type="button"
-          onClick={() => setStep(2)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${
-            step === 2 ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400'
+          onClick={() => {
+            setIsLoginMode(true);
+            setAuthMessage(null);
+          }}
+          className={`py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+            isLoginMode
+              ? 'bg-emerald-500 text-slate-950 font-black shadow-md'
+              : 'text-slate-400 hover:text-white'
           }`}
         >
-          <span>2. Veículo & Alvará</span>
-        </button>
-        <span className="text-slate-600">➔</span>
-        <button
-          type="button"
-          onClick={() => setStep(3)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${
-            step === 3 ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400'
-          }`}
-        >
-          <span>3. Zonas de Atendimento</span>
+          Login (Já Credenciado)
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl">
-        {/* STEP 1: PERSONAL DATA */}
-        {step === 1 && (
+      {isLoginMode ? (
+        <form onSubmit={handleDriverLogin} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl">
+          <div className="space-y-4">
+            <h3 className="font-bold text-white text-base flex items-center gap-2">
+              <Car className="w-4 h-4 text-emerald-400" />
+              <span>Login do Motorista</span>
+            </h3>
+
+            <div>
+              <label className="text-xs font-bold text-slate-300 block mb-1">WhatsApp / Telefone *</label>
+              <input
+                type="tel"
+                placeholder="Ex: (12) 99876-5432"
+                value={loginPhone}
+                onChange={(e) => setLoginPhone(e.target.value)}
+                required
+                disabled={pinSent}
+                className="w-full bg-slate-950 text-white text-sm px-3.5 py-3 rounded-xl border border-slate-800 outline-none focus:border-emerald-500 disabled:opacity-50"
+              />
+            </div>
+
+            {pinSent && (
+              <div className="space-y-3 bg-emerald-950/20 p-4 rounded-2xl border border-emerald-500/30 animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-emerald-400">Código PIN de Acesso</label>
+                  <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-500/30">
+                    ✉️ Enviado ao e-mail cadastrado
+                  </span>
+                </div>
+
+                <input
+                  type="text"
+                  placeholder="Digite o PIN de 4 dígitos"
+                  value={pinInput}
+                  onChange={(e) => setPinInput(e.target.value.trim())}
+                  required
+                  autoFocus
+                  maxLength={6}
+                  className="w-full bg-slate-950 text-emerald-400 text-center text-xl font-mono tracking-widest px-3.5 py-2.5 rounded-xl border border-emerald-500/60 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20"
+                />
+              </div>
+            )}
+
+            {authMessage && (
+              <div className={`p-3 rounded-xl text-xs font-semibold ${authMessage.includes('Erro') || authMessage.includes('incorrect') || authMessage.includes('incorreto') || authMessage.includes('Nenhum') ? 'bg-rose-950/50 border border-rose-500/30 text-rose-300' : 'bg-emerald-950/40 border border-emerald-500/30 text-emerald-300'}`}>
+                {authMessage}
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={onCancel}
+                className="bg-slate-800 text-slate-300 font-bold text-xs px-5 py-3.5 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm py-3.5 rounded-xl shadow-lg transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isLoading ? 'Carregando...' : pinSent ? 'Confirmar PIN e Entrar' : 'Solicitar PIN de Acesso'}
+              </button>
+            </div>
+          </div>
+        </form>
+      ) : (
+        <>
+          {/* Steps Indicator */}
+          <div className="flex items-center justify-between bg-slate-900 p-3 rounded-2xl border border-slate-800 text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => setStep(1)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${
+                step === 1 ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400'
+              }`}
+            >
+              <span>1. Dados Pessoais</span>
+            </button>
+            <span className="text-slate-600">➔</span>
+            <button
+              type="button"
+              onClick={() => setStep(2)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${
+                step === 2 ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400'
+              }`}
+            >
+              <span>2. Veículo & Alvará</span>
+            </button>
+            <span className="text-slate-600">➔</span>
+            <button
+              type="button"
+              onClick={() => setStep(3)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${
+                step === 3 ? 'bg-emerald-500 text-slate-950 font-black' : 'text-slate-400'
+              }`}
+            >
+              <span>3. Zonas de Atendimento</span>
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl">
+            {/* STEP 1: PERSONAL DATA */}
+            {step === 1 && (
           <div className="space-y-4">
             <h3 className="font-bold text-white text-base flex items-center gap-2">
               <User className="w-4 h-4 text-emerald-400" />
@@ -587,6 +726,8 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
           </div>
         )}
       </form>
-    </div>
-  );
+      </>
+    )}
+  </div>
+);
 };

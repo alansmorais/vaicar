@@ -487,6 +487,17 @@ export async function passengerAuth(params: {
   }, 'Falha na autenticação');
 }
 
+export async function driverAuth(params: {
+  phone: string;
+  verificationCode?: string;
+}): Promise<any> {
+  return safeFetchJson<any>('/api/v1/drivers/auth', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  }, 'Falha na autenticação do motorista');
+}
+
 export async function fetchPassenger(id: string): Promise<any> {
   return safeFetchJson<any>(`/api/v1/passengers/${id}`, undefined, 'Passageiro não encontrado');
 }

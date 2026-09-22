@@ -1854,7 +1854,31 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
     
     const cleanPhone = phone.trim();
     const phoneDigits = cleanPhone.replace(/\D/g, '') || cleanPhone;
-    const cleanEmail = (email || '').trim().toLowerCase();
+    let cleanEmail = (email || '').trim().toLowerCase();
+
+    // Se o email não foi fornecido, tentamos buscar no banco para ver se é login de usuário existente
+    if (!cleanEmail) {
+      const snap = await db.collection('passengers').where('phone', '==', cleanPhone).get();
+      if (!snap.empty) {
+        const pData = snap.docs[0].data();
+        cleanEmail = (pData?.email || '').trim().toLowerCase();
+      } else {
+        // Fallback buscando por dígitos apenas
+        const snapAll = await db.collection('passengers').get();
+        for (const doc of snapAll.docs) {
+          const d = doc.data();
+          const dp = (d.phone || '').replace(/\D/g, '');
+          if (dp === phoneDigits && d.email) {
+            cleanEmail = d.email.trim().toLowerCase();
+            break;
+          }
+        }
+      }
+    }
+
+    if (!cleanEmail && !verificationCode) {
+      return res.status(404).json({ error: 'Nenhum cadastro de passageiro encontrado com este telefone. Por favor, faça o cadastro completo com nome, telefone e e-mail.' });
+    }
 
     if (!verificationCode) {
       const pin = Math.floor(1000 + Math.random() * 9000).toString();
@@ -1979,7 +2003,7 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
         id,
         name: name?.trim() || 'Passageiro VaiCar',
         phone: cleanPhone,
-        email: email?.trim(),
+        email: cleanEmail || email?.trim(),
         avatarUrl: avatarUrl || `https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80`,
         isVerified: true,
         createdAt: new Date().toISOString(),
@@ -1992,7 +2016,7 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
       passenger = doc.data() as any;
       const updates: any = { isVerified: true };
       if (name) updates.name = name.trim();
-      if (email) updates.email = email.trim();
+      if (cleanEmail) updates.email = cleanEmail;
       if (avatarUrl) updates.avatarUrl = avatarUrl;
       await doc.ref.update(updates);
       passenger = { ...passenger, ...updates };
@@ -2002,6 +2026,130 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
     res.json({ success: true, passenger });
   } catch (err: any) {
     console.error('DEBUG: Passenger Auth Failed:', err);
+    res.status(500).json({ error: 'Auth failed', details: err.message });
+  }
+});
+
+// --- DRIVER AUTH ---
+app.post('/api/v1/drivers/auth', async (req, res) => {
+  console.log('DEBUG: Received POST /api/v1/drivers/auth');
+  try {
+    const { phone, verificationCode } = req.body;
+    if (!phone) {
+      return res.status(400).json({ error: 'WhatsApp/Telefone obrigatório' });
+    }
+
+    const cleanPhone = phone.trim();
+    const phoneDigits = cleanPhone.replace(/\D/g, '') || cleanPhone;
+
+    // Buscando motorista cadastrado por telefone
+    let driverSnap = await db.collection('drivers').where('phone', '==', cleanPhone).get();
+    let targetDriver: any = null;
+    if (!driverSnap.empty) {
+      targetDriver = driverSnap.docs[0].data();
+    } else {
+      // Fallback por dígitos apenas
+      const allDriversSnap = await db.collection('drivers').get();
+      for (const doc of allDriversSnap.docs) {
+        const d = doc.data();
+        const dp = (d.phone || '').replace(/\D/g, '');
+        if (dp === phoneDigits) {
+          targetDriver = d;
+          break;
+        }
+      }
+    }
+
+    if (!targetDriver) {
+      return res.status(404).json({ error: 'Nenhum credenciamento de motorista encontrado com este telefone. Por favor, realize o credenciamento completo.' });
+    }
+
+    const cleanEmail = (targetDriver.email || '').trim().toLowerCase();
+    if (!cleanEmail) {
+      return res.status(400).json({ error: 'Este motorista não possui um e-mail válido cadastrado no sistema. Por favor, contate o administrador.' });
+    }
+
+    if (!verificationCode) {
+      const pin = Math.floor(1000 + Math.random() * 9000).toString();
+      
+      const pinPayload = {
+        pin,
+        phone: cleanPhone,
+        phoneDigits,
+        email: cleanEmail,
+        createdAt: new Date().toISOString(),
+      };
+
+      // Store PIN in Firestore pendingPins collection (by phone digits)
+      await db.collection('pendingPins').doc(`driver-${phoneDigits}`).set(pinPayload);
+
+      let emailSent = false;
+      let emailErrorReason = '';
+      
+      try {
+        const senderUser =
+          process.env.SMTP_USER ||
+          process.env.EMAIL_USER ||
+          process.env.GMAIL_USER ||
+          'vaicar@alansmsolutions.com';
+        await sendSystemMail({
+          from: `"VaiCar São Sebastião" <${senderUser}>`,
+          to: cleanEmail,
+          subject: `Código de Acesso do Motorista VaiCar: ${pin}`,
+          text: `Olá! Seu código de acesso para o painel de motorista do VaiCar São Sebastião é: ${pin}.\n\nSe não solicitou este código, por favor desconsidere este e-mail.`,
+          html: `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #020617; color: #f8fafc; padding: 24px; border-radius: 16px; max-width: 480px; margin: 0 auto; border: 1px solid #1e293b;">
+              <div style="text-align: center; margin-bottom: 20px;">
+                <h1 style="color: #10b981; font-size: 24px; margin: 0; font-weight: 900; letter-spacing: -0.5px;">VaiCar Motorista</h1>
+                <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Transporte Municipal de São Sebastião</p>
+              </div>
+              <div style="background-color: #0f172a; padding: 20px; border-radius: 12px; text-align: center; border: 1px solid #334155;">
+                <p style="color: #cbd5e1; font-size: 14px; margin: 0 0 12px 0;">Seu código de acesso do motorista é:</p>
+                <div style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #10b981; padding: 12px; background: #020617; border-radius: 8px; border: 1px solid #10b981;">
+                  ${pin}
+                </div>
+              </div>
+              <p style="color: #64748b; font-size: 11px; text-align: center; margin-top: 20px;">
+                Este código é de uso exclusivo para login no aplicativo VaiCar como motorista credenciado.
+              </p>
+            </div>
+          `,
+        });
+        emailSent = true;
+      } catch (emailError: any) {
+        console.warn('[MAIL] Driver Email sending encountered an issue:', emailError?.message || emailError);
+        emailErrorReason = emailError?.message || 'Falha de autenticação ou conexão com o Gmail.';
+        emailSent = false;
+      }
+
+      return res.json({
+        codeSent: true,
+        emailSent,
+        emailErrorReason,
+        message: emailSent
+          ? `Código PIN enviado para o e-mail cadastrado do motorista!`
+          : `Não foi possível enviar o e-mail de acesso.`,
+      });
+    }
+
+    // Verify PIN: strictly accepts ONLY the PIN that was generated and sent
+    const pinDoc = await db.collection('pendingPins').doc(`driver-${phoneDigits}`).get();
+    if (!pinDoc.exists) {
+      return res.status(400).json({ error: 'Nenhum PIN pendente ou código expirado. Solicite o código novamente.' });
+    }
+
+    const storedPin = pinDoc.data()?.pin;
+    const trimmedInputCode = verificationCode.toString().trim();
+    if (!storedPin || trimmedInputCode !== storedPin.trim()) {
+      return res.status(400).json({ error: 'Código incorreto. Verifique o e-mail recebido.' });
+    }
+
+    // PIN is correct, remove it
+    await db.collection('pendingPins').doc(`driver-${phoneDigits}`).delete().catch(() => {});
+
+    res.json({ success: true, driver: targetDriver });
+  } catch (err: any) {
+    console.error('DEBUG: Driver Auth Failed:', err);
     res.status(500).json({ error: 'Auth failed', details: err.message });
   }
 });

@@ -83,6 +83,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   });
   const [verificationCodeInput, setVerificationCodeInput] = useState('');
   const [codeRequested, setCodeRequested] = useState(false);
+  const [isLoginMode, setIsLoginMode] = useState(false);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [emailSentSuccessfully, setEmailSentSuccessfully] = useState<boolean>(false);
 
@@ -440,20 +441,35 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
     e.preventDefault();
     try {
       const res = await passengerAuth({
-        name: passengerName,
+        name: isLoginMode ? undefined : passengerName,
         phone: passengerPhone,
-        email: passengerEmail,
+        email: isLoginMode ? undefined : passengerEmail,
         verificationCode: verificationCodeInput || undefined,
-        avatarUrl: passengerAvatarUrl,
+        avatarUrl: isLoginMode ? undefined : passengerAvatarUrl,
       });
       if (res.codeSent) {
         setCodeRequested(true);
         setEmailSentSuccessfully(!!res.emailSent);
         if (res.emailSent) {
-          setAuthMessage(`Código PIN enviado com sucesso para ${passengerEmail}! Verifique sua caixa de entrada e pasta de spam.`);
+          setAuthMessage(`Código PIN enviado com sucesso para seu e-mail cadastrado! Verifique sua caixa de entrada e pasta de spam.`);
         } else {
-          setAuthMessage(`Código PIN enviado. Por favor, verifique o e-mail cadastrado.`);
+          setAuthMessage(`Código PIN enviado para o e-mail cadastrado. Por favor, verifique.`);
         }
+      } else if (res.success && res.passenger) {
+        setIsVerified(true);
+        setCodeRequested(false);
+        setVerificationCodeInput('');
+        setAuthMessage('Login efetuado com sucesso!');
+        setPassengerName(res.passenger.name || '');
+        setPassengerPhone(res.passenger.phone || passengerPhone);
+        setPassengerEmail(res.passenger.email || '');
+        setPassengerAvatarUrl(res.passenger.avatarUrl || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80');
+        localStorage.setItem('vaicar_passenger_name', res.passenger.name);
+        localStorage.setItem('vaicar_passenger_phone', res.passenger.phone);
+        if (res.passenger.email) localStorage.setItem('vaicar_passenger_email', res.passenger.email);
+        localStorage.setItem('vaicar_passenger_avatar', res.passenger.avatarUrl || '');
+        localStorage.setItem('vaicar_passenger_verified', 'true');
+        localStorage.setItem('vaicar_user_role', 'PASSENGER');
       } else if (res.success) {
         setIsVerified(true);
         setCodeRequested(false);
@@ -488,55 +504,95 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
             <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto border border-emerald-500/20">
               <User className="w-6 h-6" />
             </div>
-            <h2 className="text-2xl font-black text-white">Entrar como Passageiro</h2>
+            <h2 className="text-2xl font-black text-white">Acessar como Passageiro</h2>
             <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              Faça seu registro simples para ficar conectado diretamente na sua conta e solicitar corridas em São Sebastião.
+              {isLoginMode
+                ? 'Digite seu número de WhatsApp para receber um PIN de acesso por e-mail e entrar.'
+                : 'Faça seu registro simples para ficar conectado diretamente na sua conta e solicitar corridas em São Sebastião.'}
             </p>
           </div>
 
+          {/* Alternador Cadastro vs Login */}
+          {!codeRequested && (
+            <div className="grid grid-cols-2 gap-2 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLoginMode(false);
+                  setAuthMessage(null);
+                }}
+                className={`py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                  !isLoginMode
+                    ? 'bg-emerald-500 text-slate-950 font-black shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Novo Cadastro
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLoginMode(true);
+                  setAuthMessage(null);
+                }}
+                className={`py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                  isLoginMode
+                    ? 'bg-emerald-500 text-slate-950 font-black shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Login (Já Cadastrado)
+              </button>
+            </div>
+          )}
+
           <form onSubmit={handleSaveProfile} className="space-y-4">
             {/* Foto de Perfil */}
-            <div className="space-y-2 bg-slate-950 p-4 rounded-2xl border border-slate-800/80">
-              <label className="text-xs font-bold text-slate-300 block">Sua Foto de Perfil (Opcional)</label>
-              <div className="flex items-center gap-4">
-                <div className="relative shrink-0">
-                  <img
-                    src={passengerAvatarUrl}
-                    alt="Sua foto"
-                    className="w-14 h-14 rounded-2xl object-cover border-2 border-emerald-500/50 shadow-md"
-                    referrerPolicy="no-referrer"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePassengerAvatarChange}
-                    className="hidden"
-                    id="onboarding-passenger-avatar-upload"
-                  />
-                  <label
-                    htmlFor="onboarding-passenger-avatar-upload"
-                    className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3 py-1.5 rounded-lg cursor-pointer transition-all border border-slate-700"
-                  >
-                    Escolher Foto
-                  </label>
-                  <p className="text-[10px] text-slate-400">Ajuda o motorista a te identificar no local de embarque.</p>
+            {!isLoginMode && (
+              <div className="space-y-2 bg-slate-950 p-4 rounded-2xl border border-slate-800/80">
+                <label className="text-xs font-bold text-slate-300 block">Sua Foto de Perfil (Opcional)</label>
+                <div className="flex items-center gap-4">
+                  <div className="relative shrink-0">
+                    <img
+                      src={passengerAvatarUrl}
+                      alt="Sua foto"
+                      className="w-14 h-14 rounded-2xl object-cover border-2 border-emerald-500/50 shadow-md"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePassengerAvatarChange}
+                      className="hidden"
+                      id="onboarding-passenger-avatar-upload"
+                    />
+                    <label
+                      htmlFor="onboarding-passenger-avatar-upload"
+                      className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3 py-1.5 rounded-lg cursor-pointer transition-all border border-slate-700"
+                    >
+                      Escolher Foto
+                    </label>
+                    <p className="text-[10px] text-slate-400">Ajuda o motorista a te identificar no local de embarque.</p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-300">Nome Completo *</label>
-              <input
-                type="text"
-                placeholder="Ex: Alan Morais"
-                value={passengerName}
-                onChange={(e) => setPassengerName(e.target.value)}
-                required
-                className="w-full bg-slate-950 text-white text-sm px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
-              />
-            </div>
+            {!isLoginMode && (
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-300">Nome Completo *</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Alan Morais"
+                  value={passengerName}
+                  onChange={(e) => setPassengerName(e.target.value)}
+                  required={!isLoginMode}
+                  className="w-full bg-slate-950 text-white text-sm px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+                />
+              </div>
+            )}
 
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-300">WhatsApp / Telefone *</label>
@@ -550,17 +606,19 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               />
             </div>
 
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-300">E-mail *</label>
-              <input
-                type="email"
-                placeholder="Ex: alan@email.com"
-                value={passengerEmail}
-                onChange={(e) => setPassengerEmail(e.target.value)}
-                required
-                className="w-full bg-slate-950 text-white text-sm px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
-              />
-            </div>
+            {!isLoginMode && (
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-300">E-mail *</label>
+                <input
+                  type="email"
+                  placeholder="Ex: alan@email.com"
+                  value={passengerEmail}
+                  onChange={(e) => setPassengerEmail(e.target.value)}
+                  required={!isLoginMode}
+                  className="w-full bg-slate-950 text-white text-sm px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+                />
+              </div>
+            )}
 
             {codeRequested && (
               <div className="space-y-3 bg-emerald-950/30 p-4 rounded-2xl border border-emerald-500/40 animate-in fade-in">
@@ -606,7 +664,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   </>
                 ) : (
                   <>
-                    <span>Continuar e Validar Cadastro →</span>
+                    <span>{isLoginMode ? 'Solicitar PIN de Acesso →' : 'Continuar e Validar Cadastro →'}</span>
                   </>
                 )}
               </button>
