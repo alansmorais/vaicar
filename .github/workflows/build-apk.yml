@@ -30,13 +30,23 @@ jobs:
 
       - name: Configure Bubblewrap Non-Interactively
         run: |
+          # Dynamically locate the pre-installed cmdline-tools under ANDROID_HOME
+          REAL_TOOLS_BIN=$(find $ANDROID_HOME/cmdline-tools -name "sdkmanager" -print -quit)
+          REAL_TOOLS_DIR=$(dirname $(dirname "$REAL_TOOLS_BIN"))
+          echo "Using verified cmdline-tools directory: $REAL_TOOLS_DIR"
+          
           # Create a custom SDK layout that Bubblewrap expects, linking to the pre-installed SDK
           mkdir -p /home/runner/android-sdk
-          ln -s $ANDROID_HOME/cmdline-tools/latest /home/runner/android-sdk/tools
+          ln -s "$REAL_TOOLS_DIR" /home/runner/android-sdk/tools
           ln -s $ANDROID_HOME/build-tools /home/runner/android-sdk/build-tools
           ln -s $ANDROID_HOME/platforms /home/runner/android-sdk/platforms
           ln -s $ANDROID_HOME/platform-tools /home/runner/android-sdk/platform-tools
           ln -s $ANDROID_HOME/licenses /home/runner/android-sdk/licenses
+          
+          # Verify the components are successfully mapped
+          echo "=== Verifying Custom Android SDK Structure ==="
+          ls -la /home/runner/android-sdk
+          ls -la /home/runner/android-sdk/tools/bin/sdkmanager
           
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"/home/runner/android-sdk\"}" > ~/.bubblewrap/config.json
@@ -48,6 +58,8 @@ jobs:
 
       - name: Generate Android Project and Build APK
         env:
+          ANDROID_HOME: /home/runner/android-sdk
+          ANDROID_SDK_ROOT: /home/runner/android-sdk
           BUBBLEWRAP_KEYSTORE_PASSWORD: "vaicar123"
           BUBBLEWRAP_KEY_PASSWORD: "vaicar123"
         run: |
