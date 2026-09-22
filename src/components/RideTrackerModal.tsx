@@ -334,7 +334,7 @@ export const RideTrackerModal: React.FC<RideTrackerModalProps> = ({
         </div>
 
         {/* Route Details */}
-        <div className="bg-slate-950/60 rounded-2xl p-4 border border-slate-800/80 space-y-2 text-xs">
+        <div className="bg-slate-950/60 rounded-2xl p-4 border border-slate-800/80 space-y-3 text-xs">
           <div className="flex items-start gap-2.5">
             <div className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
               A
@@ -342,6 +342,11 @@ export const RideTrackerModal: React.FC<RideTrackerModalProps> = ({
             <div>
               <span className="text-slate-400 text-[10px] block">Local de Partida</span>
               <span className="text-white font-semibold">{ride.originAddress}</span>
+              {ride.originLandmark && (
+                <span className="text-amber-300 text-[10px] block mt-0.5 font-medium">
+                  📍 Ponto de Referência: {ride.originLandmark}
+                </span>
+              )}
             </div>
           </div>
 
@@ -354,6 +359,41 @@ export const RideTrackerModal: React.FC<RideTrackerModalProps> = ({
               <span className="text-white font-semibold">{ride.destinationAddress}</span>
             </div>
           </div>
+
+          {/* GPS External Navigation */}
+          <div className="pt-2 border-t border-slate-800/60 flex items-center gap-2">
+            <a
+              href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(ride.originAddress)}&destination=${encodeURIComponent(ride.destinationAddress)}&travelmode=driving`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 bg-slate-900 hover:bg-slate-800 text-sky-400 hover:text-sky-300 font-bold text-[11px] py-2 px-2.5 rounded-xl border border-slate-800 hover:border-sky-500/30 transition-all flex items-center justify-center gap-1.5"
+            >
+              <MapPin className="w-3.5 h-3.5" />
+              <span>Google Maps ↗</span>
+            </a>
+            <a
+              href={`https://waze.com/ul?q=${encodeURIComponent(ride.destinationAddress)}&navigate=yes`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 bg-slate-900 hover:bg-slate-800 text-cyan-400 hover:text-cyan-300 font-bold text-[11px] py-2 px-2.5 rounded-xl border border-slate-800 hover:border-cyan-500/30 transition-all flex items-center justify-center gap-1.5"
+            >
+              <Navigation className="w-3.5 h-3.5" />
+              <span>Waze ↗</span>
+            </a>
+          </div>
+
+          {ride.originMapsLink && (
+            <div className="pt-1 text-[11px] text-center">
+              <a
+                href={ride.originMapsLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-400 hover:text-emerald-300 hover:underline font-bold inline-flex items-center gap-1"
+              >
+                📍 Ver Ponto GPS Exato de Embarque ↗
+              </a>
+            </div>
+          )}
         </div>
 
         {/* Timeline Log */}

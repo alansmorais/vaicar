@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   ChevronRight,
   Car,
+  Navigation,
 } from 'lucide-react';
 import { Zone } from '../types.ts';
 
@@ -32,6 +33,59 @@ export const PassengerHome: React.FC<PassengerHomeProps> = ({
   const [passengers, setPassengers] = useState<number>(1);
   const [scheduleType, setScheduleType] = useState<'NOW' | 'LATER'>('NOW');
   const [scheduledTime, setScheduledTime] = useState<string>('14:30');
+  const [gpsDetecting, setGpsDetecting] = useState<boolean>(false);
+  const [gpsStatus, setGpsStatus] = useState<string | null>(null);
+
+  const handleDetectGpsLocation = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocalização não é suportada pelo seu navegador.');
+      return;
+    }
+    setGpsDetecting(true);
+    setGpsStatus('Obtendo sinal GPS dos satélites...');
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setGpsDetecting(false);
+        const userLat = position.coords.latitude;
+        const userLng = position.coords.longitude;
+
+        let closestZone = zones[0];
+        let minDistance = Infinity;
+
+        for (const z of zones) {
+          if (typeof z.lat === 'number' && typeof z.lng === 'number') {
+            const dLat = (z.lat - userLat) * (Math.PI / 180);
+            const dLng = (z.lng - userLng) * (Math.PI / 180);
+            const a =
+              Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(userLat * (Math.PI / 180)) *
+                Math.cos(z.lat * (Math.PI / 180)) *
+                Math.sin(dLng / 2) *
+                Math.sin(dLng / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            const dist = 6371 * c; // Earth radius in km
+            if (dist < minDistance) {
+              minDistance = dist;
+              closestZone = z;
+            }
+          }
+        }
+
+        if (closestZone) {
+          setOriginZoneId(closestZone.id);
+          setGpsStatus(`📍 GPS Detectado: ${closestZone.name} (~${minDistance.toFixed(1)} km)`);
+          setTimeout(() => setGpsStatus(null), 5000);
+        }
+      },
+      (err) => {
+        setGpsDetecting(false);
+        setGpsStatus(null);
+        alert('Não foi possível obter sua localização GPS. Verifique a permissão do seu navegador.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,10 +131,29 @@ export const PassengerHome: React.FC<PassengerHomeProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Origin Zone */}
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                <MapPin className="w-4 h-4 text-emerald-400" />
-                De onde? (Local de partida)
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4 text-emerald-400" />
+                  De onde? (Local de partida)
+                </label>
+                <button
+                  type="button"
+                  onClick={handleDetectGpsLocation}
+                  disabled={gpsDetecting}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-950/70 hover:bg-emerald-900/60 border border-emerald-500/30 px-2.5 py-1 rounded-lg transition-all cursor-pointer shadow-sm disabled:opacity-50"
+                  title="Detectar sua localização atual via GPS do celular/computador"
+                >
+                  <Navigation className={`w-3 h-3 ${gpsDetecting ? 'animate-spin text-emerald-300' : ''}`} />
+                  <span>{gpsDetecting ? 'Obtendo GPS...' : 'Usar Meu GPS'}</span>
+                </button>
+              </div>
+
+              {gpsStatus && (
+                <div className="text-[11px] font-semibold text-emerald-300 bg-emerald-950/50 border border-emerald-500/30 px-2.5 py-1 rounded-lg animate-in fade-in flex items-center gap-1">
+                  <span>{gpsStatus}</span>
+                </div>
+              )}
+
               <div className="relative">
                 <select
                   id="origin-zone-select"

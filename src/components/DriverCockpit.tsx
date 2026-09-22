@@ -26,6 +26,7 @@ import {
   Volume2,
   VolumeX,
   Scale,
+  Navigation,
 } from 'lucide-react';
 import { Driver, Zone, Ride, RegulatoryRequirement, PaymentMethod, PlatformFareSettings } from '../types.ts';
 import {
@@ -804,18 +805,30 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                           <span>📍 Ref: {activeRide.originLandmark}</span>
                         </p>
                       )}
-                      {activeRide.originMapsLink && (
-                        <p>
-                          <a
-                            href={activeRide.originMapsLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300 font-bold hover:underline"
-                          >
-                            🗺 Abrir Ponto de Embarque no Google Maps ↗
-                          </a>
-                        </p>
-                      )}
+
+                      {/* GPS Navigation shortcuts for Driver */}
+                      <div className="pt-2 flex flex-wrap items-center gap-2">
+                        <a
+                          href={activeRide.status === 'ACCEPTED' || activeRide.status === 'DRIVER_ARRIVING'
+                            ? (activeRide.originMapsLink || `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(activeRide.originAddress)}&travelmode=driving`)
+                            : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(activeRide.destinationAddress)}&travelmode=driving`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-slate-900 hover:bg-slate-800 text-sky-400 hover:text-sky-300 font-bold text-xs py-1.5 px-3 rounded-lg border border-slate-800 hover:border-sky-500/30 transition-all flex items-center gap-1.5"
+                        >
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>Navegar Google Maps ({activeRide.status === 'ACCEPTED' || activeRide.status === 'DRIVER_ARRIVING' ? 'Embarque' : 'Destino'}) ↗</span>
+                        </a>
+                        <a
+                          href={`https://waze.com/ul?q=${encodeURIComponent(activeRide.status === 'ACCEPTED' || activeRide.status === 'DRIVER_ARRIVING' ? activeRide.originAddress : activeRide.destinationAddress)}&navigate=yes`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-slate-900 hover:bg-slate-800 text-cyan-400 hover:text-cyan-300 font-bold text-xs py-1.5 px-3 rounded-lg border border-slate-800 hover:border-cyan-500/30 transition-all flex items-center gap-1.5"
+                        >
+                          <Navigation className="w-3.5 h-3.5" />
+                          <span>Waze ({activeRide.status === 'ACCEPTED' || activeRide.status === 'DRIVER_ARRIVING' ? 'Embarque' : 'Destino'}) ↗</span>
+                        </a>
+                      </div>
                     </div>
                   </div>
                 </div>

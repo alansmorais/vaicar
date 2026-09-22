@@ -27,6 +27,7 @@ import {
   PhoneCall,
   Send,
   LogOut,
+  Navigation,
 } from 'lucide-react';
 import { Zone, Ride, Driver, PaymentMethod, SearchDriversResponse } from '../types.ts';
 import {
@@ -80,7 +81,6 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [verificationCodeInput, setVerificationCodeInput] = useState('');
   const [codeRequested, setCodeRequested] = useState(false);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
-  const [generatedPin, setGeneratedPin] = useState<string | null>(null);
   const [emailSentSuccessfully, setEmailSentSuccessfully] = useState<boolean>(false);
 
   const handlePassengerAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -138,6 +138,8 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [paymentChangeFor, setPaymentChangeFor] = useState<string>('');
   const [pickupLandmark, setPickupLandmark] = useState<string>('');
   const [pickupMapsLink, setPickupMapsLink] = useState<string>('');
+  const [isLocatingGps, setIsLocatingGps] = useState<boolean>(false);
+  const [gpsCaptureSuccess, setGpsCaptureSuccess] = useState<string | null>(null);
   const [isSubmittingRide, setIsSubmittingRide] = useState<boolean>(false);
   const [activeRide, setActiveRide] = useState<Ride | null>(initialTrackedRide || null);
   const [copiedPix, setCopiedPix] = useState(false);
@@ -215,6 +217,34 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
     } finally {
       setIsSearching(false);
     }
+  };
+
+  const handleCapturePickupGps = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocalização não é suportada pelo seu dispositivo.');
+      return;
+    }
+    setIsLocatingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setIsLocatingGps(false);
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const accuracy = Math.round(pos.coords.accuracy || 10);
+        const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+        setPickupMapsLink(mapsUrl);
+        setGpsCaptureSuccess(`Sinal GPS obtido! Precisão de ~${accuracy}m`);
+        if (!pickupLandmark) {
+          setPickupLandmark(`Localização GPS exata (${lat.toFixed(5)}, ${lng.toFixed(5)})`);
+        }
+        setTimeout(() => setGpsCaptureSuccess(null), 5000);
+      },
+      (err) => {
+        setIsLocatingGps(false);
+        alert('Não foi possível obter seu GPS. Por favor, permita o acesso à localização no navegador.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   };
 
   const handleConfirmRequest = async () => {
@@ -321,13 +351,11 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
       });
       if (res.codeSent) {
         setCodeRequested(true);
-        setGeneratedPin(res.testCode || '8492');
         setEmailSentSuccessfully(!!res.emailSent);
         if (res.emailSent) {
-          setAuthMessage(`Código PIN enviado com sucesso para ${passengerEmail}! Verifique sua caixa de entrada.`);
+          setAuthMessage(`Código PIN enviado com sucesso para ${passengerEmail}! Verifique sua caixa de entrada e pasta de spam.`);
         } else {
-          const detail = res.emailErrorReason ? ` (${res.emailErrorReason})` : '';
-          setAuthMessage(`Código de validação gerado: ${res.testCode || '8492'}${detail}`);
+          setAuthMessage(`Código PIN enviado. Por favor, verifique o e-mail cadastrado.`);
         }
       } else if (res.success) {
         setIsVerified(true);
@@ -441,42 +469,25 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               <div className="space-y-3 bg-emerald-950/30 p-4 rounded-2xl border border-emerald-500/40 animate-in fade-in">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-emerald-400">Código PIN de Validação</label>
-                  {emailSentSuccessfully ? (
-                    <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-500/30">
-                      ✉️ Enviado ao e-mail
-                    </span>
-                  ) : (
-                    <span className="text-[10px] text-slate-400">
-                      PIN: <strong className="text-emerald-400">{generatedPin || '8492'}</strong>
-                    </span>
-                  )}
+                  <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-500/30">
+                    ✉️ Enviado ao e-mail
+                  </span>
                 </div>
 
                 <input
                   type="text"
-                  placeholder="Digite o código (ex: 8492)"
+                  placeholder="Digite o código de 4 dígitos"
                   value={verificationCodeInput}
-                  onChange={(e) => setVerificationCodeInput(e.target.value)}
+                  onChange={(e) => setVerificationCodeInput(e.target.value.trim())}
                   required
                   autoFocus
-                  className="w-full bg-slate-950 text-emerald-400 text-center text-lg font-mono tracking-widest px-3.5 py-2.5 rounded-xl border border-emerald-500/60 outline-none"
+                  maxLength={6}
+                  className="w-full bg-slate-950 text-emerald-400 text-center text-xl font-mono tracking-widest px-3.5 py-2.5 rounded-xl border border-emerald-500/60 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20"
                 />
 
-                {/* Quick Auto-fill button */}
-                <div className="flex items-center justify-between gap-2 pt-1">
-                  <p className="text-[11px] text-slate-400">
-                    {emailSentSuccessfully
-                      ? 'Verifique sua caixa de entrada ou preencha rapidamente:'
-                      : 'Utilize o PIN gerado ou clique no botão ao lado:'}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setVerificationCodeInput(generatedPin || '8492')}
-                    className="shrink-0 text-[11px] bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-bold px-2.5 py-1 rounded-lg border border-emerald-500/40 cursor-pointer transition-all"
-                  >
-                    Inserir PIN ({generatedPin || '8492'})
-                  </button>
-                </div>
+                <p className="text-[11px] text-slate-400 text-center">
+                  O código confidencial foi enviado para a sua caixa de entrada. Verifique seu e-mail e pasta de spam.
+                </p>
               </div>
             )}
 
@@ -989,13 +1000,31 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                       />
                     </div>
                     <div>
-                      <span className="text-[10px] font-semibold text-slate-400 block mb-1">Link do Google Maps do local exato (Opcional):</span>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-semibold text-slate-400">Ponto de Localização GPS exato:</span>
+                        <button
+                          type="button"
+                          onClick={handleCapturePickupGps}
+                          disabled={isLocatingGps}
+                          className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-950/70 hover:bg-emerald-900/60 border border-emerald-500/30 px-2 py-0.5 rounded transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <Navigation className={`w-2.5 h-2.5 ${isLocatingGps ? 'animate-spin' : ''}`} />
+                          <span>{isLocatingGps ? 'Obtendo GPS...' : '📍 Usar Meu GPS Atual'}</span>
+                        </button>
+                      </div>
+
+                      {gpsCaptureSuccess && (
+                        <div className="mb-1.5 text-[10px] font-semibold text-emerald-300 bg-emerald-950/60 border border-emerald-500/30 px-2 py-1 rounded">
+                          {gpsCaptureSuccess}
+                        </div>
+                      )}
+
                       <input
                         type="url"
-                        placeholder="Ex: https://maps.google.com/?q=-23.79..."
+                        placeholder="Ex: https://maps.google.com/?q=-23.79... ou clique em 'Usar Meu GPS'"
                         value={pickupMapsLink}
                         onChange={(e) => setPickupMapsLink(e.target.value)}
-                        className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-lg border border-slate-700 outline-none focus:border-emerald-500"
+                        className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-lg border border-slate-700 outline-none focus:border-emerald-500 font-mono"
                       />
                     </div>
                   </div>
@@ -1487,12 +1516,13 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
 
             {codeRequested && (
               <div className="space-y-1 bg-slate-950 p-3 rounded-xl border border-emerald-500/30">
-                <label className="text-xs font-bold text-emerald-400">Código de Verificação SMS/WhatsApp</label>
+                <label className="text-xs font-bold text-emerald-400">Código PIN (Recebido por E-mail)</label>
                 <input
                   type="text"
-                  placeholder="Digite 8492"
+                  placeholder="Digite o código de 4 dígitos recebido"
                   value={verificationCodeInput}
-                  onChange={(e) => setVerificationCodeInput(e.target.value)}
+                  onChange={(e) => setVerificationCodeInput(e.target.value.trim())}
+                  maxLength={6}
                   className="w-full bg-slate-900 text-white text-sm px-3 py-2 rounded-lg border border-slate-700 outline-none font-mono"
                 />
               </div>

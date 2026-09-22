@@ -399,6 +399,54 @@ export function LiveRideTracker({ ride }: LiveRideTrackerProps) {
           </div>
         </div>
 
+        {/* Real GPS Navigation Links for Driver / Passenger */}
+        <div className="bg-slate-900/60 p-3.5 rounded-xl border border-slate-800 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+              <Compass className="w-3.5 h-3.5 text-emerald-400" />
+              Navegação GPS em Tempo Real
+            </span>
+            <span className="text-[10px] text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/30 font-semibold">
+              Motorista & Passageiro
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 pt-0.5">
+            <a
+              href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(ride.originAddress)}&destination=${encodeURIComponent(ride.destinationAddress)}&travelmode=driving`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-1.5 bg-slate-950 hover:bg-slate-800 text-sky-400 hover:text-sky-300 font-bold text-xs py-2 px-3 rounded-xl border border-slate-800 hover:border-sky-500/40 transition-all text-center"
+            >
+              <MapPin className="w-3.5 h-3.5 shrink-0" />
+              <span>Google Maps ↗</span>
+            </a>
+            <a
+              href={`https://waze.com/ul?q=${encodeURIComponent(ride.destinationAddress)}&navigate=yes`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-1.5 bg-slate-950 hover:bg-slate-800 text-cyan-400 hover:text-cyan-300 font-bold text-xs py-2 px-3 rounded-xl border border-slate-800 hover:border-cyan-500/40 transition-all text-center"
+            >
+              <Navigation className="w-3.5 h-3.5 shrink-0" />
+              <span>Waze ↗</span>
+            </a>
+          </div>
+
+          {ride.originMapsLink && (
+            <div className="pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
+              <span className="text-slate-400">Ponto GPS exato de embarque:</span>
+              <a
+                href={ride.originMapsLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-400 hover:text-emerald-300 hover:underline font-bold inline-flex items-center gap-1"
+              >
+                📍 Ver Ponto Exato no Mapa ↗
+              </a>
+            </div>
+          )}
+        </div>
+
         {/* Regulatory Seal as required by section 3 & 25 */}
         <div className="bg-slate-950 p-3 rounded-xl border border-slate-900/80 flex items-center gap-2.5 text-[10px] text-slate-400">
           <Shield className="w-4 h-4 text-emerald-500 shrink-0" />

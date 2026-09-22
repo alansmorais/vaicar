@@ -1580,20 +1580,31 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
     }
     
     const cleanPhone = phone.trim();
+    const phoneDigits = cleanPhone.replace(/\D/g, '') || cleanPhone;
+    const cleanEmail = (email || '').trim().toLowerCase();
 
     if (!verificationCode) {
       const pin = Math.floor(1000 + Math.random() * 9000).toString();
       
-      // Store PIN in Firestore pendingPins collection
-      await db.collection('pendingPins').doc(cleanPhone).set({
+      const pinPayload = {
         pin,
-        email: email || '',
+        phone: cleanPhone,
+        phoneDigits,
+        email: cleanEmail,
         createdAt: new Date().toISOString(),
-      });
+      };
+
+      // Store PIN in Firestore pendingPins collection (by phone digits, raw phone, and email)
+      await db.collection('pendingPins').doc(phoneDigits).set(pinPayload);
+      if (cleanPhone !== phoneDigits) {
+        await db.collection('pendingPins').doc(cleanPhone).set(pinPayload);
+      }
+      if (cleanEmail) {
+        await db.collection('pendingPins').doc(cleanEmail).set(pinPayload);
+      }
 
       let emailSent = false;
       let emailErrorReason = '';
-      const cleanEmail = (email || '').trim();
       
       if (cleanEmail) {
         try {
@@ -1637,30 +1648,52 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
       return res.json({
         codeSent: true,
         emailSent,
-        testCode: pin,
         emailErrorReason,
         message: emailSent
           ? `Código PIN enviado para ${cleanEmail}!`
-          : `Código de verificação gerado: ${pin}`,
+          : `Não foi possível enviar o e-mail. Verifique o endereço digitado.`,
       });
     }
     
-    // Verify PIN: accepts stored PIN OR universal master test PINs (8492, 1234)
-    const pinDoc = await db.collection('pendingPins').doc(cleanPhone).get();
-    const storedPin = pinDoc.exists ? pinDoc.data()?.pin : null;
+    // Verify PIN: strictly accepts ONLY the PIN that was generated and sent to the user's email
+    let storedPin: string | null = null;
 
-    const isCodeValid =
-      verificationCode === '8492' ||
-      verificationCode === '1234' ||
-      (storedPin && verificationCode === storedPin);
+    // 1. Try phoneDigits
+    let pinDoc = await db.collection('pendingPins').doc(phoneDigits).get();
+    if (pinDoc.exists) {
+      storedPin = pinDoc.data()?.pin;
+    }
+
+    // 2. Try email
+    if (!storedPin && cleanEmail) {
+      pinDoc = await db.collection('pendingPins').doc(cleanEmail).get();
+      if (pinDoc.exists) {
+        storedPin = pinDoc.data()?.pin;
+      }
+    }
+
+    // 3. Try cleanPhone raw
+    if (!storedPin) {
+      pinDoc = await db.collection('pendingPins').doc(cleanPhone).get();
+      if (pinDoc.exists) {
+        storedPin = pinDoc.data()?.pin;
+      }
+    }
+
+    const trimmedInputCode = verificationCode.toString().trim();
+    const isCodeValid = Boolean(storedPin && trimmedInputCode === storedPin.trim());
 
     if (!isCodeValid) {
-      console.warn('DEBUG: Auth failed, invalid code:', verificationCode);
-      return res.status(400).json({ error: 'Código incorreto. Digite o código de 4 dígitos recebido ou 8492.' });
+      console.warn('DEBUG: Auth failed, invalid code:', trimmedInputCode, 'expected:', storedPin);
+      return res.status(400).json({ error: 'Código incorreto. Digite o código de 4 dígitos recebido no seu e-mail.' });
     }
     
     // Code is valid, remove it from pendingPins
-    await db.collection('pendingPins').doc(cleanPhone).delete().catch(() => {});
+    await Promise.all([
+      db.collection('pendingPins').doc(phoneDigits).delete().catch(() => {}),
+      db.collection('pendingPins').doc(cleanPhone).delete().catch(() => {}),
+      cleanEmail ? db.collection('pendingPins').doc(cleanEmail).delete().catch(() => {}) : Promise.resolve(),
+    ]);
 
     console.log('DEBUG: Checking phone:', cleanPhone);
     const snap = await db.collection('passengers').where('phone', '==', cleanPhone).get();
