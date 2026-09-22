@@ -2203,6 +2203,27 @@ app.patch('/api/v1/admin/passengers/:id/block', async (req, res) => {
   }
 });
 
+app.patch('/api/v1/admin/passengers/:id', async (req, res) => {
+  try {
+    const { name, email, phone } = req.body;
+    const id = req.params.id;
+    const docRef = db.collection('passengers').doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Passageiro não encontrado' });
+    }
+    const updates: any = {};
+    if (name !== undefined) updates.name = name.trim();
+    if (email !== undefined) updates.email = email.trim().toLowerCase();
+    if (phone !== undefined) updates.phone = phone.trim();
+
+    await docRef.update(updates);
+    res.json({ success: true, passenger: { ...doc.data(), ...updates } });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Falha ao editar passageiro', details: err.message });
+  }
+});
+
 app.get('/api/v1/passengers/:id/rides', async (req, res) => {
   const snap = await db.collection('rides')
     .where('passengerPhone', '==', req.params.id)

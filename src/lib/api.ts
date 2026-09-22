@@ -606,4 +606,12 @@ export async function togglePassengerBlock(id: string, isBlocked: boolean): Prom
   }, 'Falha ao alterar status do passageiro');
 }
 
+export async function updatePassengerProfile(id: string, data: { name?: string; email?: string; phone?: string }): Promise<any> {
+  return safeFetchJson<any>(`/api/v1/admin/passengers/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  }, 'Falha ao editar passageiro');
+}
+
 

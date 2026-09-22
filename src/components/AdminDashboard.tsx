@@ -73,6 +73,7 @@ import {
   deleteDriver,
   fetchPassengers,
   togglePassengerBlock,
+  updatePassengerProfile,
 } from '../lib/api.ts';
 import { DynamicPricingSettings } from '../types.ts';
 
@@ -195,6 +196,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [passengerSearch, setPassengerSearch] = useState<string>('');
   const [isPassengerLoading, setIsPassengerLoading] = useState<boolean>(false);
 
+  // Passenger Editing State
+  const [editingPassenger, setEditingPassenger] = useState<any | null>(null);
+  const [editPassengerName, setEditPassengerName] = useState<string>('');
+  const [editPassengerEmail, setEditPassengerEmail] = useState<string>('');
+  const [editPassengerPhone, setEditPassengerPhone] = useState<string>('');
+  const [editPassengerError, setEditPassengerError] = useState<string>('');
+  const [isSavingPassenger, setIsSavingPassenger] = useState<boolean>(false);
+
   useEffect(() => {
     loadCosts();
     loadFareSettings();
@@ -222,6 +231,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setPassengers(prev => prev.map(p => p.id === pId ? { ...p, isBlocked: !currentBlocked } : p));
     } catch (err: any) {
       console.error('Error toggling passenger block:', err);
+    }
+  };
+
+  const handleStartEditPassenger = (p: any) => {
+    setEditingPassenger(p);
+    setEditPassengerName(p.name || '');
+    setEditPassengerEmail(p.email || '');
+    setEditPassengerPhone(p.phone || '');
+    setEditPassengerError('');
+  };
+
+  const handleSavePassengerEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPassenger) return;
+    if (!editPassengerName.trim() || !editPassengerPhone.trim()) {
+      setEditPassengerError('Nome e WhatsApp são obrigatórios.');
+      return;
+    }
+    try {
+      setIsSavingPassenger(true);
+      setEditPassengerError('');
+      await updatePassengerProfile(editingPassenger.id, {
+        name: editPassengerName,
+        email: editPassengerEmail,
+        phone: editPassengerPhone,
+      });
+      setPassengers(prev => prev.map(p => p.id === editingPassenger.id ? {
+        ...p,
+        name: editPassengerName.trim(),
+        email: editPassengerEmail.trim().toLowerCase(),
+        phone: editPassengerPhone.trim(),
+      } : p));
+      setEditingPassenger(null);
+    } catch (err: any) {
+      setEditPassengerError(err.message || 'Erro ao salvar alterações.');
+    } finally {
+      setIsSavingPassenger(false);
     }
   };
 
@@ -2454,21 +2500,98 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           )}
                         </td>
                         <td className="p-4 text-right">
-                          <button
-                            onClick={() => handleTogglePassengerBlock(p.id, !!p.isBlocked)}
-                            className={`px-3 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
-                              p.isBlocked
-                                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow shadow-emerald-500/10'
-                                : 'bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/25 hover:border-transparent'
-                            }`}
-                          >
-                            {p.isBlocked ? 'Desbloquear Acesso' : 'Bloquear / Banir'}
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleStartEditPassenger(p)}
+                              className="px-2.5 py-1.5 rounded-lg font-bold text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer border border-slate-700"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              onClick={() => handleTogglePassengerBlock(p.id, !!p.isBlocked)}
+                              className={`px-3 py-1.5 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                                p.isBlocked
+                                  ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow shadow-emerald-500/10'
+                                  : 'bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/25 hover:border-transparent'
+                              }`}
+                            >
+                              {p.isBlocked ? 'Desbloquear Acesso' : 'Bloquear / Banir'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* Edit Passenger Modal */}
+          {editingPassenger && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
+                <div>
+                  <h4 className="text-base font-bold text-white">Editar Passageiro</h4>
+                  <p className="text-xs text-slate-400">ID: {editingPassenger.id}</p>
+                </div>
+
+                <form onSubmit={handleSavePassengerEdit} className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Nome Completo</label>
+                    <input
+                      type="text"
+                      value={editPassengerName}
+                      onChange={(e) => setEditPassengerName(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-600 outline-none focus:border-emerald-500 transition-colors"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">WhatsApp (Formato completo)</label>
+                    <input
+                      type="text"
+                      value={editPassengerPhone}
+                      onChange={(e) => setEditPassengerPhone(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-600 outline-none focus:border-emerald-500 transition-colors"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">E-mail</label>
+                    <input
+                      type="email"
+                      value={editPassengerEmail}
+                      onChange={(e) => setEditPassengerEmail(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-600 outline-none focus:border-emerald-500 transition-colors"
+                    />
+                  </div>
+
+                  {editPassengerError && (
+                    <p className="text-xs text-rose-400 font-bold bg-rose-500/10 border border-rose-500/25 p-3 rounded-xl">
+                      {editPassengerError}
+                    </p>
+                  )}
+
+                  <div className="flex items-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingPassenger(null)}
+                      className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingPassenger}
+                      className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer shadow-md disabled:opacity-50"
+                    >
+                      {isSavingPassenger ? 'Salvando...' : 'Salvar'}
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           )}
