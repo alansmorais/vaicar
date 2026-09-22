@@ -26,7 +26,7 @@ jobs:
           node-version: '20'
 
       - name: Install Bubblewrap CLI
-        run: npm install -g @bubblewrap/cli
+        run: npm install -g @bubblewrap/cli@latest
 
       - name: Configure Bubblewrap Non-Interactively
         run: |
@@ -40,12 +40,15 @@ jobs:
 
       - name: Generate Android Project and Build APK
         run: |
-          # Use pre-existing twa-manifest.json to build the Android project
-          bubblewrap update
+          # Non-interactive project creation/update and compilation
+          bubblewrap update --manifest=twa-manifest.json --versionCode=1 --versionName="1.0.0" --skipConfig
           bubblewrap build --signingKey.password="vaicar123" --signingKey.aliasPassword="vaicar123"
 
       - name: Upload Signed APK
         uses: actions/upload-artifact@v4
         with:
           name: vaicar-apk
-          path: ./*.apk
+          path: |
+            **/build/outputs/apk/release/*.apk
+            **/build/outputs/apk/**/*.apk
+          if-no-files-found: error
