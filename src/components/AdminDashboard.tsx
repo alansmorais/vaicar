@@ -95,6 +95,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   rides,
   onRefreshAll,
 }) => {
+  // Subscription metrics based on registration index tiers (0, 60, 80, 100 BRL)
+  const activeDrivers = drivers.filter(d => d.subscriptionStatus === 'ACTIVE');
+  const activeCount = activeDrivers.length;
+  const freeCount = activeDrivers.filter(d => d.monthlyFeeBrl === 0).length;
+  const sixtyCount = activeDrivers.filter(d => d.monthlyFeeBrl === 60).length;
+  const eightyCount = activeDrivers.filter(d => d.monthlyFeeBrl === 80).length;
+  const hundredCount = activeDrivers.filter(d => d.monthlyFeeBrl === 100 || (typeof d.monthlyFeeBrl === 'number' && d.monthlyFeeBrl !== 0 && d.monthlyFeeBrl !== 60 && d.monthlyFeeBrl !== 80)).length;
+
   // Login Gate (Section 11)
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('vaicar_admin_auth') === 'true';
@@ -953,7 +961,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span className="text-[10px] uppercase font-bold text-slate-400">Receita Mensal (MRR)</span>
               <div className="text-3xl font-black text-white">R$ {metrics.monthlyRecurringRevenue}</div>
               <span className="text-[10px] text-emerald-400 font-semibold">
-                {metrics.activeSubscriptions} assinantes x R$ {metrics.subscriptionPriceBrl}
+                {activeCount} ativos ({freeCount} grátis • {sixtyCount} de R$60 • {eightyCount} de R$80 • {hundredCount} de R$100)
               </span>
             </div>
 
@@ -1366,7 +1374,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span className="text-[10px] font-bold uppercase text-slate-400">Receita de Assinaturas (MRR)</span>
               <div className="text-3xl font-black text-emerald-400">R$ {metrics.monthlyRecurringRevenue}</div>
               <span className="text-[10px] text-slate-400">
-                {metrics.activeSubscriptions} motoristas assinantes x R$ {plan.priceBrl}/mês
+                {activeCount} ativos ({freeCount} grátis • {sixtyCount} de R$60 • {eightyCount} de R$80 • {hundredCount} de R$100)
               </span>
             </div>
 

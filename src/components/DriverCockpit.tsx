@@ -545,7 +545,7 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
               </span>
               <span>•</span>
               <span className="text-emerald-400 font-bold">
-                Plano Pro: 0% comissão (R$ {monthlyPlanPrice}/mês)
+                Plano Pro: 0% comissão (R$ {driver.monthlyFeeBrl ?? monthlyPlanPrice}/mês)
               </span>
             </div>
           </div>
@@ -722,7 +722,7 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
           className="ml-auto px-3.5 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap bg-gradient-to-r from-teal-500 to-emerald-500 text-slate-950 hover:brightness-110 flex items-center gap-1.5"
         >
           <Award className="w-3.5 h-3.5" />
-          <span>Meu Plano Pro (R$ {monthlyPlanPrice}/mês)</span>
+          <span>Meu Plano Pro (R$ {driver.monthlyFeeBrl ?? monthlyPlanPrice}/mês)</span>
         </button>
       </div>
 
