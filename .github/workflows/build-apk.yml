@@ -26,7 +26,7 @@ jobs:
           node-version: '20'
 
       - name: Install Bubblewrap CLI
-        run: npm install -g @google/bubblewrap-cli
+        run: npm install -g @bubblewrap/cli
 
       - name: Configure Bubblewrap Non-Interactively
         run: |
