@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://vaicar-sao-sebastiao.com.br/sitemap.xml
