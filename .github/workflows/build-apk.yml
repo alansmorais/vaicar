@@ -74,11 +74,11 @@ jobs:
           # Generate/update project with explicit non-empty appVersionName
           yes "1.0.0" | bubblewrap update --manifest=twa-manifest.json --appVersionName="1.0.0" --skipConfig
           
-          # Restore live app URL in twa-manifest.json and strings.xml
-          echo "=== Setting Live App URL ==="
-          sed -i 's|"webManifestUrl": "http://localhost:8080/manifest.json"|"webManifestUrl": "https://ais-dev-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app/manifest.json"|g' twa-manifest.json
-          find . -type f \( -name "*.xml" -o -name "*.json" \) -exec sed -i 's|http://localhost:8080/|https://ais-dev-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app/|g' {} +
-          find . -type f \( -name "*.xml" -o -name "*.json" \) -exec sed -i 's|http://localhost:8080|https://ais-dev-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app|g' {} +
+          # Restore official production URL in twa-manifest.json and strings.xml
+          echo "=== Setting Official Production Domain (www.vaicar.alansmsolutions.com) ==="
+          sed -i 's|"webManifestUrl": "http://localhost:8080/manifest.json"|"webManifestUrl": "https://www.vaicar.alansmsolutions.com/manifest.json"|g' twa-manifest.json
+          find . -type f \( -name "*.xml" -o -name "*.json" \) -exec sed -i 's|http://localhost:8080/|https://www.vaicar.alansmsolutions.com/|g' {} +
+          find . -type f \( -name "*.xml" -o -name "*.json" \) -exec sed -i 's|http://localhost:8080|https://www.vaicar.alansmsolutions.com|g' {} +
           
           # Print strings.xml to verify production host and URLs
           echo "=== Generated strings.xml ==="
