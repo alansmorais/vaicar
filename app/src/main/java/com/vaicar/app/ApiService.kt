@@ -169,6 +169,7 @@ object ApiService {
             "originZoneId" to originId,
             "destinationZoneId" to destId,
             "passengerCount" to passengerCount,
+            "driverId" to driverId,
             "requestedDriverId" to driverId,
             "fareBrl" to fare,
             "notes" to notes
@@ -307,8 +308,16 @@ object ApiService {
         })
     }
 
-    fun updateDriverOnline(driverId: String, isOnline: Boolean, onSuccess: (Driver) -> Unit, onError: (Exception) -> Unit) {
-        val bodyMap = mapOf("isOnline" to isOnline)
+    fun updateDriverAvailability(
+        driverId: String,
+        isOnline: Boolean? = null,
+        operatingZones: List<String>? = null,
+        onSuccess: (Driver) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val bodyMap = mutableMapOf<String, Any>()
+        if (isOnline != null) bodyMap["isOnline"] = isOnline
+        if (operatingZones != null) bodyMap["operatingZones"] = operatingZones
         val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
 
         val request = Request.Builder()
@@ -336,6 +345,14 @@ object ApiService {
                 }
             }
         })
+    }
+
+    fun updateDriverOnline(driverId: String, isOnline: Boolean, onSuccess: (Driver) -> Unit, onError: (Exception) -> Unit) {
+        updateDriverAvailability(driverId = driverId, isOnline = isOnline, onSuccess = onSuccess, onError = onError)
+    }
+
+    fun updateDriverOperatingZones(driverId: String, operatingZones: List<String>, onSuccess: (Driver) -> Unit, onError: (Exception) -> Unit) {
+        updateDriverAvailability(driverId = driverId, operatingZones = operatingZones, onSuccess = onSuccess, onError = onError)
     }
 
     fun updateDriverPricing(

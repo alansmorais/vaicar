@@ -1,6 +1,8 @@
 package com.vaicar.app
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,6 +40,8 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
     // Driver operation configs
     var minFare by remember { mutableStateOf("25.0") }
     var rateKm by remember { mutableStateOf("3.5") }
+    var serveAllZones by remember { mutableStateOf(true) }
+    var selectedZoneIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     fun refreshState() {
         ApiService.fetchDrivers(
@@ -48,6 +52,16 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                 onlineStatus = drv?.isOnline ?: false
                 minFare = drv?.pricing?.minimumFare?.toString() ?: "25.0"
                 rateKm = drv?.pricing?.ratePerKm?.toString() ?: "3.5"
+
+                val drvZones = drv?.operatingZones ?: emptyList()
+                val isAll = drvZones.isEmpty() || drvZones.contains("ALL") || (zones.isNotEmpty() && drvZones.size >= zones.size)
+                serveAllZones = isAll
+                selectedZoneIds = if (isAll) {
+                    zones.map { it.id }.toSet()
+                } else {
+                    drvZones.toSet()
+                }
+
                 isFetching = false
             },
             onError = {
@@ -332,6 +346,208 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text("Salvar Tarifas", color = Color.Black, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    // Operating Zones Configuration
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Place, contentDescription = null, tint = EmeraldGreen, modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Regiões de Atendimento",
+                                            color = EmeraldGreen,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 16.sp
+                                        )
+                                    }
+                                    Text(
+                                        text = if (serveAllZones) "Todas (${zones.size})" else "${selectedZoneIds.size}/${zones.size}",
+                                        color = TextSecondary,
+                                        fontSize = 12.sp
+                                    )
+                                }
+
+                                Text(
+                                    text = "Defina os bairros onde você gostaria de atender chamados de passageiros:",
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    fontSize = 13.sp
+                                )
+
+                                // Switch to serve all zones
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (serveAllZones) EmeraldGreen.copy(alpha = 0.15f) else DarkSlate
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "Atender Todas as Regiões (Padrão)",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 14.sp
+                                            )
+                                            Text(
+                                                text = "Receba corridas originadas em qualquer bairro",
+                                                color = TextSecondary,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                        Switch(
+                                            checked = serveAllZones,
+                                            onCheckedChange = { checked ->
+                                                serveAllZones = checked
+                                                if (checked) {
+                                                    selectedZoneIds = zones.map { it.id }.toSet()
+                                                }
+                                            },
+                                            colors = SwitchDefaults.colors(checkedThumbColor = EmeraldGreen)
+                                        )
+                                    }
+                                }
+
+                                // Granular Zone Selection when not serving all
+                                if (!serveAllZones) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Selecione as localizações:",
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            TextButton(
+                                                onClick = { selectedZoneIds = zones.map { it.id }.toSet() },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                            ) {
+                                                Text("Marcar Todas", color = EmeraldGreen, fontSize = 12.sp)
+                                            }
+                                            TextButton(
+                                                onClick = { selectedZoneIds = emptySet() },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                            ) {
+                                                Text("Limpar", color = Color.Gray, fontSize = 12.sp)
+                                            }
+                                        }
+                                    }
+
+                                    zones.chunked(2).forEach { rowZones ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            rowZones.forEach { zone ->
+                                                val isSelected = selectedZoneIds.contains(zone.id)
+                                                Card(
+                                                    colors = CardDefaults.cardColors(
+                                                        containerColor = if (isSelected) EmeraldGreen.copy(alpha = 0.2f) else DarkSlate
+                                                    ),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    border = if (isSelected) BorderStroke(1.dp, EmeraldGreen) else null,
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clickable {
+                                                            selectedZoneIds = if (isSelected) {
+                                                                selectedZoneIds - zone.id
+                                                            } else {
+                                                                selectedZoneIds + zone.id
+                                                            }
+                                                        }
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Checkbox(
+                                                            checked = isSelected,
+                                                            onCheckedChange = { checked ->
+                                                                selectedZoneIds = if (checked) {
+                                                                    selectedZoneIds + zone.id
+                                                                } else {
+                                                                    selectedZoneIds - zone.id
+                                                                }
+                                                            },
+                                                            colors = CheckboxDefaults.colors(
+                                                                checkedColor = EmeraldGreen,
+                                                                checkmarkColor = Color.Black
+                                                            ),
+                                                            modifier = Modifier.size(24.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(
+                                                            text = zone.name,
+                                                            color = if (isSelected) Color.White else Color.Gray,
+                                                            fontSize = 12.sp,
+                                                            maxLines = 1
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            if (rowZones.size == 1) {
+                                                Spacer(modifier = Modifier.weight(1f))
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Button(
+                                    onClick = {
+                                        val finalZones = if (serveAllZones || (zones.isNotEmpty() && selectedZoneIds.size == zones.size)) {
+                                            listOf("ALL")
+                                        } else if (selectedZoneIds.isEmpty()) {
+                                            listOf("z-centro")
+                                        } else {
+                                            selectedZoneIds.toList()
+                                        }
+
+                                        ApiService.updateDriverOperatingZones(
+                                            driverId = driver.id,
+                                            operatingZones = finalZones,
+                                            onSuccess = {
+                                                message = if (serveAllZones) {
+                                                    "Configurado para atender Todas as Regiões!"
+                                                } else {
+                                                    "${finalZones.size} regiões de atendimento salvas com sucesso!"
+                                                }
+                                            },
+                                            onError = { err ->
+                                                message = err.message ?: "Erro ao salvar regiões de atendimento."
+                                            }
+                                        )
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Salvar Regiões de Atendimento", color = Color.Black, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }

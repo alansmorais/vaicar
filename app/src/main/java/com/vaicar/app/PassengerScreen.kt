@@ -325,8 +325,8 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                 currentRide = it
                                                 message = "Solicitação enviada com sucesso!"
                                             },
-                                            onError = {
-                                                message = "Falha ao solicitar viagem."
+                                            onError = { err ->
+                                                message = err.message ?: "Falha ao solicitar viagem."
                                             }
                                         )
                                     },

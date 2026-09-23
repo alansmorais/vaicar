@@ -871,7 +871,9 @@ app.post('/api/v1/zones', async (req, res) => {
 // Search Drivers
 app.post('/api/v1/search/drivers', async (req, res) => {
   try {
-    const { originZoneId, destinationZoneId, passengerCount = 1 } = req.body;
+    const originZoneId = req.body.originZoneId || req.body.originId;
+    const destinationZoneId = req.body.destinationZoneId || req.body.destId;
+    const passengerCount = req.body.passengerCount || 1;
     if (!originZoneId || !destinationZoneId) return res.status(400).json({ error: 'Origem e destino são obrigatórios.' });
 
     const distanceKm = await calculateDistanceKm(originZoneId, destinationZoneId);
@@ -882,8 +884,11 @@ app.post('/api/v1/search/drivers', async (req, res) => {
     const matchingDrivers = drivers.filter((driver) => {
       const isApproved = driver.regulatoryStatus === 'APPROVED';
       const isSubscribed = driver.subscriptionStatus === 'ACTIVE' || driver.subscriptionStatus === 'TRIAL';
-      const coversZone = driver.operatingZones.includes(originZoneId);
-      const hasCapacity = (driver.vehicle.passengerCapacity || 4) >= Number(passengerCount);
+      const coversZone = !driver.operatingZones || 
+                         driver.operatingZones.length === 0 || 
+                         driver.operatingZones.includes('ALL') || 
+                         driver.operatingZones.includes(originZoneId);
+      const hasCapacity = (driver.vehicle?.passengerCapacity || 4) >= Number(passengerCount);
       return driver.isOnline && isApproved && isSubscribed && coversZone && hasCapacity;
     });
 
@@ -904,7 +909,7 @@ app.post('/api/v1/search/drivers', async (req, res) => {
         estimatedDurationMin,
         arrivalTimeMin,
         isOnline: driver.isOnline,
-        pricingType: driver.pricing.pricingType,
+        pricingType: driver.pricing?.pricingType || 'KM_ONLY',
       };
     }));
 
@@ -1122,8 +1127,31 @@ app.post('/api/v1/drivers/:id/documents', async (req, res) => {
 // Create Ride Request
 app.post('/api/v1/rides', async (req, res) => {
   try {
-    const { passengerName, passengerPhone, passengerAvatarUrl, driverId, originZoneId, originAddress, originLandmark, originMapsLink, destinationZoneId, destinationAddress, destinationLandmark, destinationMapsLink, passengerCount = 1, scheduledTime, isImmediate = true, paymentMethod = 'PIX', paymentChangeFor, savedCard } = req.body;
-    if (!passengerName || !passengerPhone || !driverId || !originZoneId || !destinationZoneId) return res.status(400).json({ error: 'Dados incompletos.' });
+    const { 
+      passengerAvatarUrl, 
+      originAddress, 
+      originLandmark, 
+      originMapsLink, 
+      destinationAddress, 
+      destinationLandmark, 
+      destinationMapsLink, 
+      passengerCount = 1, 
+      scheduledTime, 
+      isImmediate = true, 
+      paymentMethod = 'PIX', 
+      paymentChangeFor, 
+      savedCard 
+    } = req.body;
+
+    const passengerName = req.body.passengerName || req.body.name || 'Passageiro';
+    const passengerPhone = req.body.passengerPhone || req.body.phone || '+551299999999';
+    const driverId = req.body.driverId || req.body.requestedDriverId;
+    const originZoneId = req.body.originZoneId || req.body.originId;
+    const destinationZoneId = req.body.destinationZoneId || req.body.destId;
+
+    if (!passengerName || !passengerPhone || !driverId || !originZoneId || !destinationZoneId) {
+      return res.status(400).json({ error: 'Dados incompletos para solicitação de corrida.' });
+    }
 
     // Verify if passenger is blocked
     const passengerSnap = await db.collection('passengers').where('phone', '==', passengerPhone).get();
