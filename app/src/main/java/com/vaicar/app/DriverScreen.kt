@@ -29,6 +29,7 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
     var registeredDriver by remember { mutableStateOf<Driver?>(null) }
     var onlineStatus by remember { mutableStateOf(false) }
     var activeRidesList by remember { mutableStateOf<List<Ride>>(listOf()) }
+    var knownRideIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var isFetching by remember { mutableStateOf(true) }
     var message by remember { mutableStateOf("") }
 
@@ -91,7 +92,7 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                     onSuccess = { rides ->
                         val currentDriverId = registeredDriver?.id
                         val currentDriverPhone = registeredDriver?.phone
-                        activeRidesList = rides.filter { ride ->
+                        val filtered = rides.filter { ride ->
                             val matchesDriver = (currentDriverId != null && (
                                 ride.driverId == currentDriverId ||
                                 ride.requestedDriverId == currentDriverId ||
@@ -102,6 +103,17 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                             ))
                             matchesDriver && ride.status != "COMPLETED" && !ride.status.startsWith("CANCELLED")
                         }
+
+                        // Trigger bell chimes sound and vibration when a new ride is requested
+                        val newCalls = filtered.filter { ride ->
+                            ride.status == "REQUESTED" && !knownRideIds.contains(ride.id)
+                        }
+                        if (newCalls.isNotEmpty()) {
+                            SoundAlertHelper.triggerIncomingRideAlert(context)
+                        }
+
+                        knownRideIds = knownRideIds + filtered.map { it.id }
+                        activeRidesList = filtered
                     },
                     onError = {}
                 )
@@ -304,6 +316,49 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                     },
                                     colors = SwitchDefaults.colors(checkedThumbColor = EmeraldGreen)
                                 )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(Color.DarkGray.copy(alpha = 0.5f))
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.Notifications,
+                                        contentDescription = "Alerta Sonoro",
+                                        tint = EmeraldGreen,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Sino & vibração de chamados",
+                                        color = Color.White,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        SoundAlertHelper.triggerIncomingRideAlert(context)
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "Testar Som",
+                                        color = EmeraldGreen,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }
