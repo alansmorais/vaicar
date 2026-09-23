@@ -42,21 +42,18 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
     var destExpanded by remember { mutableStateOf(false) }
 
     // Poll current ride status if active
-    LaunchedEffect(currentRide) {
-        if (currentRide != null) {
+    val currentRideId = currentRide?.id
+    LaunchedEffect(currentRideId) {
+        if (currentRideId != null) {
             while (true) {
-                kotlinx.coroutines.delay(4000)
-                currentRide?.let { ride ->
-                    ApiService.fetchRides(
-                        onSuccess = { rides ->
-                            val updated = rides.find { it.id == ride.id }
-                            if (updated != null) {
-                                currentRide = updated
-                            }
-                        },
-                        onError = {}
-                    )
-                }
+                kotlinx.coroutines.delay(2500)
+                ApiService.getRide(
+                    rideId = currentRideId,
+                    onSuccess = { updated ->
+                        currentRide = updated
+                    },
+                    onError = {}
+                )
             }
         }
     }

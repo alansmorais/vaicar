@@ -750,12 +750,13 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                     ApiService.updateRideStatus(
                                                         rideId = ride.id,
                                                         status = "ACCEPTED",
+                                                        driverId = registeredDriver?.id,
                                                         onSuccess = {
                                                             refreshState()
                                                             message = "Você aceitou a corrida de ${ride.passengerName}!"
                                                         },
-                                                        onError = {
-                                                            message = "Erro ao aceitar corrida."
+                                                        onError = { err ->
+                                                            message = err.message ?: "Erro ao aceitar corrida."
                                                         }
                                                     )
                                                 },
@@ -771,12 +772,14 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                     ApiService.updateRideStatus(
                                                         rideId = ride.id,
                                                         status = "CANCELLED_BY_DRIVER",
+                                                        driverId = registeredDriver?.id,
+                                                        cancellationReason = "Recusado pelo motorista",
                                                         onSuccess = {
                                                             refreshState()
                                                             message = "Corrida recusada."
                                                         },
-                                                        onError = {
-                                                            message = "Erro ao recusar corrida."
+                                                        onError = { err ->
+                                                            message = err.message ?: "Erro ao recusar corrida."
                                                         }
                                                     )
                                                 },
@@ -792,12 +795,13 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                     ApiService.updateRideStatus(
                                                         rideId = ride.id,
                                                         status = "COMPLETED",
+                                                        driverId = registeredDriver?.id,
                                                         onSuccess = {
                                                             refreshState()
                                                             message = "Corrida finalizada com sucesso! Parabéns!"
                                                         },
-                                                        onError = {
-                                                            message = "Erro ao finalizar corrida."
+                                                        onError = { err ->
+                                                            message = err.message ?: "Erro ao finalizar corrida."
                                                         }
                                                     )
                                                 },
@@ -813,12 +817,14 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                     ApiService.updateRideStatus(
                                                         rideId = ride.id,
                                                         status = "CANCELLED_BY_DRIVER",
+                                                        driverId = registeredDriver?.id,
+                                                        cancellationReason = "Cancelado pelo motorista",
                                                         onSuccess = {
                                                             refreshState()
                                                             message = "Você cancelou a corrida."
                                                         },
-                                                        onError = {
-                                                            message = "Erro ao cancelar corrida."
+                                                        onError = { err ->
+                                                            message = err.message ?: "Erro ao cancelar corrida."
                                                         }
                                                     )
                                                 },

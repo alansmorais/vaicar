@@ -1290,25 +1290,58 @@ app.get('/api/v1/rides/:id', async (req, res) => {
   res.json(doc.data());
 });
 
-// Update Ride Status (State Machine)
-app.patch('/api/v1/rides/:id/status', async (req, res) => {
+// Update Ride Status (State Machine with Race Condition Prevention)
+const handleRideStatusUpdate = async (req: express.Request, res: express.Response) => {
   try {
     const docRef = db.collection('rides').doc(req.params.id);
     const rideDoc = await docRef.get();
     if (!rideDoc.exists) return res.status(404).json({ error: 'Corrida não encontrada' });
     const ride = rideDoc.data() as Ride;
 
-    const { status, cancellationReason } = req.body;
+    const { status, cancellationReason, driverId } = req.body;
+    if (!status) {
+      return res.status(400).json({ error: 'Status obrigatório' });
+    }
+
     const validTransitions: Record<string, string[]> = {
       REQUESTED: ['ACCEPTED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED', 'REJECTED'],
-      ACCEPTED: ['DRIVER_ARRIVING', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
-      DRIVER_ARRIVING: ['PASSENGER_PICKED_UP', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
-      PASSENGER_PICKED_UP: ['IN_PROGRESS', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
+      ACCEPTED: ['DRIVER_ARRIVING', 'PASSENGER_PICKED_UP', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
+      DRIVER_ARRIVING: ['PASSENGER_PICKED_UP', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
+      PASSENGER_PICKED_UP: ['IN_PROGRESS', 'COMPLETED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
       IN_PROGRESS: ['COMPLETED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
+      COMPLETED: [],
+      CANCELLED: [],
+      CANCELLED_BY_PASSENGER: [],
+      CANCELLED_BY_DRIVER: [],
+      REJECTED: [],
     };
 
+    // Race condition checks for ACCEPTED
+    if (status === 'ACCEPTED') {
+      if (ride.status === 'ACCEPTED' || ride.status === 'DRIVER_ARRIVING' || ride.status === 'IN_PROGRESS' || ride.status === 'COMPLETED') {
+        if (driverId && ride.driverId && ride.driverId !== driverId) {
+          return res.status(409).json({
+            error: 'Esta corrida já foi aceita por outro motorista.',
+            code: 'RIDE_ALREADY_ACCEPTED'
+          });
+        }
+      }
+      if (ride.status.startsWith('CANCELLED') || ride.status === 'REJECTED') {
+        return res.status(409).json({
+          error: 'Esta corrida foi cancelada e não está mais disponível.',
+          code: 'RIDE_CANCELLED'
+        });
+      }
+    }
+
     const allowed = validTransitions[ride.status];
-    if (!allowed || !allowed.includes(status)) return res.status(400).json({ error: 'Transição inválida' });
+    if (!allowed || !allowed.includes(status)) {
+      return res.status(400).json({
+        error: `Transição inválida de ${ride.status} para ${status}`,
+        currentStatus: ride.status,
+        requestedStatus: status
+      });
+    }
 
     const labels: Record<string, string> = {
       ACCEPTED: 'Motorista aceitou a corrida',
@@ -1319,38 +1352,67 @@ app.patch('/api/v1/rides/:id/status', async (req, res) => {
       CANCELLED: 'Cancelada',
       CANCELLED_BY_PASSENGER: 'Cancelado pelo passageiro',
       CANCELLED_BY_DRIVER: 'Recusado pelo motorista',
-      REJECTED: 'Recusada',
+      REJECTED: 'Recusada pelo motorista',
     };
 
     const updates: any = {
       status,
       updatedAt: new Date().toISOString(),
-      timeline: [...ride.timeline, {
+      timeline: [...(ride.timeline || []), {
         status,
         timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
         label: labels[status] || status,
       }]
     };
 
-    if (status === 'COMPLETED') {
-      updates.completedAt = new Date().toISOString();
-      const drvRef = db.collection('drivers').doc(ride.driverId);
-      const drvDoc = await drvRef.get();
+    if (driverId) {
+      updates.driverId = driverId;
+      updates.requestedDriverId = driverId;
+      updates.matchedDriverId = driverId;
+      const drvDoc = await db.collection('drivers').doc(driverId).get();
       if (drvDoc.exists) {
         const d = drvDoc.data() as Driver;
-        await drvRef.update({ ridesCompleted: (d.ridesCompleted || 0) + 1 });
+        updates.driverName = d.name;
+        updates.driverPhone = d.phone;
+        updates.driverVehicle = `${d.vehicle?.brand || ''} ${d.vehicle?.model || ''} - ${d.vehicle?.color || ''}`.trim();
+        updates.driverAvatar = d.avatarUrl;
+      }
+    }
+
+    if (status === 'COMPLETED') {
+      updates.completedAt = new Date().toISOString();
+      const targetDriverId = updates.driverId || ride.driverId;
+      if (targetDriverId) {
+        const drvRef = db.collection('drivers').doc(targetDriverId);
+        const drvDoc = await drvRef.get();
+        if (drvDoc.exists) {
+          const d = drvDoc.data() as Driver;
+          await drvRef.update({ ridesCompleted: (d.ridesCompleted || 0) + 1 });
+        }
       }
     }
     if (cancellationReason) updates.cancellationReason = cancellationReason;
 
     await docRef.update(updates);
-    const updatedRide = { ...ride, ...updates };
+    const updatedRide = {
+      ...ride,
+      ...updates,
+      fareBrl: ride.fareBrl !== undefined ? ride.fareBrl : (ride.estimatedPrice ?? 0),
+      driverId: updates.driverId || ride.driverId,
+      requestedDriverId: updates.requestedDriverId || ride.requestedDriverId || ride.driverId,
+      matchedDriverId: updates.matchedDriverId || ride.matchedDriverId || ride.driverId,
+    };
     broadcastLiveEvent('RIDE_UPDATED', updatedRide);
     res.json(updatedRide);
-  } catch (err) {
-    res.status(500).json({ error: 'Update status failed' });
+  } catch (err: any) {
+    console.error('Error in /api/v1/rides/:id/status:', err);
+    res.status(500).json({ error: 'Update status failed', details: err?.message || String(err) });
   }
-});
+};
+
+app.patch('/api/v1/rides/:id/status', handleRideStatusUpdate);
+app.put('/api/v1/rides/:id/status', handleRideStatusUpdate);
+app.post('/api/v1/rides/:id/status', handleRideStatusUpdate);
 
 // Delete or Cleanup Rides
 app.post('/api/v1/rides/cleanup', async (req, res) => {

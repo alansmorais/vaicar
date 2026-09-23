@@ -232,13 +232,50 @@ object ApiService {
         })
     }
 
-    fun updateRideStatus(rideId: String, status: String, onSuccess: (Ride) -> Unit, onError: (Exception) -> Unit) {
-        val bodyMap = mapOf("status" to status)
+    fun getRide(rideId: String, onSuccess: (Ride) -> Unit, onError: (Exception) -> Unit) {
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/rides/$rideId")
+            .get()
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val ride = gson.fromJson(bodyString, Ride::class.java)
+                        mainHandler.post { onSuccess(ride) }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+                }
+            }
+        })
+    }
+
+    fun updateRideStatus(
+        rideId: String,
+        status: String,
+        driverId: String? = null,
+        cancellationReason: String? = null,
+        onSuccess: (Ride) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val bodyMap = mutableMapOf<String, Any>("status" to status)
+        if (!driverId.isNullOrEmpty()) bodyMap["driverId"] = driverId
+        if (!cancellationReason.isNullOrEmpty()) bodyMap["cancellationReason"] = cancellationReason
         val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
 
         val request = Request.Builder()
             .url("${NetworkConfig.apiBaseUrl}/rides/$rideId/status")
-            .put(requestBody)
+            .patch(requestBody)
             .build()
 
         client.newCall(request).enqueue(object : Callback {
