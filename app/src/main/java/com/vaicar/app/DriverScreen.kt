@@ -13,12 +13,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val savedPhone = SecurityUtils.getDriverPhone(context)
     var registeredDriver by remember { mutableStateOf<Driver?>(null) }
     var onlineStatus by remember { mutableStateOf(false) }
     var activeRidesList by remember { mutableStateOf<List<Ride>>(listOf()) }
@@ -39,8 +42,8 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
     fun refreshState() {
         ApiService.fetchDrivers(
             onSuccess = { drivers ->
-                // Look up or auto-assign a test driver (like drv-1 or similar)
-                val drv = drivers.firstOrNull()
+                // Look up driver by their registered phone, or fall back to first available
+                val drv = drivers.find { it.phone == savedPhone } ?: drivers.firstOrNull()
                 registeredDriver = drv
                 onlineStatus = drv?.isOnline ?: false
                 minFare = drv?.pricing?.minimumFare?.toString() ?: "25.0"
@@ -108,7 +111,12 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        Icon(Icons.Default.DriveEta, contentDescription = null, tint = EmeraldGreen)
+                        IconButton(onClick = {
+                            SecurityUtils.logoutDriver(context)
+                            onBack()
+                        }) {
+                            Icon(Icons.Default.ExitToApp, contentDescription = "Sair", tint = AccentRed)
+                        }
                     }
                 }
 

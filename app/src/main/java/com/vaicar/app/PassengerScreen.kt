@@ -15,17 +15,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
+    val context = LocalContext.current
     var originZone by remember { mutableStateOf<Zone?>(zones.firstOrNull()) }
     var destZone by remember { mutableStateOf<Zone?>(zones.getOrNull(1)) }
     var passengerCount by remember { mutableStateOf(1) }
-    var passengerName by remember { mutableStateOf("Alan Morais") }
-    var passengerPhone by remember { mutableStateOf("+551299999999") }
+    var passengerName by remember { mutableStateOf(SecurityUtils.getPassengerName(context)) }
+    var passengerPhone by remember { mutableStateOf(SecurityUtils.getPassengerPhone(context)) }
     var notes by remember { mutableStateOf("") }
 
     var searchResults by remember { mutableStateOf<SearchDriversResponse?>(null) }
@@ -83,7 +85,12 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Icon(Icons.Default.Person, contentDescription = null, tint = EmeraldGreen)
+                    IconButton(onClick = {
+                        SecurityUtils.logoutPassenger(context)
+                        onBack()
+                    }) {
+                        Icon(Icons.Default.ExitToApp, contentDescription = "Sair", tint = AccentRed)
+                    }
                 }
             }
 
