@@ -18,6 +18,11 @@
     "path": "./android.keystore",
     "alias": "android"
   },
+  "fingerprints": [
+    {
+      "value": "26:EE:43:0E:80:65:36:26:F4:31:5A:1D:94:F1:45:83:7A:96:7A:8A:0D:14:55:FD:B8:66:7F:9B:D3:6E:8D:D1"
+    }
+  ],
   "appVersionCode": 1,
   "appVersionName": "1.0.0",
   "generatorApp": "bubblewrap-cli",
@@ -25,6 +30,10 @@
   "fallbackType": "customtabs",
   "display": "standalone",
   "orientation": "portrait",
-  "features": {},
+  "features": {
+    "locationDelegation": {
+      "enabled": true
+    }
+  },
   "alphaDependencies": {}
 }
