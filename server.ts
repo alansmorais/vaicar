@@ -1017,7 +1017,7 @@ app.post('/api/v1/drivers', async (req, res) => {
 });
 
 // Update Driver Availability (Online / Operating Zones)
-app.patch('/api/v1/drivers/:id/availability', async (req, res) => {
+const handleDriverAvailability = async (req: express.Request, res: express.Response) => {
   try {
     const doc = await db.collection('drivers').doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Motorista não encontrado' });
@@ -1025,7 +1025,7 @@ app.patch('/api/v1/drivers/:id/availability', async (req, res) => {
 
     const { isOnline, operatingZones } = req.body;
     if (isOnline === true && driver.regulatoryStatus !== 'APPROVED') {
-      return res.status(403).json({ error: 'Não é possível ficar online sem aprovação.' });
+      return res.status(403).json({ error: 'Não é possível ficar online sem aprovação do cadastro.' });
     }
 
     const updates: any = {};
@@ -1037,7 +1037,12 @@ app.patch('/api/v1/drivers/:id/availability', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Update failed' });
   }
-});
+};
+
+app.patch('/api/v1/drivers/:id/availability', handleDriverAvailability);
+app.put('/api/v1/drivers/:id/availability', handleDriverAvailability);
+app.put('/api/v1/drivers/:id/online', handleDriverAvailability);
+app.patch('/api/v1/drivers/:id/online', handleDriverAvailability);
 
 // Update Driver Pricing
 app.patch('/api/v1/drivers/:id/pricing', async (req, res) => {

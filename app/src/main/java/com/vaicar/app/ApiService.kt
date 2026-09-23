@@ -312,8 +312,48 @@ object ApiService {
         val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
 
         val request = Request.Builder()
-            .url("${NetworkConfig.apiBaseUrl}/drivers/$driverId/online")
-            .put(requestBody)
+            .url("${NetworkConfig.apiBaseUrl}/drivers/$driverId/availability")
+            .patch(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val driver = gson.fromJson(bodyString, Driver::class.java)
+                        mainHandler.post { onSuccess(driver) }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+                }
+            }
+        })
+    }
+
+    fun updateDriverPricing(
+        driverId: String,
+        minFare: Double,
+        ratePerKm: Double,
+        onSuccess: (Driver) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val bodyMap = mapOf(
+            "minimumFare" to minFare,
+            "ratePerKm" to ratePerKm
+        )
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/drivers/$driverId/pricing")
+            .patch(requestBody)
             .build()
 
         client.newCall(request).enqueue(object : Callback {

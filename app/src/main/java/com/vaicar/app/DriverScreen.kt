@@ -266,8 +266,8 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                 onlineStatus = it.isOnline
                                                 message = if (it.isOnline) "Você agora está Online!" else "Você saiu de serviço."
                                             },
-                                            onError = {
-                                                message = "Erro ao atualizar status de serviço."
+                                            onError = { err ->
+                                                message = err.message ?: "Erro ao atualizar status de serviço."
                                             }
                                         )
                                     },
@@ -309,6 +309,29 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White),
                                         modifier = Modifier.weight(1f)
                                     )
+                                }
+
+                                Button(
+                                    onClick = {
+                                        val min = minFare.toDoubleOrNull() ?: 15.0
+                                        val km = rateKm.toDoubleOrNull() ?: 1.0
+                                        ApiService.updateDriverPricing(
+                                            driverId = driver.id,
+                                            minFare = min,
+                                            ratePerKm = km,
+                                            onSuccess = {
+                                                message = "Configurações de tarifa salvas com sucesso!"
+                                            },
+                                            onError = { err ->
+                                                message = err.message ?: "Erro ao salvar tarifas."
+                                            }
+                                        )
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Salvar Tarifas", color = Color.Black, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
