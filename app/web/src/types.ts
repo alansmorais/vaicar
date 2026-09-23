@@ -241,6 +241,7 @@ export interface Ride {
   driverPhone: string;
   driverVehicle: string;
   driverAvatar: string;
+  driverLicensePlate?: string;
   originZoneId: string;
   originAddress: string;
   originLat?: number;

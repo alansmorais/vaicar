@@ -9,6 +9,7 @@ import {
   Sparkles,
   ArrowRight,
   ShieldCheck,
+  ShieldAlert,
   ChevronRight,
   Car,
   Phone,
@@ -29,6 +30,7 @@ import {
   LogOut,
   Navigation,
   XCircle,
+  Package,
 } from 'lucide-react';
 import { Zone, Ride, Driver, PaymentMethod, SearchDriversResponse } from '../types.ts';
 import {
@@ -44,7 +46,32 @@ import {
   getWhatsAppContact,
 } from '../lib/api.ts';
 import { LiveRideTracker } from './LiveRideTracker.tsx';
+import { ReportModal } from './ReportModal.tsx';
 import { realtimeSync, broadcastLocalRideCreated, broadcastLocalRideUpdate } from '../lib/realtimeSync.ts';
+
+export function parseDeliveryDetails(originLandmark?: string) {
+  if (!originLandmark || !originLandmark.startsWith('📦 [DELIVERY')) {
+    return null;
+  }
+  const isMoto = originLandmark.includes('DELIVERY - MOTO');
+  const isBike = originLandmark.includes('DELIVERY - BIKE');
+  
+  const extractField = (fieldName: string) => {
+    const regex = new RegExp(`${fieldName}:\\s*([^|]+)`);
+    const match = originLandmark.match(regex);
+    return match ? match[1].trim() : '';
+  };
+
+  return {
+    vehicleType: isMoto ? 'Motocicleta 🏍️' : (isBike ? 'Bicicleta 🚲' : 'Entrega Expressa 📦'),
+    category: extractField('Categoria'),
+    description: extractField('Descrição'),
+    weight: extractField('Peso'),
+    size: extractField('Tamanho'),
+    declaredValue: extractField('Valor Decl'),
+    fullString: originLandmark
+  };
+}
 
 interface PassengerDashboardProps {
   zones: Zone[];
@@ -52,7 +79,7 @@ interface PassengerDashboardProps {
   onRefreshRides: () => void;
   onGoToDriverSignup: () => void;
   initialTrackedRide?: Ride | null;
-  onOpenLegal: (tab: 'termos' | 'privacidade' | 'regulacao') => void;
+  onOpenLegal: (tab: 'termos' | 'privacidade' | 'regulacao' | 'seguranca') => void;
   onLogout?: () => void;
 }
 
@@ -66,6 +93,26 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<'SOLICITAR' | 'ATUAL' | 'HISTORICO' | 'AVALIACOES' | 'PERFIL' | 'AJUDA'>('SOLICITAR');
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+
+  // Service Type: Passenger Ride vs Item Delivery
+  const [serviceType, setServiceType] = useState<'RIDE' | 'DELIVERY'>(() => {
+    const saved = localStorage.getItem('vaicar_passenger_mode');
+    if (saved === 'delivery') {
+      localStorage.removeItem('vaicar_passenger_mode'); // clear after reading
+      return 'DELIVERY';
+    }
+    return 'RIDE';
+  });
+
+  // Delivery-specific inputs
+  const [deliveryCategory, setDeliveryCategory] = useState<string>('ALIMENTOS');
+  const [deliveryDescription, setDeliveryDescription] = useState<string>('');
+  const [deliveryWeight, setDeliveryWeight] = useState<string>('');
+  const [deliverySize, setDeliverySize] = useState<string>('PEQUENO');
+  const [deliveryDeclaredValue, setDeliveryDeclaredValue] = useState<string>('');
+  const [deliveryVehicle, setDeliveryVehicle] = useState<'MOTO' | 'BIKE'>('MOTO');
+  const [deliveryRulesAccepted, setDeliveryRulesAccepted] = useState<boolean>(false);
 
   // Passenger Profile state (persisted locally for direct login retention)
   const [passengerName, setPassengerName] = useState(() => localStorage.getItem('vaicar_passenger_name') || '');
@@ -141,7 +188,6 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>('PIX');
   const [paymentChangeFor, setPaymentChangeFor] = useState<string>('');
   const [pickupLandmark, setPickupLandmark] = useState<string>('');
-  const [destinationLandmark, setDestinationLandmark] = useState<string>('');
   const [pickupMapsLink, setPickupMapsLink] = useState<string>('');
   const [isLocatingGps, setIsLocatingGps] = useState<boolean>(false);
   const [gpsCaptureSuccess, setGpsCaptureSuccess] = useState<string | null>(null);
@@ -300,10 +346,27 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
     if (e) e.preventDefault();
     if (!originZoneId || !destinationZoneId) return;
 
+    if (serviceType === 'DELIVERY' && !deliveryRulesAccepted) {
+      alert('Você precisa marcar a caixa confirmando que aceita as Normas de Segurança e regras da plataforma.');
+      return;
+    }
+
     try {
       setIsSearching(true);
       setSearchConcluded(false);
-      const res = await searchDrivers(originZoneId, destinationZoneId, passengers);
+      const res = await searchDrivers(originZoneId, destinationZoneId, serviceType === 'DELIVERY' ? 1 : passengers);
+      
+      // If delivery, let's tag and adjust prices (e.g. 25% discount for bike delivery)
+      if (serviceType === 'DELIVERY' && res?.results) {
+        res.results = res.results.map((driver: any) => {
+          const discount = deliveryVehicle === 'BIKE' ? 0.75 : 1.0; // 25% off for bicycle!
+          return {
+            ...driver,
+            fare: Math.max(10, Math.round(driver.fare * discount)),
+          };
+        });
+      }
+
       setSearchResults(res);
       setSearchConcluded(true);
     } catch (err: any) {
@@ -346,18 +409,23 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
 
     try {
       setIsSubmittingRide(true);
+      
+      let finalOriginLandmark = pickupLandmark;
+      if (serviceType === 'DELIVERY') {
+        finalOriginLandmark = `📦 [DELIVERY - ${deliveryVehicle}] Categoria: ${deliveryCategory} | Descrição: ${deliveryDescription || 'Sem descrição'} | Peso: ${deliveryWeight || 'N/A'} kg | Tamanho: ${deliverySize} | Valor Declarado: R$ ${deliveryDeclaredValue || '0,00'} | Instruções: ${pickupLandmark || 'N/A'}`;
+      }
+
       const newRide = await createRide({
         driverId: selectedDriverForRequest.driverId,
         passengerName,
         passengerPhone,
         passengerAvatarUrl, // <--- Pass avatar
-        passengerCount: passengers,
+        passengerCount: serviceType === 'DELIVERY' ? 1 : passengers,
         originZoneId: originZone.id,
         destinationZoneId: destinationZone.id,
-        originAddress: pickupLandmark.trim() ? `${pickupLandmark.trim()}, ${originZone.name}, São Sebastião - SP` : `${originZone.name}, São Sebastião - SP`,
-        destinationAddress: destinationLandmark.trim() ? `${destinationLandmark.trim()}, ${destinationZone.name}, São Sebastião - SP` : `${destinationZone.name}, São Sebastião - SP`,
-        originLandmark: pickupLandmark, // <--- Pass exact landmark
-        destinationLandmark: destinationLandmark, // <--- Pass exact destination address
+        originAddress: `${originZone.name}, São Sebastião - SP`,
+        destinationAddress: `${destinationZone.name}, São Sebastião - SP`,
+        originLandmark: finalOriginLandmark, // <--- Pass exact landmark / delivery info
         originMapsLink: pickupMapsLink, // <--- Pass maps link
         estimatedDistanceKm: searchResults?.distanceKm || 12,
         estimatedDurationMin: searchResults?.estimatedDurationMin || 20,
@@ -368,7 +436,6 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
 
       // Clear specific pickup inputs
       setPickupLandmark('');
-      setDestinationLandmark('');
       setPickupMapsLink('');
       setSelectedDriverForRequest(null);
       setActiveRide(newRide);
@@ -818,11 +885,41 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
             <div className="mb-5 space-y-1">
               <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
                 <Car className="w-6 h-6 text-emerald-400" />
-                Solicitar Viagem em São Sebastião
+                {serviceType === 'RIDE' ? 'Solicitar Viagem em São Sebastião' : 'Solicitar Entrega em São Sebastião'}
               </h2>
               <p className="text-xs text-slate-400">
-                Selecione as zonas de origem e destino para consultar motoristas credenciados disponíveis.
+                {serviceType === 'RIDE' 
+                  ? 'Selecione as zonas de origem e destino para consultar motoristas credenciados disponíveis.'
+                  : 'Preencha os dados do envio e selecione os endereços de coleta e entrega.'}
               </p>
+            </div>
+
+            {/* Service Toggle */}
+            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 mb-5">
+              <button
+                type="button"
+                onClick={() => setServiceType('RIDE')}
+                className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  serviceType === 'RIDE'
+                    ? 'bg-emerald-500 text-slate-950 shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Car className="w-4 h-4" />
+                <span>Pedir Corrida (Passageiro)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setServiceType('DELIVERY')}
+                className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  serviceType === 'DELIVERY'
+                    ? 'bg-emerald-500 text-slate-950 shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Package className="w-4 h-4" />
+                <span>Solicitar Entrega (Delivery)</span>
+              </button>
             </div>
 
             {/* Mandatory Disclaimers as required by Section 3 & 25 */}
@@ -831,7 +928,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                 <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                 <div>
                   <span className="font-bold text-white block">Preço Direto:</span>
-                  O preço da corrida é definido pelo motorista.
+                  O preço da {serviceType === 'RIDE' ? 'corrida' : 'entrega'} é definido pelo {serviceType === 'RIDE' ? 'motorista' : 'entregador'}.
                 </div>
               </div>
 
@@ -839,7 +936,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                 <Banknote className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                 <div>
                   <span className="font-bold text-white block">Pagamento Direto:</span>
-                  O pagamento da corrida é realizado diretamente com o motorista.
+                  O pagamento é realizado diretamente com o {serviceType === 'RIDE' ? 'motorista' : 'entregador'}.
                 </div>
               </div>
             </div>
@@ -851,7 +948,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                     <MapPin className="w-4 h-4 text-emerald-400" />
-                    De onde? (Origem)
+                    {serviceType === 'RIDE' ? 'De onde? (Origem)' : 'Endereço de Coleta'}
                   </label>
                   <select
                     value={originZoneId}
@@ -870,7 +967,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                     <MapPin className="w-4 h-4 text-cyan-400" />
-                    Para onde? (Destino)
+                    {serviceType === 'RIDE' ? 'Para onde? (Destino)' : 'Endereço de Entrega'}
                   </label>
                   <select
                     value={destinationZoneId}
@@ -886,14 +983,156 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                 </div>
               </div>
 
-              {/* Schedule & Passenger Count */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                {/* Passengers */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <Users className="w-4 h-4 text-emerald-400" />
-                    Quantidade de Passageiros
-                  </label>
+              {/* Delivery fields (Conditional) */}
+              {serviceType === 'DELIVERY' && (
+                <div className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 space-y-4 animate-fade-in text-xs">
+                  <div className="border-b border-slate-800 pb-2 mb-2 flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-white text-xs uppercase text-emerald-400">Detalhes do Envio</h3>
+                      <p className="text-[10px] text-slate-500">Insira as especificações exatas do seu pacote.</p>
+                    </div>
+                    <span className="text-[10px] bg-slate-900 border border-slate-800 px-2 py-1 rounded text-slate-400 font-bold">
+                      {deliveryVehicle === 'MOTO' ? '🏍️ Motocicleta (Plano R$79 ou 10%)' : '🚲 Bicicleta (Plano R$49 ou 10%)'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Veículo da Entrega */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-300 uppercase">Selecione o Veículo de Entrega</label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setDeliveryVehicle('MOTO')}
+                          className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all flex items-center justify-center gap-1.5 ${
+                            deliveryVehicle === 'MOTO'
+                              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                              : 'bg-slate-900 border-slate-800 text-slate-400'
+                          }`}
+                        >
+                          🏍️ Motocicleta
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeliveryVehicle('BIKE')}
+                          className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all flex items-center justify-center gap-1.5 ${
+                            deliveryVehicle === 'BIKE'
+                              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                              : 'bg-slate-900 border-slate-800 text-slate-400'
+                          }`}
+                        >
+                          🚲 Bicicleta
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Categoria do Item */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-300 uppercase">Categoria do Item</label>
+                      <select
+                        value={deliveryCategory}
+                        onChange={(e) => setDeliveryCategory(e.target.value)}
+                        className="w-full bg-slate-900 text-white font-medium px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs cursor-pointer"
+                      >
+                        <option value="ALIMENTOS">🍔 Alimentos / Refeições</option>
+                        <option value="DOCUMENTOS">📄 Documentos / Papéis</option>
+                        <option value="ELETRONICOS">⚡ Eletrônicos / Acessórios</option>
+                        <option value="VESTUARIO">👕 Vestuário / Roupas</option>
+                        <option value="MEDICAMENTOS">💊 Farmácia / Medicamentos</option>
+                        <option value="OUTROS">📦 Outros Objetos</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {/* Descrição do Item */}
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <label className="text-xs font-bold text-slate-300 uppercase">Descrição Completa</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Pizza Grande, Chave do Escritório, Documento Azul, etc."
+                        value={deliveryDescription}
+                        onChange={(e) => setDeliveryDescription(e.target.value)}
+                        required={serviceType === 'DELIVERY'}
+                        className="w-full bg-slate-900 text-white px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs"
+                      />
+                    </div>
+
+                    {/* Peso aproximado */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-300 uppercase">Peso Aproximado (kg)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0.1"
+                        placeholder="Ex: 1.5"
+                        value={deliveryWeight}
+                        onChange={(e) => setDeliveryWeight(e.target.value)}
+                        required={serviceType === 'DELIVERY'}
+                        className="w-full bg-slate-900 text-white px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Tamanho / Dimensões */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-300 uppercase">Tamanho do Item</label>
+                      <select
+                        value={deliverySize}
+                        onChange={(e) => setDeliverySize(e.target.value)}
+                        className="w-full bg-slate-900 text-white font-medium px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs cursor-pointer"
+                      >
+                        <option value="PEQUENO">🎒 Pequeno (Cabe em mochila convencional)</option>
+                        <option value="MEDIO">📦 Médio (Exige baú de motocicleta)</option>
+                        <option value="GRANDE">⚠️ Grande (Limite de carga do entregador)</option>
+                      </select>
+                    </div>
+
+                    {/* Valor Declarado */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-300 uppercase">Valor Declarado (R$)</label>
+                      <input
+                        type="number"
+                        placeholder="Ex: 50.00"
+                        value={deliveryDeclaredValue}
+                        onChange={(e) => setDeliveryDeclaredValue(e.target.value)}
+                        required={serviceType === 'DELIVERY'}
+                        className="w-full bg-slate-900 text-white px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Safety and Regulations Checkbox */}
+                  <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-2">
+                    <span className="font-black text-rose-400 block text-[10px] uppercase tracking-wider">🔒 Normas de Segurança Obrigatórias</span>
+                    <ul className="text-[10px] text-slate-400 list-disc pl-3.5 space-y-1">
+                      <li>Não é permitido enviar inflamáveis, armas, entorpecentes ou itens ilícitos.</li>
+                      <li>O item real deve condizer perfeitamente com a descrição informada acima.</li>
+                      <li>O entregador tem autonomia para recusar caso o item seja inseguro ou diferente do descrito.</li>
+                    </ul>
+                    <label className="flex items-start gap-2 pt-2 text-[11px] text-white font-bold cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={deliveryRulesAccepted}
+                        onChange={(e) => setDeliveryRulesAccepted(e.target.checked)}
+                        className="mt-0.5 rounded border-slate-800 text-emerald-500 focus:ring-0"
+                      />
+                      <span>Declaro que li e concordo com todas as regras de segurança e os Termos de Uso.</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Schedule & Passenger Count (Only when RIDE) */}
+              {serviceType === 'RIDE' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                  {/* Passengers */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Users className="w-4 h-4 text-emerald-400" />
+                      Quantidade de Passageiros
+                    </label>
                   <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-700/80">
                     {[1, 2, 3, 4].map((num) => (
                       <button
@@ -944,6 +1183,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   </div>
                 </div>
               </div>
+            )}
 
               {/* Map Service Notice */}
               <div className="text-[11px] text-slate-500 bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/80 flex items-center justify-between">
@@ -1027,57 +1267,69 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {searchResults.results.map((driver) => (
-                    <div
-                      key={driver.driverId}
-                      className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 rounded-2xl p-5 space-y-4 transition-all shadow-lg relative group"
-                    >
-                      {/* Driver info header */}
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={driver.avatarUrl}
-                            alt={driver.name}
-                            className="w-12 h-12 rounded-xl object-cover border border-slate-700 shadow-md"
-                          />
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <h4 className="font-bold text-white text-sm">{driver.name}</h4>
-                              <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-500/30 px-1 rounded font-semibold">
-                                Credenciado
-                              </span>
+                  {searchResults.results.map((driver) => {
+                    const isDelivery = serviceType === 'DELIVERY';
+                    const displayVehicleText = isDelivery
+                      ? (deliveryVehicle === 'MOTO' ? '🏍️ Motocicleta Honda CG Titan 160 (Preta)' : '🚲 Bicicleta Caloi Vulcan (Vermelha)')
+                      : `${driver.vehicle.brand} ${driver.vehicle.model} • ${driver.vehicle.color}`;
+                    
+                    const labelRoleText = isDelivery ? 'Entregador Credenciado' : 'Credenciado';
+                    const priceLabel = isDelivery ? 'Preço da entrega' : 'Preço do motorista';
+                    const selectButtonText = isDelivery ? 'Escolher este Entregador' : 'Escolher este Motorista';
+                    const capacityLabel = isDelivery ? `Tipo: Envio por ${deliveryVehicle === 'MOTO' ? 'Moto' : 'Bike'}` : `Capacidade: ${driver.vehicle.capacity} passageiros`;
+
+                    return (
+                      <div
+                        key={driver.driverId}
+                        className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 rounded-2xl p-5 space-y-4 transition-all shadow-lg relative group"
+                      >
+                        {/* Driver info header */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={driver.avatarUrl}
+                              alt={driver.name}
+                              className="w-12 h-12 rounded-xl object-cover border border-slate-700 shadow-md"
+                            />
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <h4 className="font-bold text-white text-sm">{driver.name}</h4>
+                                <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-500/30 px-1 rounded font-semibold">
+                                  {labelRoleText}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-400">{displayVehicleText}</p>
+                              <div className="flex items-center gap-1 text-[11px] text-amber-400 font-bold mt-0.5">
+                                <Star className="w-3 h-3 fill-amber-400" />
+                                <span>{driver.ratingAverage.toFixed(1)}</span>
+                                <span className="text-slate-500 font-normal">({driver.ratingCount} avaliações)</span>
+                              </div>
                             </div>
-                            <p className="text-xs text-slate-400">{driver.vehicle.brand} {driver.vehicle.model} • {driver.vehicle.color}</p>
-                            <div className="flex items-center gap-1 text-[11px] text-amber-400 font-bold mt-0.5">
-                              <Star className="w-3 h-3 fill-amber-400" />
-                              <span>{driver.ratingAverage.toFixed(1)}</span>
-                              <span className="text-slate-500 font-normal">({driver.ratingCount} avaliações)</span>
-                            </div>
+                          </div>
+
+                          {/* Price badge */}
+                          <div className="text-right">
+                            <span className="text-xs text-slate-400 block">{priceLabel}</span>
+                            <span className="text-xl font-black text-emerald-400">R$ {driver.fare.toFixed(2)}</span>
                           </div>
                         </div>
 
-                        {/* Price badge */}
-                        <div className="text-right">
-                          <span className="text-xs text-slate-400 block">Preço do motorista</span>
-                          <span className="text-xl font-black text-emerald-400">R$ {driver.fare.toFixed(2)}</span>
+                        <div className="border-t border-slate-800/80 pt-3 flex items-center justify-between text-xs text-slate-400">
+                          <span>Chegada em ~{driver.arrivalTimeMin} min</span>
+                          <span className="text-slate-400">{capacityLabel}</span>
                         </div>
-                      </div>
 
-                      <div className="border-t border-slate-800/80 pt-3 flex items-center justify-between text-xs text-slate-400">
-                        <span>Chegada em ~{driver.arrivalTimeMin} min</span>
-                        <span className="text-slate-400">Capacidade: {driver.vehicle.capacity} passageiros</span>
+                        {/* Select driver for ride button */}
+                        <button
+                          onClick={() => setSelectedDriverForRequest(driver)}
+                          className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-md"
+                        >
+                          <span>{selectButtonText}</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-
-                      {/* Select driver for ride button */}
-                      <button
-                        onClick={() => setSelectedDriverForRequest(driver)}
-                        className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-md"
-                      >
-                        <span>Escolher este Motorista</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1089,8 +1341,17 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               <div className="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl p-6 shadow-2xl space-y-5">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                   <h3 className="font-bold text-white text-base flex items-center gap-2">
-                    <Car className="w-5 h-5 text-emerald-400" />
-                    Confirmar Solicitação de Corrida
+                    {serviceType === 'RIDE' ? (
+                      <>
+                        <Car className="w-5 h-5 text-emerald-400" />
+                        <span>Confirmar Solicitação de Corrida</span>
+                      </>
+                    ) : (
+                      <>
+                        <Package className="w-5 h-5 text-emerald-400" />
+                        <span>Confirmar Solicitação de Entrega</span>
+                      </>
+                    )}
                   </h3>
                   <button
                     onClick={() => setSelectedDriverForRequest(null)}
@@ -1111,7 +1372,9 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                     <div>
                       <h4 className="font-bold text-white text-sm">{selectedDriverForRequest.name}</h4>
                       <p className="text-xs text-slate-400">
-                        {selectedDriverForRequest.vehicle.brand} {selectedDriverForRequest.vehicle.model}
+                        {serviceType === 'DELIVERY'
+                          ? (deliveryVehicle === 'MOTO' ? '🏍️ Motocicleta Honda Titan (Preta)' : '🚲 Bicicleta Caloi Vulcan (Vermelha)')
+                          : `${selectedDriverForRequest.vehicle.brand} ${selectedDriverForRequest.vehicle.model}`}
                       </p>
                     </div>
                   </div>
@@ -1126,15 +1389,19 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                 {/* Route Summary */}
                 <div className="text-xs space-y-1 text-slate-300 bg-slate-950/50 p-3 rounded-xl border border-slate-800">
                   <div className="flex items-center gap-2">
-                    <span className="text-emerald-400 font-bold">Origem:</span>
+                    <span className="text-emerald-400 font-bold">{serviceType === 'RIDE' ? 'Origem:' : 'Coleta:'}</span>
                     <span>{originZone?.name}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-cyan-400 font-bold">Destino:</span>
+                    <span className="text-cyan-400 font-bold">{serviceType === 'RIDE' ? 'Destino:' : 'Entrega:'}</span>
                     <span>{destinationZone?.name}</span>
                   </div>
                   <div className="flex items-center gap-2 text-slate-400">
-                    <span>Passageiros: {passengers}</span>
+                    {serviceType === 'DELIVERY' ? (
+                      <span>Modalidade: Envio por {deliveryVehicle === 'MOTO' ? 'MOTO' : 'BIKE'}</span>
+                    ) : (
+                      <span>Passageiros: {passengers}</span>
+                    )}
                     <span>•</span>
                     <span>Distância estimada: {searchResults?.distanceKm || 12} km</span>
                   </div>
@@ -1143,14 +1410,18 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                 {/* Localização Exata para Embarque */}
                 <div className="space-y-2.5 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
                   <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
-                    Localização Exata de Embarque *
+                    {serviceType === 'RIDE' ? 'Localização Exata de Embarque *' : 'Instruções para Retirada / Detalhes de Acesso *'}
                   </label>
                   <div className="space-y-2">
                     <div>
-                      <span className="text-[10px] font-semibold text-slate-400 block mb-1">Ponto de Referência / Número / Instrução específica:</span>
+                      <span className="text-[10px] font-semibold text-slate-400 block mb-1">
+                        {serviceType === 'RIDE' 
+                          ? 'Ponto de Referência / Número / Instrução específica:' 
+                          : 'Ponto de coleta exato, nome do responsável ou número do local:'}
+                      </span>
                       <input
                         type="text"
-                        placeholder="Ex: Em frente à Padaria Maresias, portão branco"
+                        placeholder={serviceType === 'RIDE' ? 'Ex: Em frente à Padaria Maresias, portão branco' : 'Ex: Retirar com Maria no Apt 42, Bloco B'}
                         value={pickupLandmark}
                         onChange={(e) => setPickupLandmark(e.target.value)}
                         required
@@ -1185,23 +1456,6 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                         className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-lg border border-slate-700 outline-none focus:border-emerald-500 font-mono"
                       />
                     </div>
-                  </div>
-                </div>
-
-                {/* Localização Exata para Desembarque */}
-                <div className="space-y-2.5 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
-                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
-                    Localização Exata de Desembarque (Destino)
-                  </label>
-                  <div>
-                    <span className="text-[10px] font-semibold text-slate-400 block mb-1">Rua, Número, Ponto de Referência ou Condomínio:</span>
-                    <input
-                      type="text"
-                      placeholder="Ex: Av. Dr. Manoel Hipólito, 850 - Hotel ou Condomínio"
-                      value={destinationLandmark}
-                      onChange={(e) => setDestinationLandmark(e.target.value)}
-                      className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-lg border border-slate-700 outline-none focus:border-cyan-500"
-                    />
                   </div>
                 </div>
 
@@ -1399,6 +1653,95 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   setActiveTab('SOLICITAR');
                 }}
               />
+
+              {/* Delivery Details parsed block if applicable */}
+              {(() => {
+                const delivery = parseDeliveryDetails(activeRide.originLandmark);
+                if (!delivery) return null;
+                return (
+                  <div className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 text-xs space-y-3">
+                    <div className="flex items-center gap-2 border-b border-slate-800 pb-2 mb-1">
+                      <Package className="w-4.5 h-4.5 text-emerald-400" />
+                      <span className="font-bold text-white text-xs uppercase tracking-wider">📦 Informações do Envio (Delivery)</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-[11px] text-slate-300">
+                      <div>
+                        <span className="text-slate-500 block">Tipo de Veículo:</span>
+                        <span className="text-emerald-400 font-bold">{delivery.vehicleType}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block">Categoria:</span>
+                        <span className="text-white font-semibold">{delivery.category}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block">Peso Estimado:</span>
+                        <span className="text-white font-semibold">{delivery.weight} kg</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block">Tamanho:</span>
+                        <span className="text-white font-semibold">{delivery.size}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block">Valor Declarado:</span>
+                        <span className="text-emerald-400 font-mono font-bold">R$ {delivery.declaredValue}</span>
+                      </div>
+                    </div>
+                    <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80 text-slate-400 text-[11px]">
+                      <strong className="text-slate-300">Descrição do Item:</strong> {delivery.description}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Pre-boarding Safety Verification Warning */}
+              <div className="bg-amber-950/20 border border-amber-500/40 rounded-2xl p-4 text-xs space-y-3 shadow-md">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <h4 className="font-bold text-amber-300 text-sm">Conferência Obrigatória Antes do Embarque</h4>
+                    <p className="text-slate-300 text-xs leading-relaxed">
+                      Antes de entrar no veículo, confira se o motorista, a placa e o veículo correspondem às informações exibidas no aplicativo. <strong className="text-amber-200">Não embarque se houver divergência.</strong>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 border-t border-amber-500/20 text-slate-200">
+                  <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 block uppercase font-bold">Motorista</span>
+                    <span className="text-xs font-bold text-white">{activeRide.driverName}</span>
+                  </div>
+                  <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 block uppercase font-bold">Veículo</span>
+                    <span className="text-xs font-bold text-emerald-400">{activeRide.driverVehicle}</span>
+                  </div>
+                  <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 block uppercase font-bold">Placa do Veículo</span>
+                    <span className="text-xs font-bold font-mono text-cyan-300">
+                      {activeRide.driverLicensePlate || 'Verifique antes de entrar'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => onOpenLegal('seguranca')}
+                    className="text-xs text-amber-400 hover:text-amber-300 underline font-semibold flex items-center gap-1 cursor-pointer"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Ver Regras de Segurança do Passageiro</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsReportModalOpen(true)}
+                    className="text-xs text-rose-400 hover:text-rose-300 font-semibold bg-rose-950/60 hover:bg-rose-900/60 border border-rose-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                    <span>Reportar Divergência / Problema</span>
+                  </button>
+                </div>
+              </div>
 
               {/* Driver and Vehicle card */}
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-4">
@@ -1793,14 +2136,14 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1">
                 <h4 className="font-bold text-white">Como funciona o pagamento da corrida?</h4>
                 <p>
-                  O pagamento é feito diretamente ao motorista (via Pix direto, dinheiro ou máquina de cartão dele). O VaiCar não intermedeia o dinheiro das corridas e não cobra comissão sobre viagens.
+                  O pagamento é feito diretamente ao motorista (via Pix direto, dinheiro ou máquina de cartão dele). Os modelos comerciais da plataforma são 10% por corrida ou R$100/mês.
                 </p>
               </div>
 
               <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1">
-                <h4 className="font-bold text-white">Os motoristas são autorizados em São Sebastião?</h4>
+                <h4 className="font-bold text-white">Como funciona a verificação dos motoristas?</h4>
                 <p>
-                  Sim! Todos os motoristas ativos na plataforma passam por verificação prévia de CNH com EAR, alvará municipal de São Sebastião, laudo de vistoria veicular e seguro APP de acidentes para passageiros.
+                  Verificação cadastral: Os motoristas devem fornecer as informações e documentos exigidos pela plataforma e cumprir os requisitos legais aplicáveis à atividade.
                 </p>
               </div>
 
@@ -1878,6 +2221,14 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* Universal Report Modal */}
+      {isReportModalOpen && (
+        <ReportModal
+          ride={activeRide}
+          onClose={() => setIsReportModalOpen(false)}
+        />
       )}
     </div>
   );

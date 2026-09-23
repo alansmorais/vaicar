@@ -10,8 +10,8 @@ import admin from 'firebase-admin';
 
 // Initialize firebase-admin for FCM if not already initialized
 try {
-  if (admin.apps.length === 0) {
-    admin.initializeApp();
+  if ((admin as any).apps?.length === 0) {
+    (admin as any).initializeApp?.();
   }
 } catch (err) {
   console.error('[FCM Admin Init] Error initializing firebase-admin:', err);
@@ -1355,7 +1355,7 @@ async function sendFcmNotification(driverId: string, payload: {
       },
     };
 
-    const response = await admin.messaging().send(message);
+    const response = await (admin as any).messaging().send(message);
     console.log('[FCM] Push notification sent successfully. Message ID:', response);
   } catch (err: any) {
     console.error('[FCM Error] Failed to send push notification:', err);

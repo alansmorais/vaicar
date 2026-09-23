@@ -9,6 +9,7 @@ import {
   Sparkles,
   ArrowRight,
   ShieldCheck,
+  ShieldAlert,
   ChevronRight,
   Car,
   Phone,
@@ -45,6 +46,7 @@ import {
   getWhatsAppContact,
 } from '../lib/api.ts';
 import { LiveRideTracker } from './LiveRideTracker.tsx';
+import { ReportModal } from './ReportModal.tsx';
 import { realtimeSync, broadcastLocalRideCreated, broadcastLocalRideUpdate } from '../lib/realtimeSync.ts';
 
 export function parseDeliveryDetails(originLandmark?: string) {
@@ -77,7 +79,7 @@ interface PassengerDashboardProps {
   onRefreshRides: () => void;
   onGoToDriverSignup: () => void;
   initialTrackedRide?: Ride | null;
-  onOpenLegal: (tab: 'termos' | 'privacidade' | 'regulacao') => void;
+  onOpenLegal: (tab: 'termos' | 'privacidade' | 'regulacao' | 'seguranca') => void;
   onLogout?: () => void;
 }
 
@@ -91,6 +93,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<'SOLICITAR' | 'ATUAL' | 'HISTORICO' | 'AVALIACOES' | 'PERFIL' | 'AJUDA'>('SOLICITAR');
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   // Service Type: Passenger Ride vs Item Delivery
   const [serviceType, setServiceType] = useState<'RIDE' | 'DELIVERY'>(() => {
@@ -1690,6 +1693,56 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                 );
               })()}
 
+              {/* Pre-boarding Safety Verification Warning */}
+              <div className="bg-amber-950/20 border border-amber-500/40 rounded-2xl p-4 text-xs space-y-3 shadow-md">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <h4 className="font-bold text-amber-300 text-sm">Conferência Obrigatória Antes do Embarque</h4>
+                    <p className="text-slate-300 text-xs leading-relaxed">
+                      Antes de entrar no veículo, confira se o motorista, a placa e o veículo correspondem às informações exibidas no aplicativo. <strong className="text-amber-200">Não embarque se houver divergência.</strong>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 border-t border-amber-500/20 text-slate-200">
+                  <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 block uppercase font-bold">Motorista</span>
+                    <span className="text-xs font-bold text-white">{activeRide.driverName}</span>
+                  </div>
+                  <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 block uppercase font-bold">Veículo</span>
+                    <span className="text-xs font-bold text-emerald-400">{activeRide.driverVehicle}</span>
+                  </div>
+                  <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                    <span className="text-[10px] text-slate-400 block uppercase font-bold">Placa do Veículo</span>
+                    <span className="text-xs font-bold font-mono text-cyan-300">
+                      {activeRide.driverLicensePlate || 'Verifique antes de entrar'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => onOpenLegal('seguranca')}
+                    className="text-xs text-amber-400 hover:text-amber-300 underline font-semibold flex items-center gap-1 cursor-pointer"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Ver Regras de Segurança do Passageiro</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsReportModalOpen(true)}
+                    className="text-xs text-rose-400 hover:text-rose-300 font-semibold bg-rose-950/60 hover:bg-rose-900/60 border border-rose-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                    <span>Reportar Divergência / Problema</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Driver and Vehicle card */}
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-3.5">
@@ -2083,14 +2136,14 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1">
                 <h4 className="font-bold text-white">Como funciona o pagamento da corrida?</h4>
                 <p>
-                  O pagamento é feito diretamente ao motorista (via Pix direto, dinheiro ou máquina de cartão dele). O VaiCar não intermedeia o dinheiro das corridas e não cobra comissão sobre viagens.
+                  O pagamento é feito diretamente ao motorista (via Pix direto, dinheiro ou máquina de cartão dele). Os modelos comerciais da plataforma são 10% por corrida ou R$100/mês.
                 </p>
               </div>
 
               <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1">
-                <h4 className="font-bold text-white">Os motoristas são autorizados em São Sebastião?</h4>
+                <h4 className="font-bold text-white">Como funciona a verificação dos motoristas?</h4>
                 <p>
-                  Sim! Todos os motoristas ativos na plataforma passam por verificação prévia de CNH com EAR, alvará municipal de São Sebastião, laudo de vistoria veicular e seguro APP de acidentes para passageiros.
+                  Verificação cadastral: Os motoristas devem fornecer as informações e documentos exigidos pela plataforma e cumprir os requisitos legais aplicáveis à atividade.
                 </p>
               </div>
 
@@ -2168,6 +2221,14 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* Universal Report Modal */}
+      {isReportModalOpen && (
+        <ReportModal
+          ride={activeRide}
+          onClose={() => setIsReportModalOpen(false)}
+        />
       )}
     </div>
   );

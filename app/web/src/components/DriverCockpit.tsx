@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { Driver, Zone, Ride, RegulatoryRequirement, PaymentMethod, PlatformFareSettings } from '../types.ts';
 import { realtimeSync, broadcastLocalRideUpdate } from '../lib/realtimeSync.ts';
+import { LegalModal } from './LegalModal.tsx';
 import {
   updateDriverAvailability,
   updateDriverPricing,
@@ -103,6 +104,7 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
 
   const [activeTab, setActiveTab] = useState<'PANEL' | 'PRICING' | 'PAYMENTS' | 'ZONES' | 'DOCS'>('PANEL');
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isSafetyModalOpen, setIsSafetyModalOpen] = useState(false);
 
   // Payment settings state
   const [pixKey, setPixKey] = useState(driver.pixKey || driver.phone || '');
@@ -570,7 +572,7 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
               </span>
               <span>•</span>
               <span className="text-emerald-400 font-bold">
-                Plano Pro: 0% comissão (R$ {driver.monthlyFeeBrl ?? monthlyPlanPrice}/mês)
+                Plano: 10% ou R$ {driver.monthlyFeeBrl ?? monthlyPlanPrice}/mês
               </span>
             </div>
           </div>
@@ -680,7 +682,7 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
             Receita Informada
           </span>
           <div className="text-2xl font-black text-white">R$ {estimatedRevenue}</div>
-          <span className="text-[10px] text-emerald-400 font-semibold">100% sua • 0% comissão</span>
+          <span className="text-[10px] text-emerald-400 font-semibold">Total bruto das viagens</span>
         </div>
       </div>
 
@@ -810,13 +812,13 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
 
                     <div className="text-left sm:text-right shrink-0">
                       <span className="text-[10px] text-slate-400 uppercase font-bold block">
-                        Valor total para você
+                        Valor da corrida
                       </span>
                       <span className="text-3xl font-black text-emerald-400">
                         R$ {req.estimatedPrice}
                       </span>
                       <span className="text-[10px] text-emerald-300 block font-semibold">
-                        0% de comissão paga à plataforma
+                        Pagamento direto pelo passageiro
                       </span>
                     </div>
                   </div>
@@ -958,6 +960,7 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
           {/* Active In-Progress Ride */}
           {activeRide && (
             <div className="bg-slate-900 border-2 border-emerald-500/60 rounded-3xl p-6 shadow-2xl space-y-4">
+              {/* Active Ride Status Header */}
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
@@ -966,6 +969,32 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                   </span>
                 </div>
                 <span className="text-xs text-slate-400">#{activeRide.id.slice(-6)}</span>
+              </div>
+
+              {/* Driver Safety Verification Box */}
+              <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-2xl p-4 text-xs space-y-2 text-slate-200">
+                <div className="flex items-start gap-2.5">
+                  <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <h4 className="font-bold text-emerald-300 text-sm">Conferência de Segurança do Motorista</h4>
+                    <p className="text-slate-300 text-xs leading-relaxed">
+                      Antes de iniciar a viagem, confirme que o passageiro corresponde à solicitação apresentada no aplicativo.
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      O motorista pode interromper ou recusar uma viagem quando existir uma situação concreta de risco à sua integridade física ou violação das regras da plataforma.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between pt-1 border-t border-emerald-500/20">
+                  <button
+                    type="button"
+                    onClick={() => setIsSafetyModalOpen(true)}
+                    className="text-xs text-emerald-400 hover:text-emerald-300 underline font-semibold flex items-center gap-1 cursor-pointer"
+                  >
+                    <FileCheck className="w-3.5 h-3.5" />
+                    <span>Consultar Regras de Segurança e Obrigações do Motorista</span>
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1485,7 +1514,7 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
               </p>
             </div>
             <span className="text-[11px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-500/40 px-3 py-1.5 rounded-xl w-fit">
-              0% de comissão • 100% seu
+              Pagamento direto do passageiro
             </span>
           </div>
 
@@ -1493,10 +1522,10 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
           <div className="bg-gradient-to-r from-emerald-950/40 to-teal-950/40 border border-emerald-500/30 rounded-2xl p-4 text-xs space-y-1.5">
             <h4 className="font-black text-emerald-300 flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              Modelo Sem Intermediação Financeira Abusiva
+              Recebimento Direto e Sem Retenções
             </h4>
             <p className="text-slate-300">
-              Na VaiCar, o pagamento não fica retido na plataforma por dias. Os passageiros pagam via <strong>Pix direto para sua chave bancária</strong>, <strong>dinheiro físico</strong> ou <strong>cartão de crédito/débito</strong>.
+              Na VaiCar, os passageiros realizam o pagamento da corrida diretamente a você via <strong>Pix direto para sua chave bancária</strong>, <strong>dinheiro físico</strong> ou <strong>cartão de crédito/débito</strong>.
             </p>
           </div>
 
@@ -1801,13 +1830,13 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 className="text-xl font-black text-white">Documentos e Exigências Municipais</h2>
+              <h2 className="text-xl font-black text-white">Documentos e Exigências Cadastrais</h2>
               <p className="text-xs text-slate-400">
-                Regulamentação para transporte remunerado legalizado no Município de São Sebastião
+                Verificação cadastral e documentação exigida pela plataforma
               </p>
             </div>
             <span className="text-xs bg-slate-950 border border-slate-800 text-slate-300 px-3 py-1.5 rounded-xl font-medium">
-              Alvará: <strong>{driver.licenseNumber || 'Em análise'}</strong>
+              Identificação: <strong>{driver.licenseNumber || 'Em análise'}</strong>
             </span>
           </div>
 
@@ -1870,6 +1899,15 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
             })}
           </div>
         </div>
+      )}
+
+      {/* Driver Safety and Terms Modal */}
+      {isSafetyModalOpen && (
+        <LegalModal
+          isOpen={isSafetyModalOpen}
+          onClose={() => setIsSafetyModalOpen(false)}
+          initialTab="seguranca"
+        />
       )}
     </div>
   );
