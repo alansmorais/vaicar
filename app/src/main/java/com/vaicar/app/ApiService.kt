@@ -322,6 +322,302 @@ object ApiService {
         })
     }
 
+    fun requestPassengerPin(
+        phone: String,
+        email: String,
+        name: String,
+        onSuccess: (Boolean, String) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val bodyMap = mutableMapOf<String, String>("phone" to phone)
+        if (email.isNotEmpty()) bodyMap["email"] = email
+        if (name.isNotEmpty()) bodyMap["name"] = name
+
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/passengers/auth")
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(e) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
+                        val codeSent = map["codeSent"] as? Boolean ?: false
+                        val msg = map["message"] as? String ?: "PIN enviado!"
+                        mainHandler.post { onSuccess(codeSent, msg) }
+                    } else {
+                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
+                        val err = map["error"] as? String ?: "Erro HTTP ${response.code}"
+                        mainHandler.post { onError(Exception(err)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(e) }
+                }
+            }
+        })
+    }
+
+    fun verifyPassengerPin(
+        phone: String,
+        pin: String,
+        onSuccess: (Passenger) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val bodyMap = mapOf("phone" to phone, "verificationCode" to pin)
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/passengers/auth")
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(e) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
+                        val passengerJson = gson.toJson(map["passenger"])
+                        val passenger = gson.fromJson(passengerJson, Passenger::class.java)
+                        mainHandler.post { onSuccess(passenger) }
+                    } else {
+                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
+                        val err = map["error"] as? String ?: "Erro HTTP ${response.code}"
+                        mainHandler.post { onError(Exception(err)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(e) }
+                }
+            }
+        })
+    }
+
+    fun requestDriverPin(
+        phone: String,
+        onSuccess: (Boolean, String) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val bodyMap = mapOf("phone" to phone)
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/drivers/auth")
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(e) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
+                        val codeSent = map["codeSent"] as? Boolean ?: false
+                        val msg = map["message"] as? String ?: "PIN enviado!"
+                        mainHandler.post { onSuccess(codeSent, msg) }
+                    } else {
+                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
+                        val err = map["error"] as? String ?: "Erro HTTP ${response.code}"
+                        mainHandler.post { onError(Exception(err)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(e) }
+                }
+            }
+        })
+    }
+
+    fun verifyDriverPin(
+        phone: String,
+        pin: String,
+        onSuccess: (Driver) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val bodyMap = mapOf("phone" to phone, "verificationCode" to pin)
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/drivers/auth")
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(e) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
+                        val driverJson = gson.toJson(map["driver"])
+                        val driver = gson.fromJson(driverJson, Driver::class.java)
+                        mainHandler.post { onSuccess(driver) }
+                    } else {
+                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
+                        val err = map["error"] as? String ?: "Erro HTTP ${response.code}"
+                        mainHandler.post { onError(Exception(err)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(e) }
+                }
+            }
+        })
+    }
+
+    fun fetchPassengers(onSuccess: (List<Passenger>) -> Unit, onError: (Exception) -> Unit) {
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/passengers")
+            .get()
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(e) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    if (response.isSuccessful) {
+                        val bodyString = response.body?.string() ?: ""
+                        val type = object : TypeToken<List<Passenger>>() {}.type
+                        val list: List<Passenger> = gson.fromJson(bodyString, type)
+                        mainHandler.post { onSuccess(list) }
+                    } else {
+                        mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(e) }
+                }
+            }
+        })
+    }
+
+    fun blockPassenger(id: String, isBlocked: Boolean, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
+        val bodyMap = mapOf("isBlocked" to isBlocked)
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/admin/passengers/$id/block")
+            .patch(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(e) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    mainHandler.post { onSuccess() }
+                } else {
+                    mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                }
+            }
+        })
+    }
+
+    fun approveDriver(id: String, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/admin/drivers/$id/approve")
+            .post(ByteArray(0).toRequestBody(null))
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(e) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    mainHandler.post { onSuccess() }
+                } else {
+                    mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                }
+            }
+        })
+    }
+
+    fun rejectDriver(id: String, reason: String, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
+        val bodyMap = mapOf("reason" to reason)
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/admin/drivers/$id/reject")
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(e) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    mainHandler.post { onSuccess() }
+                } else {
+                    mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                }
+            }
+        })
+    }
+
+    fun suspendDriver(id: String, reason: String, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
+        val bodyMap = mapOf("reason" to reason)
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/admin/drivers/$id/suspend")
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(e) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    mainHandler.post { onSuccess() }
+                } else {
+                    mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                }
+            }
+        })
+    }
+
+    fun blockDriver(id: String, reason: String, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
+        val bodyMap = mapOf("reason" to reason)
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/admin/drivers/$id/block")
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(e) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    mainHandler.post { onSuccess() }
+                } else {
+                    mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                }
+            }
+        })
+    }
+
     fun triggerDevAction(action: String, body: Map<String, Any> = mapOf(), onSuccess: () -> Unit, onError: (Exception) -> Unit) {
         val requestBody = gson.toJson(body).toRequestBody(JSON_MEDIA_TYPE)
         val request = Request.Builder()

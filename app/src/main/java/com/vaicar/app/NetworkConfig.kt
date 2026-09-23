@@ -136,3 +136,13 @@ data class SearchDriversResponse(
     val isDynamicActive: Boolean,
     val results: List<SearchResult>
 )
+
+data class Passenger(
+    val id: String,
+    val name: String,
+    val phone: String,
+    val email: String,
+    val avatarUrl: String?,
+    val isBlocked: Boolean,
+    val createdAt: String?
+)

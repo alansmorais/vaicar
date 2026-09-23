@@ -237,7 +237,7 @@ fun RoleSelectorView(
             if (isLoading) {
                 CircularProgressIndicator(color = EmeraldGreen)
                 Spacer(modifier = Modifier.height(12.dp))
-                Text("Conectando ao banco de dados municipal...", color = TextSecondary, fontSize = 12.sp)
+                Text("Conectando ao banco de dados...", color = TextSecondary, fontSize = 12.sp)
             } else if (error) {
                 Text("Não foi possível conectar ao servidor real.", color = AccentRed, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(12.dp))
@@ -287,7 +287,7 @@ fun RoleSelectorView(
 
                     RoleCard(
                         title = "Gestão Pública (Admin)",
-                        description = "Conselho municipal: fiscalize alvarás, vistorias e métricas da plataforma",
+                        description = "Conselho de Transportes: fiscalize alvarás, vistorias e métricas da plataforma",
                         icon = Icons.Default.AdminPanelSettings,
                         iconColor = EmeraldGreen,
                         onClick = { onSelectRole(AppScreen.ADMIN_LOGIN) }
@@ -542,15 +542,20 @@ fun PassengerAuthScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    var isLoginMode by remember { mutableStateOf(false) } // false = SignUp, true = Login
-    
+    var isPinMode by remember { mutableStateOf(true) } // true = PIN Auth (First access), false = Fast Login with Password
+    var authStep by remember { mutableStateOf(0) } // 0 = Enter credentials/Phone, 1 = Verify PIN, 2 = Set Password
+    var isLoginMode by remember { mutableStateOf(true) } // true = Login, false = Cadastro (Only applicable in PINMode/SignUp)
+
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var pinCode by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
-    
+
     var error by remember { mutableStateOf("") }
-    
+    var isLoading by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -572,107 +577,223 @@ fun PassengerAuthScreen(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = if (isLoginMode) "Login do Passageiro" else "Cadastro do Passageiro",
+                    text = when {
+                        !isPinMode -> "Login Rápido"
+                        authStep == 0 && isLoginMode -> "Acesso via PIN (E-mail)"
+                        authStep == 0 && !isLoginMode -> "Cadastro de Passageiro"
+                        authStep == 1 -> "Verificação de PIN"
+                        else -> "Defina sua Senha"
+                    },
                     color = Color.White,
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = if (isLoginMode) "Entre com suas credenciais" else "Crie uma conta para viajar",
+                    text = when {
+                        !isPinMode -> "Entre com seu telefone e senha cadastrada"
+                        authStep == 0 && isLoginMode -> "Primeiro acesso: digite seu telefone para receber o PIN por e-mail"
+                        authStep == 0 && !isLoginMode -> "Preencha seus dados para começar a viajar"
+                        authStep == 1 -> "Digite o código de 4 dígitos enviado ao seu e-mail"
+                        else -> "Crie uma senha segura para seus próximos acessos rápidos"
+                    },
                     color = TextSecondary,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     textAlign = TextAlign.Center
                 )
                 Spacer(modifier = Modifier.height(24.dp))
             }
-            
-            if (!isLoginMode) {
+
+            if (!isPinMode) {
+                // PASSWORD LOGIN MODE
                 item {
                     OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it; error = "" },
-                        label = { Text("Nome Completo") },
+                        value = phone,
+                        onValueChange = { phone = it; error = "" },
+                        label = { Text("Telefone WhatsApp") },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                }
-            }
-            
-            item {
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { phone = it; error = "" },
-                    label = { Text("Telefone WhatsApp") },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it; error = "" },
-                    label = { Text("Senha (mínimo 6 caracteres)") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-            
-            if (!isLoginMode) {
-                item {
-                    Spacer(modifier = Modifier.height(12.dp))
+
                     OutlinedTextField(
-                        value = confirmPassword,
-                        onValueChange = { confirmPassword = it; error = "" },
-                        label = { Text("Confirmar Senha") },
+                        value = password,
+                        onValueChange = { password = it; error = "" },
+                        label = { Text("Sua Senha") },
                         visualTransformation = PasswordVisualTransformation(),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
+            } else {
+                // PIN MODE - STEPS
+                when (authStep) {
+                    0 -> {
+                        item {
+                            if (!isLoginMode) {
+                                OutlinedTextField(
+                                    value = name,
+                                    onValueChange = { name = it; error = "" },
+                                    label = { Text("Nome Completo") },
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                OutlinedTextField(
+                                    value = email,
+                                    onValueChange = { email = it; error = "" },
+                                    label = { Text("E-mail") },
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                            }
+
+                            OutlinedTextField(
+                                value = phone,
+                                onValueChange = { phone = it; error = "" },
+                                label = { Text("Telefone WhatsApp") },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                    1 -> {
+                        item {
+                            OutlinedTextField(
+                                value = pinCode,
+                                onValueChange = { pinCode = it; error = "" },
+                                label = { Text("Código PIN (4 dígitos)") },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                    2 -> {
+                        item {
+                            OutlinedTextField(
+                                value = password,
+                                onValueChange = { password = it; error = "" },
+                                label = { Text("Nova Senha (mínimo 6 caracteres)") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            OutlinedTextField(
+                                value = confirmPassword,
+                                onValueChange = { confirmPassword = it; error = "" },
+                                label = { Text("Confirmar Senha") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
             }
-            
+
             item {
                 if (error.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(error, color = AccentRed, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
-                
+
                 Spacer(modifier = Modifier.height(24.dp))
-                
+
                 Button(
                     onClick = {
-                        if (isLoginMode) {
+                        if (!isPinMode) {
+                            // Fast Login Action
                             if (phone.trim().isEmpty() || password.trim().isEmpty()) {
-                                error = "Por favor preencha todos os campos."
+                                error = "Preencha todos os campos."
                                 return@Button
                             }
                             val res = SecurityUtils.loginPassenger(context, phone, password)
                             if (res.success) {
                                 onSuccess()
                             } else {
-                                error = res.message ?: "Erro ao efetuar login."
+                                error = res.message ?: "Credenciais incorretas."
                             }
                         } else {
-                            if (name.trim().isEmpty() || phone.trim().isEmpty() || password.trim().isEmpty()) {
-                                error = "Por favor preencha todos os campos."
-                                return@Button
-                            }
-                            if (password != confirmPassword) {
-                                error = "As senhas não coincidem."
-                                return@Button
-                            }
-                            val res = SecurityUtils.registerPassenger(context, name, phone, password)
-                            if (res.success) {
-                                onSuccess()
-                            } else {
-                                error = res.message ?: "Erro ao cadastrar."
+                            // PIN Mode Steps Navigation
+                            when (authStep) {
+                                0 -> {
+                                    if (phone.trim().isEmpty()) {
+                                        error = "O telefone é obrigatório."
+                                        return@Button
+                                    }
+                                    if (!isLoginMode && (name.trim().isEmpty() || email.trim().isEmpty())) {
+                                        error = "Preencha o nome e e-mail para cadastro."
+                                        return@Button
+                                    }
+                                    isLoading = true
+                                    ApiService.requestPassengerPin(
+                                        phone = phone,
+                                        email = email,
+                                        name = name,
+                                        onSuccess = { codeSent, msg ->
+                                            isLoading = false
+                                            if (codeSent) {
+                                                authStep = 1
+                                                error = ""
+                                            } else {
+                                                error = msg
+                                            }
+                                        },
+                                        onError = {
+                                            isLoading = false
+                                            error = "Erro ao enviar PIN: ${it.message}"
+                                        }
+                                    )
+                                }
+                                1 -> {
+                                    if (pinCode.trim().isEmpty()) {
+                                        error = "Código PIN é obrigatório."
+                                        return@Button
+                                    }
+                                    isLoading = true
+                                    ApiService.verifyPassengerPin(
+                                        phone = phone,
+                                        pin = pinCode,
+                                        onSuccess = { passengerObj ->
+                                            isLoading = false
+                                            name = passengerObj.name
+                                            authStep = 2
+                                            error = ""
+                                        },
+                                        onError = {
+                                            isLoading = false
+                                            error = "PIN incorreto ou expirado: ${it.message}"
+                                        }
+                                    )
+                                }
+                                2 -> {
+                                    if (password.trim().length < 6) {
+                                        error = "A senha deve ter pelo menos 6 caracteres."
+                                        return@Button
+                                    }
+                                    if (password != confirmPassword) {
+                                        error = "As senhas não coincidem."
+                                        return@Button
+                                    }
+                                    val res = SecurityUtils.registerPassenger(context, name, phone, password)
+                                    if (res.success) {
+                                        onSuccess()
+                                    } else {
+                                        error = res.message ?: "Erro ao criar senha."
+                                    }
+                                }
                             }
                         }
                     },
@@ -680,22 +801,63 @@ fun PassengerAuthScreen(
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(if (isLoginMode) "Entrar" else "Cadastrar e Entrar", color = Color.Black, fontWeight = FontWeight.Bold)
+                    if (isLoading) {
+                        CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(24.dp))
+                    } else {
+                        Text(
+                            text = when {
+                                !isPinMode -> "Entrar com Senha"
+                                authStep == 0 -> "Solicitar Código PIN por E-mail"
+                                authStep == 1 -> "Confirmar PIN e Continuar"
+                                else -> "Criar Senha e Entrar"
+                            },
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
-                TextButton(
-                    onClick = { isLoginMode = !isLoginMode; error = "" }
-                ) {
-                    Text(
-                        text = if (isLoginMode) "Não tem conta? Cadastre-se!" else "Já tem conta? Faça Login!",
-                        color = EmeraldGreen
-                    )
+
+                if (authStep == 0) {
+                    TextButton(
+                        onClick = {
+                            isPinMode = !isPinMode
+                            error = ""
+                        }
+                    ) {
+                        Text(
+                            text = if (isPinMode) "Entrar com Senha Cadastrada" else "Primeiro Acesso / Login com PIN por E-mail",
+                            color = EmeraldGreen
+                        )
+                    }
+
+                    if (isPinMode) {
+                        TextButton(
+                            onClick = {
+                                isLoginMode = !isLoginMode
+                                error = ""
+                            }
+                        ) {
+                            Text(
+                                text = if (isLoginMode) "Não possui conta? Cadastre-se!" else "Já possui conta? Faça Login!",
+                                color = EmeraldGreen
+                            )
+                        }
+                    }
+                } else {
+                    TextButton(
+                        onClick = {
+                            authStep = 0
+                            error = ""
+                        }
+                    ) {
+                        Text("Voltar ao início", color = EmeraldGreen)
+                    }
                 }
-                
+
                 Spacer(modifier = Modifier.height(8.dp))
-                
+
                 TextButton(onClick = onBack) {
                     Text("Voltar ao Menu Principal", color = Color.Gray)
                 }
@@ -711,16 +873,19 @@ fun DriverAuthScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    var isLoginMode by remember { mutableStateOf(false) } // false = SignUp, true = Login
-    
+    var isPinMode by remember { mutableStateOf(true) } // true = PIN Auth, false = Password Login
+    var authStep by remember { mutableStateOf(0) } // 0 = Enter credentials/phone, 1 = Verify PIN, 2 = Set Password
+    var isLoginMode by remember { mutableStateOf(true) }
+
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
     var cpf by remember { mutableStateOf("") }
     var vehicleModel by remember { mutableStateOf("") }
     var vehiclePlate by remember { mutableStateOf("") }
+    var pinCode by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
-    
+
     var error by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
 
@@ -745,96 +910,149 @@ fun DriverAuthScreen(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = if (isLoginMode) "Login do Motorista" else "Credenciamento de Motorista",
+                    text = when {
+                        !isPinMode -> "Login Rápido Condutor"
+                        authStep == 0 && isLoginMode -> "Acesso via PIN (E-mail)"
+                        authStep == 0 && !isLoginMode -> "Cadastro de Condutor"
+                        authStep == 1 -> "Verificação de PIN"
+                        else -> "Defina sua Senha"
+                    },
                     color = Color.White,
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = if (isLoginMode) "Entre no seu Cockpit" else "Preencha seus dados para homologação",
+                    text = when {
+                        !isPinMode -> "Entre com seu telefone e senha de condutor"
+                        authStep == 0 && isLoginMode -> "Primeiro acesso: digite seu telefone para receber o PIN por e-mail"
+                        authStep == 0 && !isLoginMode -> "Envie seus dados para homologação pública"
+                        authStep == 1 -> "Digite o código de 4 dígitos enviado ao seu e-mail"
+                        else -> "Crie uma senha de acesso rápido para o Cockpit"
+                    },
                     color = TextSecondary,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     textAlign = TextAlign.Center
                 )
                 Spacer(modifier = Modifier.height(24.dp))
             }
 
-            if (!isLoginMode) {
+            if (!isPinMode) {
+                // PASSWORD LOGIN MODE
                 item {
                     OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it; error = "" },
-                        label = { Text("Nome Completo") },
+                        value = phone,
+                        onValueChange = { phone = it; error = "" },
+                        label = { Text("Telefone WhatsApp") },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = cpf,
-                        onValueChange = { cpf = it; error = "" },
-                        label = { Text("CPF") },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = vehicleModel,
-                        onValueChange = { vehicleModel = it; error = "" },
-                        label = { Text("Modelo do Veículo") },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = vehiclePlate,
-                        onValueChange = { vehiclePlate = it; error = "" },
-                        label = { Text("Placa do Veículo") },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-            }
 
-            item {
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { phone = it; error = "" },
-                    label = { Text("Telefone WhatsApp") },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it; error = "" },
-                    label = { Text("Senha (mínimo 6 caracteres)") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            if (!isLoginMode) {
-                item {
-                    Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
-                        value = confirmPassword,
-                        onValueChange = { confirmPassword = it; error = "" },
-                        label = { Text("Confirmar Senha") },
+                        value = password,
+                        onValueChange = { password = it; error = "" },
+                        label = { Text("Sua Senha") },
                         visualTransformation = PasswordVisualTransformation(),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
                         modifier = Modifier.fillMaxWidth()
                     )
+                }
+            } else {
+                // PIN MODE - STEPS
+                when (authStep) {
+                    0 -> {
+                        item {
+                            if (!isLoginMode) {
+                                OutlinedTextField(
+                                    value = name,
+                                    onValueChange = { name = it; error = "" },
+                                    label = { Text("Nome Completo") },
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                OutlinedTextField(
+                                    value = cpf,
+                                    onValueChange = { cpf = it; error = "" },
+                                    label = { Text("CPF") },
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                OutlinedTextField(
+                                    value = vehicleModel,
+                                    onValueChange = { vehicleModel = it; error = "" },
+                                    label = { Text("Modelo do Veículo") },
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                OutlinedTextField(
+                                    value = vehiclePlate,
+                                    onValueChange = { vehiclePlate = it; error = "" },
+                                    label = { Text("Placa do Veículo") },
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                            }
+
+                            OutlinedTextField(
+                                value = phone,
+                                onValueChange = { phone = it; error = "" },
+                                label = { Text("Telefone WhatsApp") },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                    1 -> {
+                        item {
+                            OutlinedTextField(
+                                value = pinCode,
+                                onValueChange = { pinCode = it; error = "" },
+                                label = { Text("Código PIN (4 dígitos)") },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                    2 -> {
+                        item {
+                            OutlinedTextField(
+                                value = password,
+                                onValueChange = { password = it; error = "" },
+                                label = { Text("Nova Senha (mínimo 6 caracteres)") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            OutlinedTextField(
+                                value = confirmPassword,
+                                onValueChange = { confirmPassword = it; error = "" },
+                                label = { Text("Confirmar Senha") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
                 }
             }
 
@@ -848,48 +1066,127 @@ fun DriverAuthScreen(
 
                 Button(
                     onClick = {
-                        if (isLoginMode) {
+                        if (!isPinMode) {
+                            // Direct Password Login
                             if (phone.trim().isEmpty() || password.trim().isEmpty()) {
-                                error = "Por favor preencha todos os campos."
+                                error = "Preencha todos os campos."
                                 return@Button
                             }
                             val res = SecurityUtils.loginDriverLocal(context, phone, password)
                             if (res.success) {
                                 onSuccess()
                             } else {
-                                error = res.message ?: "Erro ao efetuar login."
+                                error = res.message ?: "Credenciais incorretas."
                             }
                         } else {
-                            if (name.trim().isEmpty() || phone.trim().isEmpty() || cpf.trim().isEmpty() || vehicleModel.trim().isEmpty() || password.trim().isEmpty()) {
-                                error = "Por favor preencha todos os campos obrigatórios."
-                                return@Button
-                            }
-                            if (password != confirmPassword) {
-                                error = "As senhas não coincidem."
-                                return@Button
-                            }
-                            
-                            isLoading = true
-                            ApiService.registerDriver(
-                                name = name,
-                                phone = phone,
-                                cpf = cpf,
-                                vehicleModel = vehicleModel,
-                                vehiclePlate = vehiclePlate,
-                                onSuccess = {
-                                    val res = SecurityUtils.registerDriverLocal(context, name, phone, cpf, vehicleModel, vehiclePlate, password)
-                                    isLoading = false
+                            // PIN steps navigation
+                            when (authStep) {
+                                0 -> {
+                                    if (phone.trim().isEmpty()) {
+                                        error = "O telefone é obrigatório."
+                                        return@Button
+                                    }
+                                    if (!isLoginMode && (name.trim().isEmpty() || cpf.trim().isEmpty() || vehicleModel.trim().isEmpty())) {
+                                        error = "Preencha todos os campos para homologação."
+                                        return@Button
+                                    }
+
+                                    isLoading = true
+                                    if (!isLoginMode) {
+                                        // Register first, then request PIN
+                                        ApiService.registerDriver(
+                                            name = name,
+                                            phone = phone,
+                                            cpf = cpf,
+                                            vehicleModel = vehicleModel,
+                                            vehiclePlate = vehiclePlate,
+                                            onSuccess = {
+                                                // Trigger pin
+                                                ApiService.requestDriverPin(
+                                                    phone = phone,
+                                                    onSuccess = { codeSent, msg ->
+                                                        isLoading = false
+                                                        if (codeSent) {
+                                                            authStep = 1
+                                                            error = ""
+                                                        } else {
+                                                            error = msg
+                                                        }
+                                                    },
+                                                    onError = {
+                                                        isLoading = false
+                                                        error = "Cadastro enviado, mas erro ao gerar PIN: ${it.message}"
+                                                    }
+                                                )
+                                            },
+                                            onError = {
+                                                isLoading = false
+                                                error = "Erro no credenciamento: ${it.message}"
+                                            }
+                                        )
+                                    } else {
+                                        // Simple auth PIN request
+                                        ApiService.requestDriverPin(
+                                            phone = phone,
+                                            onSuccess = { codeSent, msg ->
+                                                isLoading = false
+                                                if (codeSent) {
+                                                    authStep = 1
+                                                    error = ""
+                                                } else {
+                                                    error = msg
+                                                }
+                                            },
+                                            onError = {
+                                                isLoading = false
+                                                error = "Erro ao enviar PIN: ${it.message}"
+                                            }
+                                        )
+                                    }
+                                }
+                                1 -> {
+                                    if (pinCode.trim().isEmpty()) {
+                                        error = "Código PIN é obrigatório."
+                                        return@Button
+                                    }
+                                    isLoading = true
+                                    ApiService.verifyDriverPin(
+                                        phone = phone,
+                                        pin = pinCode,
+                                        onSuccess = { driverObj ->
+                                            isLoading = false
+                                            name = driverObj.name
+                                            cpf = driverObj.cpf
+                                            vehicleModel = driverObj.vehicle.model
+                                            vehiclePlate = driverObj.vehicle.licensePlate
+                                            authStep = 2
+                                            error = ""
+                                        },
+                                        onError = {
+                                            isLoading = false
+                                            error = "PIN incorreto ou expirado: ${it.message}"
+                                        }
+                                    )
+                                }
+                                2 -> {
+                                    if (password.trim().length < 6) {
+                                        error = "A senha deve ter pelo menos 6 caracteres."
+                                        return@Button
+                                    }
+                                    if (password != confirmPassword) {
+                                        error = "As senhas não coincidem."
+                                        return@Button
+                                    }
+                                    val res = SecurityUtils.registerDriverLocal(
+                                        context, name, phone, cpf, vehicleModel, vehiclePlate, password
+                                    )
                                     if (res.success) {
                                         onSuccess()
                                     } else {
-                                        error = res.message ?: "Erro ao salvar cadastro local."
+                                        error = res.message ?: "Erro ao criar senha."
                                     }
-                                },
-                                onError = {
-                                    isLoading = false
-                                    error = "Erro de rede ao registrar motorista no servidor municipal. Verifique sua conexão."
                                 }
-                            )
+                            }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
@@ -899,19 +1196,56 @@ fun DriverAuthScreen(
                     if (isLoading) {
                         CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(24.dp))
                     } else {
-                        Text(if (isLoginMode) "Entrar" else "Enviar Credenciamento", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = when {
+                                !isPinMode -> "Entrar com Senha"
+                                authStep == 0 -> "Solicitar Código PIN por E-mail"
+                                authStep == 1 -> "Confirmar PIN e Continuar"
+                                else -> "Criar Senha e Entrar"
+                            },
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                TextButton(
-                    onClick = { isLoginMode = !isLoginMode; error = "" }
-                ) {
-                    Text(
-                        text = if (isLoginMode) "Não tem credenciamento? Cadastre-se!" else "Já é credenciado? Faça Login!",
-                        color = EmeraldGreen
-                    )
+                if (authStep == 0) {
+                    TextButton(
+                        onClick = {
+                            isPinMode = !isPinMode
+                            error = ""
+                        }
+                    ) {
+                        Text(
+                            text = if (isPinMode) "Entrar com Senha de Condutor" else "Primeiro Acesso / Login com PIN por E-mail",
+                            color = EmeraldGreen
+                        )
+                    }
+
+                    if (isPinMode) {
+                        TextButton(
+                            onClick = {
+                                isLoginMode = !isLoginMode
+                                error = ""
+                            }
+                        ) {
+                            Text(
+                                text = if (isLoginMode) "Não é credenciado? Registre-se!" else "Já é credenciado? Faça Login!",
+                                color = EmeraldGreen
+                            )
+                        }
+                    }
+                } else {
+                    TextButton(
+                        onClick = {
+                            authStep = 0
+                            error = ""
+                        }
+                    ) {
+                        Text("Voltar ao início", color = EmeraldGreen)
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
