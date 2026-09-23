@@ -1,5 +1,7 @@
 package com.vaicar.app
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -47,7 +49,14 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
         ApiService.fetchDrivers(
             onSuccess = { drivers ->
                 // Look up driver by their registered phone, or fall back to first available
-                val drv = drivers.find { it.phone == savedPhone } ?: drivers.firstOrNull()
+                val drv = drivers.find {
+                    (savedPhone.isNotEmpty() && (
+                        it.phone == savedPhone ||
+                        it.phone.replace("+", "").endsWith(savedPhone.replace("+", "")) ||
+                        savedPhone.replace("+", "").endsWith(it.phone.replace("+", ""))
+                    ))
+                } ?: drivers.firstOrNull()
+
                 registeredDriver = drv
                 onlineStatus = drv?.isOnline ?: false
                 minFare = drv?.pricing?.minimumFare?.toString() ?: "25.0"
@@ -75,15 +84,23 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
     }
 
     // Active Requests Polling Loop
-    LaunchedEffect(registeredDriver, onlineStatus) {
+    LaunchedEffect(registeredDriver) {
         if (registeredDriver != null) {
             while (true) {
                 ApiService.fetchRides(
                     onSuccess = { rides ->
-                        // Filter rides for this driver or in their operating zones
-                        activeRidesList = rides.filter {
-                            (it.requestedDriverId == registeredDriver?.id || it.matchedDriverId == registeredDriver?.id) &&
-                                    it.status != "COMPLETED" && !it.status.startsWith("CANCELLED")
+                        val currentDriverId = registeredDriver?.id
+                        val currentDriverPhone = registeredDriver?.phone
+                        activeRidesList = rides.filter { ride ->
+                            val matchesDriver = (currentDriverId != null && (
+                                ride.driverId == currentDriverId ||
+                                ride.requestedDriverId == currentDriverId ||
+                                ride.matchedDriverId == currentDriverId
+                            )) || (currentDriverPhone != null && currentDriverPhone.isNotBlank() && (
+                                ride.driverPhone == currentDriverPhone ||
+                                ride.driverPhone?.replace("+", "") == currentDriverPhone.replace("+", "")
+                            ))
+                            matchesDriver && ride.status != "COMPLETED" && !ride.status.startsWith("CANCELLED")
                         }
                     },
                     onError = {}
@@ -581,26 +598,151 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                         }
                     } else {
                         items(activeRidesList) { ride ->
+                            val originZone = zones.find { it.id == ride.originZoneId }
+                            val destZone = zones.find { it.id == ride.destinationZoneId }
+                            val fareToDisplay = if (ride.fareBrl > 0) ride.fareBrl else ride.estimatedPrice
+
                             Card(
-                                colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (ride.status == "REQUESTED") SurfaceSlate else SurfaceSlate.copy(alpha = 0.9f)
+                                ),
                                 shape = RoundedCornerShape(12.dp),
+                                border = if (ride.status == "REQUESTED") BorderStroke(2.dp, EmeraldGreen) else null,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    // Status Badge & Price
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(ride.passengerName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                        Text("R$ ${ride.fareBrl}", color = EmeraldGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                        Badge(
+                                            containerColor = when (ride.status) {
+                                                "REQUESTED" -> EmeraldGreen
+                                                "ACCEPTED" -> Color(0xFF3B82F6)
+                                                else -> Color.Gray
+                                            }
+                                        ) {
+                                            Text(
+                                                text = when (ride.status) {
+                                                    "REQUESTED" -> "NOVA SOLICITAÇÃO 🔔"
+                                                    "ACCEPTED" -> "EM ANDAMENTO 🚗"
+                                                    else -> ride.status
+                                                },
+                                                color = if (ride.status == "REQUESTED") Color.Black else Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+
+                                        Text(
+                                            text = "R$ ${"%.2f".format(fareToDisplay)}",
+                                            color = EmeraldGreen,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 20.sp
+                                        )
                                     }
 
-                                    Text("Rota: ${zones.find { it.id == ride.originZoneId }?.name ?: "Origem"} ➔ ${zones.find { it.id == ride.destinationZoneId }?.name ?: "Destino"}", color = TextSecondary, fontSize = 14.sp)
+                                    // Passenger Info
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = ride.passengerName,
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 16.sp
+                                            )
+                                            Text(
+                                                text = "Tel: ${ride.passengerPhone}",
+                                                color = TextSecondary,
+                                                fontSize = 13.sp
+                                            )
+                                        }
+
+                                        if (ride.passengerPhone.isNotBlank()) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    val cleanPhone = ride.passengerPhone.replace("[^0-9]".toRegex(), "")
+                                                    val waUri = Uri.parse("https://wa.me/$cleanPhone?text=Ol%C3%A1%2C%20sou%20seu%20motorista%20do%20VaiCar!")
+                                                    val waIntent = Intent(Intent.ACTION_VIEW, waUri)
+                                                    context.startActivity(waIntent)
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = EmeraldGreen),
+                                                border = BorderStroke(1.dp, EmeraldGreen)
+                                            ) {
+                                                Text("WhatsApp 💬", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                            }
+                                        }
+                                    }
+
+                                    Divider(color = DarkSlate, thickness = 1.dp)
+
+                                    // Route Details
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Place, contentDescription = null, tint = EmeraldGreen, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Embarque: ${originZone?.name ?: ride.originAddress ?: "Origem"}",
+                                                color = Color.White,
+                                                fontSize = 13.sp
+                                            )
+                                        }
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Destino: ${destZone?.name ?: ride.destinationAddress ?: "Destino"}",
+                                                color = Color.White,
+                                                fontSize = 13.sp
+                                            )
+                                        }
+                                    }
 
                                     if (ride.notes?.isNotEmpty() == true) {
                                         Text("Obs: ${ride.notes}", color = TextSecondary, fontSize = 12.sp)
                                     }
 
+                                    // Google Maps GPS Navigation Button
+                                    Button(
+                                        onClick = {
+                                            val targetLat = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") {
+                                                ride.originLat ?: originZone?.lat ?: -23.8078
+                                            } else {
+                                                ride.destinationLat ?: destZone?.lat ?: -23.8078
+                                            }
+                                            val targetLng = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") {
+                                                ride.originLng ?: originZone?.lng ?: -45.4058
+                                            } else {
+                                                ride.destinationLng ?: destZone?.lng ?: -45.4058
+                                            }
+                                            val navUri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$targetLat,$targetLng&travelmode=driving")
+                                            val navIntent = Intent(Intent.ACTION_VIEW, navUri)
+                                            context.startActivity(navIntent)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                        border = BorderStroke(1.dp, Color(0xFF38BDF8)),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(Icons.Default.Place, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") "Navegar até Embarque (Google Maps) 🗺" else "Navegar até Destino (Google Maps) 🏁",
+                                            color = Color(0xFF38BDF8),
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+
+                                    // Action Buttons
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         if (ride.status == "REQUESTED") {
                                             Button(
@@ -618,9 +760,31 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                     )
                                                 },
                                                 colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
-                                                modifier = Modifier.weight(1f)
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.weight(1.5f)
                                             ) {
                                                 Text("Aceitar Corrida", color = Color.Black, fontWeight = FontWeight.Bold)
+                                            }
+
+                                            Button(
+                                                onClick = {
+                                                    ApiService.updateRideStatus(
+                                                        rideId = ride.id,
+                                                        status = "CANCELLED_BY_DRIVER",
+                                                        onSuccess = {
+                                                            refreshState()
+                                                            message = "Corrida recusada."
+                                                        },
+                                                        onError = {
+                                                            message = "Erro ao recusar corrida."
+                                                        }
+                                                    )
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Text("Recusar", color = Color.White, fontWeight = FontWeight.Medium)
                                             }
                                         } else if (ride.status == "ACCEPTED") {
                                             Button(
@@ -638,7 +802,8 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                     )
                                                 },
                                                 colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
-                                                modifier = Modifier.weight(1f)
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.weight(1.5f)
                                             ) {
                                                 Text("Finalizar Corrida", color = Color.Black, fontWeight = FontWeight.Bold)
                                             }
@@ -658,9 +823,10 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                     )
                                                 },
                                                 colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
+                                                shape = RoundedCornerShape(8.dp),
                                                 modifier = Modifier.weight(1f)
                                             ) {
-                                                Text("Recusar/Cancelar", color = Color.White)
+                                                Text("Cancelar", color = Color.White)
                                             }
                                         }
                                     }

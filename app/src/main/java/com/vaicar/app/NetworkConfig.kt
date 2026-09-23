@@ -84,13 +84,25 @@ data class Ride(
     val passengerPhone: String,
     val originZoneId: String,
     val destinationZoneId: String,
-    val passengerCount: Int,
-    val requestedDriverId: String?,
-    val matchedDriverId: String?,
-    val fareBrl: Double,
-    val status: String, // REQUESTED, ACCEPTED, EN_ROUTE, ARRIVED, IN_PROGRESS, COMPLETED, CANCELLED_BY_PASSENGER, CANCELLED_BY_DRIVER
-    val createdAt: String,
-    val notes: String?
+    val originAddress: String? = null,
+    val destinationAddress: String? = null,
+    val originLat: Double? = null,
+    val originLng: Double? = null,
+    val destinationLat: Double? = null,
+    val destinationLng: Double? = null,
+    val originMapsLink: String? = null,
+    val destinationMapsLink: String? = null,
+    val passengerCount: Int = 1,
+    val driverId: String? = null,
+    val requestedDriverId: String? = null,
+    val matchedDriverId: String? = null,
+    val driverName: String? = null,
+    val driverPhone: String? = null,
+    val fareBrl: Double = 0.0,
+    val estimatedPrice: Double = 0.0,
+    val status: String = "REQUESTED", // REQUESTED, ACCEPTED, EN_ROUTE, ARRIVED, IN_PROGRESS, COMPLETED, CANCELLED_BY_PASSENGER, CANCELLED_BY_DRIVER
+    val createdAt: String? = null,
+    val notes: String? = null
 )
 
 data class PlatformMetrics(

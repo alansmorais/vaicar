@@ -1,5 +1,7 @@
 package com.vaicar.app
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -375,12 +377,14 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                 Text("${originZone?.name} ➔ ${destZone?.name}", color = Color.White, fontWeight = FontWeight.Bold)
                             }
 
+                            val displayFare = if (currentRide!!.fareBrl > 0) currentRide!!.fareBrl else currentRide!!.estimatedPrice
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("Valor:", color = TextSecondary)
-                                Text("R$ ${currentRide!!.fareBrl}", color = EmeraldGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                Text("R$ ${"%.2f".format(displayFare)}", color = EmeraldGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                             }
 
                             Row(
@@ -391,26 +395,49 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                 Text("Status atual:", color = TextSecondary)
                                 Badge(
                                     containerColor = when (currentRide!!.status) {
-                                        "REQUESTED" -> Color.Blue
-                                        "ACCEPTED" -> Color.Magenta
-                                        "COMPLETED" -> Color.Green
+                                        "REQUESTED" -> Color(0xFFEAB308)
+                                        "ACCEPTED" -> Color(0xFF3B82F6)
+                                        "COMPLETED" -> Color(0xFF10B981)
                                         else -> AccentRed
                                     }
                                 ) {
                                     Text(
                                         text = when (currentRide!!.status) {
-                                            "REQUESTED" -> "Aguardando Motorista"
-                                            "ACCEPTED" -> "Corrida Aceita"
+                                            "REQUESTED" -> "Aguardando Motorista Aceitar"
+                                            "ACCEPTED" -> "Corrida Aceita! Motorista a caminho"
                                             "COMPLETED" -> "Concluída!"
                                             "CANCELLED_BY_PASSENGER" -> "Cancelada por Você"
                                             "CANCELLED_BY_DRIVER" -> "Cancelada pelo Motorista"
                                             else -> currentRide!!.status
                                         },
-                                        color = Color.White,
+                                        color = if (currentRide!!.status == "REQUESTED") Color.Black else Color.White,
                                         fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(4.dp)
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
+                            }
+
+                            // Google Maps Button for Passenger
+                            Button(
+                                onClick = {
+                                    val orig = originZone ?: zones.find { it.id == currentRide!!.originZoneId }
+                                    val dest = destZone ?: zones.find { it.id == currentRide!!.destinationZoneId }
+                                    val oLat = currentRide!!.originLat ?: orig?.lat ?: -23.8078
+                                    val oLng = currentRide!!.originLng ?: orig?.lng ?: -45.4058
+                                    val dLat = currentRide!!.destinationLat ?: dest?.lat ?: -23.8078
+                                    val dLng = currentRide!!.destinationLng ?: dest?.lng ?: -45.4058
+                                    val mapsUri = Uri.parse("https://www.google.com/maps/dir/?api=1&origin=$oLat,$oLng&destination=$dLat,$dLng&travelmode=driving")
+                                    val mapIntent = Intent(Intent.ACTION_VIEW, mapsUri)
+                                    context.startActivity(mapIntent)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                border = BorderStroke(1.dp, Color(0xFF38BDF8)),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Place, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Acompanhar Rota no Google Maps 🗺", color = Color(0xFF38BDF8), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             }
 
                             if (currentRide!!.status == "REQUESTED" || currentRide!!.status == "ACCEPTED") {

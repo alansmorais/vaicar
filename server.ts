@@ -1177,12 +1177,14 @@ app.post('/api/v1/rides', async (req, res) => {
     const dynamic = await calculateCurrentDynamicMultiplier(originZoneId);
 
     const id = `ride-${Date.now()}`;
-    const newRide: Ride = {
+    const newRide: any = {
       id,
       passengerName,
       passengerPhone,
       passengerAvatarUrl: passengerAvatarUrl || `https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80`,
       driverId: driver.id,
+      requestedDriverId: driver.id,
+      matchedDriverId: driver.id,
       driverName: driver.name,
       driverPhone: driver.phone,
       driverVehicle: `${driver.vehicle.brand} ${driver.vehicle.model} - ${driver.vehicle.color}`,
@@ -1203,6 +1205,7 @@ app.post('/api/v1/rides', async (req, res) => {
       scheduledTime: scheduledTime || null,
       isImmediate: Boolean(isImmediate),
       estimatedPrice,
+      fareBrl: estimatedPrice,
       estimatedDistanceKm,
       estimatedDurationMin,
       dynamicMultiplier: dynamic.multiplier,
@@ -1266,7 +1269,16 @@ app.get('/api/v1/rides', async (req, res) => {
   let query: any = db.collection('rides');
   if (driverId) query = query.where('driverId', '==', driverId);
   const snap = await query.get();
-  const all = snap.docs.map((doc: any) => doc.data() as Ride);
+  const all = snap.docs.map((doc: any) => {
+    const data = doc.data();
+    return {
+      ...data,
+      driverId: data.driverId || data.requestedDriverId || data.matchedDriverId,
+      requestedDriverId: data.requestedDriverId || data.driverId,
+      matchedDriverId: data.matchedDriverId || data.driverId,
+      fareBrl: data.fareBrl !== undefined ? data.fareBrl : (data.estimatedPrice ?? 0),
+    };
+  });
   all.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   res.json(all);
 });
