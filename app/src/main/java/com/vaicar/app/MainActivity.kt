@@ -1,8 +1,13 @@
 package com.vaicar.app
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -31,11 +36,60 @@ import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
+    private val requestNotificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Initialize Firebase programmatically
+        try {
+            if (com.google.firebase.FirebaseApp.getApps(this).isEmpty()) {
+                val options = com.google.firebase.FirebaseOptions.Builder()
+                    .setApplicationId("1:770203144889:android:f886f7734ea0dbd8")
+                    .setApiKey("AIzaSyCFJDSCkR-U4c0wcgKlOUWAp1r-tE76R1U")
+                    .setProjectId("gen-lang-client-0068493335")
+                    .setGcmSenderId("770203144889")
+                    .build()
+                com.google.firebase.FirebaseApp.initializeApp(this, options)
+            }
+            
+            // Register/fetch FCM token
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    val token = task.result
+                    android.util.Log.i("MainActivity", "FCM Token: $token")
+                    SecurityUtils.setFcmToken(this, token)
+                    val driverId = SecurityUtils.getDriverId(this)
+                    if (driverId.isNotBlank()) {
+                        ApiService.updateDriverFcmToken(
+                            driverId = driverId,
+                            fcmToken = token,
+                            onSuccess = { android.util.Log.i("MainActivity", "Successfully registered FCM Token to driver.") },
+                            onError = { e -> android.util.Log.e("MainActivity", "Failed to register FCM Token to driver: ${e.message}") }
+                        )
+                    }
+                } else {
+                    android.util.Log.w("MainActivity", "Fetching FCM registration token failed", task.exception)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Firebase init error: ${e.message}", e)
+        }
+
+        // Request notification permission for Android 13+ (Tiramisu)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+
+        val initialScreen = intent.getStringExtra("initial_screen")
+
         setContent {
             VaiCarTheme {
-                MainAppContainer()
+                MainAppContainer(initialScreen = initialScreen)
             }
         }
     }
@@ -56,9 +110,9 @@ enum class AppScreen {
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
-fun MainAppContainer() {
+fun MainAppContainer(initialScreen: String? = null) {
     val context = LocalContext.current
-    var currentScreen by remember { mutableStateOf(AppScreen.SPLASH) }
+    var currentScreen by remember { mutableStateOf(if (initialScreen == "DRIVER") AppScreen.DRIVER else AppScreen.SPLASH) }
     var zones by remember { mutableStateOf<List<Zone>>(listOf()) }
     var metrics by remember { mutableStateOf<PlatformMetrics?>(null) }
     var isLoading by remember { mutableStateOf(true) }
@@ -84,10 +138,15 @@ fun MainAppContainer() {
     }
 
     LaunchedEffect(Unit) {
-        // Show Splash Screen for 2.5 seconds minimum
-        delay(2500)
-        loadPlatformMeta()
-        currentScreen = AppScreen.ROLE_SELECTOR
+        if (initialScreen == "DRIVER") {
+            loadPlatformMeta()
+            currentScreen = AppScreen.DRIVER
+        } else {
+            // Show Splash Screen for 2.5 seconds minimum
+            delay(2500)
+            loadPlatformMeta()
+            currentScreen = AppScreen.ROLE_SELECTOR
+        }
     }
 
     AnimatedContent(
@@ -653,17 +712,17 @@ fun PassengerAuthScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
-
-                                OutlinedTextField(
-                                    value = email,
-                                    onValueChange = { email = it; error = "" },
-                                    label = { Text("E-mail") },
-                                    singleLine = true,
-                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
                             }
+
+                            OutlinedTextField(
+                                value = email,
+                                onValueChange = { email = it; error = "" },
+                                label = { Text("E-mail (para envio do PIN)") },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
 
                             OutlinedTextField(
                                 value = phone,
@@ -744,8 +803,12 @@ fun PassengerAuthScreen(
                                         error = "O telefone é obrigatório."
                                         return@Button
                                     }
-                                    if (!isLoginMode && (name.trim().isEmpty() || email.trim().isEmpty())) {
-                                        error = "Preencha o nome e e-mail para cadastro."
+                                    if (email.trim().isEmpty()) {
+                                        error = "O e-mail é obrigatório para receber o código PIN."
+                                        return@Button
+                                    }
+                                    if (!isLoginMode && name.trim().isEmpty()) {
+                                        error = "Preencha o seu nome completo para cadastro."
                                         return@Button
                                     }
                                     isLoading = true
@@ -890,6 +953,7 @@ fun DriverAuthScreen(
 
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
     var cpf by remember { mutableStateOf("") }
     var vehicleModel by remember { mutableStateOf("") }
     var vehiclePlate by remember { mutableStateOf("") }
@@ -1019,6 +1083,16 @@ fun DriverAuthScreen(
                             }
 
                             OutlinedTextField(
+                                value = email,
+                                onValueChange = { email = it; error = "" },
+                                label = { Text("Seu E-mail (para envio do PIN)") },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedLabelColor = EmeraldGreen),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            OutlinedTextField(
                                 value = phone,
                                 onValueChange = { phone = it; error = "" },
                                 label = { Text("Telefone WhatsApp") },
@@ -1097,6 +1171,10 @@ fun DriverAuthScreen(
                                         error = "O telefone é obrigatório."
                                         return@Button
                                     }
+                                    if (email.trim().isEmpty()) {
+                                        error = "O e-mail é obrigatório para envio do código PIN."
+                                        return@Button
+                                    }
                                     if (!isLoginMode && (name.trim().isEmpty() || cpf.trim().isEmpty() || vehicleModel.trim().isEmpty())) {
                                         error = "Preencha todos os campos para homologação."
                                         return@Button
@@ -1108,6 +1186,7 @@ fun DriverAuthScreen(
                                         ApiService.registerDriver(
                                             name = name,
                                             phone = phone,
+                                            email = email,
                                             cpf = cpf,
                                             vehicleModel = vehicleModel,
                                             vehiclePlate = vehiclePlate,
@@ -1115,6 +1194,7 @@ fun DriverAuthScreen(
                                                 // Trigger pin
                                                 ApiService.requestDriverPin(
                                                     phone = phone,
+                                                    email = email,
                                                     onSuccess = { codeSent, msg ->
                                                         isLoading = false
                                                         if (codeSent) {
@@ -1136,9 +1216,10 @@ fun DriverAuthScreen(
                                             }
                                         )
                                     } else {
-                                        // Simple auth PIN request
+                                        // Simple auth PIN request with email
                                         ApiService.requestDriverPin(
                                             phone = phone,
+                                            email = email,
                                             onSuccess = { codeSent, msg ->
                                                 isLoading = false
                                                 if (codeSent) {

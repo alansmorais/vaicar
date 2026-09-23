@@ -160,10 +160,12 @@ object ApiService {
         driverId: String,
         fare: Double,
         notes: String?,
+        originAddress: String? = null,
+        destAddress: String? = null,
         onSuccess: (Ride) -> Unit,
         onError: (Exception) -> Unit
     ) {
-        val bodyMap = mapOf(
+        val bodyMap = mutableMapOf<String, Any?>(
             "passengerName" to passengerName,
             "passengerPhone" to passengerPhone,
             "originZoneId" to originId,
@@ -174,6 +176,13 @@ object ApiService {
             "fareBrl" to fare,
             "notes" to notes
         )
+        if (!originAddress.isNullOrBlank()) {
+            bodyMap["originAddress"] = originAddress
+        }
+        if (!destAddress.isNullOrBlank()) {
+            bodyMap["destinationAddress"] = destAddress
+            bodyMap["destAddress"] = destAddress
+        }
         val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
 
         val request = Request.Builder()
@@ -303,6 +312,7 @@ object ApiService {
     fun registerDriver(
         name: String,
         phone: String,
+        email: String,
         cpf: String,
         vehicleModel: String,
         vehiclePlate: String,
@@ -312,6 +322,7 @@ object ApiService {
         val bodyMap = mapOf(
             "name" to name,
             "phone" to phone,
+            "email" to email,
             "cpf" to cpf,
             "vehicleModel" to vehicleModel,
             "vehiclePlate" to vehiclePlate
@@ -343,6 +354,19 @@ object ApiService {
                 }
             }
         })
+    }
+
+    // Overload for backward compatibility
+    fun registerDriver(
+        name: String,
+        phone: String,
+        cpf: String,
+        vehicleModel: String,
+        vehiclePlate: String,
+        onSuccess: (Driver) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        registerDriver(name, phone, "", cpf, vehicleModel, vehiclePlate, onSuccess, onError)
     }
 
     fun updateDriverAvailability(
@@ -541,12 +565,50 @@ object ApiService {
         })
     }
 
+    fun updateDriverFcmToken(
+        driverId: String,
+        fcmToken: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val bodyMap = mapOf("fcmToken" to fcmToken)
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/drivers/$driverId/fcm-token")
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        mainHandler.post { onSuccess() }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+                }
+            }
+        })
+    }
+
     fun requestDriverPin(
         phone: String,
+        email: String? = null,
         onSuccess: (Boolean, String) -> Unit,
         onError: (Exception) -> Unit
     ) {
-        val bodyMap = mapOf("phone" to phone)
+        val bodyMap = mutableMapOf<String, String>("phone" to phone)
+        if (!email.isNullOrBlank()) {
+            bodyMap["email"] = email.trim()
+        }
         val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
         val request = Request.Builder()
             .url("${NetworkConfig.apiBaseUrl}/drivers/auth")

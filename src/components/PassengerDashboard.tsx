@@ -141,6 +141,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>('PIX');
   const [paymentChangeFor, setPaymentChangeFor] = useState<string>('');
   const [pickupLandmark, setPickupLandmark] = useState<string>('');
+  const [destinationLandmark, setDestinationLandmark] = useState<string>('');
   const [pickupMapsLink, setPickupMapsLink] = useState<string>('');
   const [isLocatingGps, setIsLocatingGps] = useState<boolean>(false);
   const [gpsCaptureSuccess, setGpsCaptureSuccess] = useState<string | null>(null);
@@ -353,9 +354,10 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         passengerCount: passengers,
         originZoneId: originZone.id,
         destinationZoneId: destinationZone.id,
-        originAddress: `${originZone.name}, São Sebastião - SP`,
-        destinationAddress: `${destinationZone.name}, São Sebastião - SP`,
+        originAddress: pickupLandmark.trim() ? `${pickupLandmark.trim()}, ${originZone.name}, São Sebastião - SP` : `${originZone.name}, São Sebastião - SP`,
+        destinationAddress: destinationLandmark.trim() ? `${destinationLandmark.trim()}, ${destinationZone.name}, São Sebastião - SP` : `${destinationZone.name}, São Sebastião - SP`,
         originLandmark: pickupLandmark, // <--- Pass exact landmark
+        destinationLandmark: destinationLandmark, // <--- Pass exact destination address
         originMapsLink: pickupMapsLink, // <--- Pass maps link
         estimatedDistanceKm: searchResults?.distanceKm || 12,
         estimatedDurationMin: searchResults?.estimatedDurationMin || 20,
@@ -366,6 +368,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
 
       // Clear specific pickup inputs
       setPickupLandmark('');
+      setDestinationLandmark('');
       setPickupMapsLink('');
       setSelectedDriverForRequest(null);
       setActiveRide(newRide);
@@ -1182,6 +1185,23 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                         className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-lg border border-slate-700 outline-none focus:border-emerald-500 font-mono"
                       />
                     </div>
+                  </div>
+                </div>
+
+                {/* Localização Exata para Desembarque */}
+                <div className="space-y-2.5 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
+                    Localização Exata de Desembarque (Destino)
+                  </label>
+                  <div>
+                    <span className="text-[10px] font-semibold text-slate-400 block mb-1">Rua, Número, Ponto de Referência ou Condomínio:</span>
+                    <input
+                      type="text"
+                      placeholder="Ex: Av. Dr. Manoel Hipólito, 850 - Hotel ou Condomínio"
+                      value={destinationLandmark}
+                      onChange={(e) => setDestinationLandmark(e.target.value)}
+                      className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-lg border border-slate-700 outline-none focus:border-cyan-500"
+                    />
                   </div>
                 </div>
 

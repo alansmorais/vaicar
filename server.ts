@@ -6,6 +6,16 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import nodemailer from 'nodemailer';
 import { db } from './app/web/src/lib/firebaseAdmin.ts';
+import admin from 'firebase-admin';
+
+// Initialize firebase-admin for FCM if not already initialized
+try {
+  if (admin.apps.length === 0) {
+    admin.initializeApp();
+  }
+} catch (err) {
+  console.error('[FCM Admin Init] Error initializing firebase-admin:', err);
+}
 
 // Force Node.js to use IPv4 instead of IPv6 to prevent ENETUNREACH in cloud containers
 try {
@@ -1177,6 +1187,12 @@ app.post('/api/v1/rides', async (req, res) => {
     const dynamic = await calculateCurrentDynamicMultiplier(originZoneId);
 
     const id = `ride-${Date.now()}`;
+    const originAddressResolved = originAddress || req.body.originAddress || originZone?.name || 'Origem';
+    const destAddressResolved = destinationAddress || req.body.destAddress || req.body.destinationAddress || destinationZone?.name || 'Destino';
+    const cleanOriginForMaps = originAddressResolved.includes('São Sebastião') ? originAddressResolved : `${originAddressResolved}, São Sebastião - SP`;
+    const cleanDestForMaps = destAddressResolved.includes('São Sebastião') ? destAddressResolved : `${destAddressResolved}, São Sebastião - SP`;
+    const directRouteMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(cleanOriginForMaps)}&destination=${encodeURIComponent(cleanDestForMaps)}&travelmode=driving`;
+
     const newRide: any = {
       id,
       passengerName,
@@ -1190,17 +1206,18 @@ app.post('/api/v1/rides', async (req, res) => {
       driverVehicle: `${driver.vehicle.brand} ${driver.vehicle.model} - ${driver.vehicle.color}`,
       driverAvatar: driver.avatarUrl,
       originZoneId,
-      originAddress: originAddress || originZone?.name || 'Origem',
+      originAddress: originAddressResolved,
       originLat: originZone ? originZone.lat : -23.8078,
       originLng: originZone ? originZone.lng : -45.4058,
       originLandmark: originLandmark || '',
-      originMapsLink: originMapsLink || '',
+      originMapsLink: originMapsLink || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanOriginForMaps)}`,
       destinationZoneId,
-      destinationAddress: destinationAddress || destinationZone?.name || 'Destino',
+      destinationAddress: destAddressResolved,
       destinationLat: destinationZone ? destinationZone.lat : -23.8078,
       destinationLng: destinationZone ? destinationZone.lng : -45.4058,
       destinationLandmark: destinationLandmark || '',
-      destinationMapsLink: destinationMapsLink || '',
+      destinationMapsLink: destinationMapsLink || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanDestForMaps)}`,
+      mapsUrl: directRouteMapsUrl,
       passengerCount: Number(passengerCount) || 1,
       scheduledTime: scheduledTime || null,
       isImmediate: Boolean(isImmediate),
@@ -1223,6 +1240,20 @@ app.post('/api/v1/rides', async (req, res) => {
 
     await db.collection('rides').doc(id).set(newRide);
     broadcastLiveEvent('RIDE_CREATED', newRide);
+    
+    // Send FCM push notification to target driver
+    if (newRide.driverId) {
+      sendFcmNotification(newRide.driverId, {
+        rideId: id,
+        passengerName: newRide.passengerName,
+        passengerPhone: newRide.passengerPhone,
+        originAddress: newRide.originAddress,
+        destAddress: newRide.destinationAddress,
+        fare: String(newRide.fareBrl || newRide.estimatedPrice),
+        notes: newRide.originLandmark || '',
+      });
+    }
+
     res.status(201).json(newRide);
   } catch (err: any) {
     console.error('Error in /api/v1/rides:', err);
@@ -1263,6 +1294,88 @@ app.patch('/api/v1/rides/:id/payment-status', async (req, res) => {
   }
 });
 
+function calculateRideWaitingFee(ride: any): { waitingMinutes: number; waitingFee: number; fareBrl: number } {
+  let waitingMinutes = ride.waitingMinutes || 0;
+  let waitingFee = ride.waitingFee || 0;
+  let fareBrl = ride.fareBrl !== undefined ? ride.fareBrl : (ride.estimatedPrice || 0);
+
+  // If the ride is currently in arrival status and arrivedAt is set, calculate the live accrued fee
+  if (ride.status === 'DRIVER_ARRIVING' && ride.arrivedAt) {
+    const arrivedTime = new Date(ride.arrivedAt).getTime();
+    const nowTime = Date.now();
+    const elapsedMinutes = Math.max(0, Math.floor((nowTime - arrivedTime) / 60000));
+    const chargedMinutes = Math.max(0, elapsedMinutes - 4);
+    waitingMinutes = elapsedMinutes;
+    waitingFee = Number((chargedMinutes * 0.50).toFixed(2));
+    const baseFare = ride.estimatedPrice || 0;
+    fareBrl = Number((baseFare + waitingFee).toFixed(2));
+  }
+
+  return { waitingMinutes, waitingFee, fareBrl };
+}
+
+async function sendFcmNotification(driverId: string, payload: {
+  rideId: string;
+  passengerName: string;
+  passengerPhone: string;
+  originAddress: string;
+  destAddress: string;
+  fare: string;
+  notes: string;
+}) {
+  try {
+    const driverDoc = await db.collection('drivers').doc(driverId).get();
+    if (!driverDoc.exists) {
+      console.log(`[FCM] Driver ${driverId} not found in database.`);
+      return;
+    }
+    const driver = driverDoc.data();
+    const token = driver?.fcmToken;
+    if (!token) {
+      console.log(`[FCM] Driver ${driverId} does not have an FCM token registered.`);
+      return;
+    }
+
+    console.log(`[FCM] Sending push notification to driver ${driverId} (${driver.name}) at token: ${token}`);
+
+    const message: any = {
+      token: token,
+      android: {
+        priority: 'high',
+        ttl: 24 * 60 * 60 * 1000,
+      },
+      data: {
+        rideId: payload.rideId,
+        passengerName: payload.passengerName,
+        passengerPhone: payload.passengerPhone,
+        originAddress: payload.originAddress,
+        destAddress: payload.destAddress,
+        fare: String(payload.fare),
+        notes: payload.notes || '',
+      },
+    };
+
+    const response = await admin.messaging().send(message);
+    console.log('[FCM] Push notification sent successfully. Message ID:', response);
+  } catch (err: any) {
+    console.error('[FCM Error] Failed to send push notification:', err);
+  }
+}
+
+// Update Driver FCM Token Endpoint
+app.post('/api/v1/drivers/:id/fcm-token', async (req, res) => {
+  try {
+    const { fcmToken } = req.body;
+    if (!fcmToken) {
+      return res.status(400).json({ error: 'fcmToken is required' });
+    }
+    await db.collection('drivers').doc(req.params.id).update({ fcmToken });
+    res.json({ success: true, fcmToken });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Update FCM Token failed: ' + err.message });
+  }
+});
+
 // Get All Rides
 app.get('/api/v1/rides', async (req, res) => {
   const driverId = req.query.driverId as string | undefined;
@@ -1271,12 +1384,16 @@ app.get('/api/v1/rides', async (req, res) => {
   const snap = await query.get();
   const all = snap.docs.map((doc: any) => {
     const data = doc.data();
+    const waitCalc = calculateRideWaitingFee(data);
     return {
       ...data,
       driverId: data.driverId || data.requestedDriverId || data.matchedDriverId,
       requestedDriverId: data.requestedDriverId || data.driverId,
       matchedDriverId: data.matchedDriverId || data.driverId,
-      fareBrl: data.fareBrl !== undefined ? data.fareBrl : (data.estimatedPrice ?? 0),
+      waitingMinutes: waitCalc.waitingMinutes,
+      waitingFee: waitCalc.waitingFee,
+      fareBrl: waitCalc.fareBrl,
+      estimatedPrice: waitCalc.fareBrl,
     };
   });
   all.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
@@ -1287,7 +1404,15 @@ app.get('/api/v1/rides', async (req, res) => {
 app.get('/api/v1/rides/:id', async (req, res) => {
   const doc = await db.collection('rides').doc(req.params.id).get();
   if (!doc.exists) return res.status(404).json({ error: 'Corrida não encontrada' });
-  res.json(doc.data());
+  const data = doc.data();
+  const waitCalc = calculateRideWaitingFee(data);
+  res.json({
+    ...data,
+    waitingMinutes: waitCalc.waitingMinutes,
+    waitingFee: waitCalc.waitingFee,
+    fareBrl: waitCalc.fareBrl,
+    estimatedPrice: waitCalc.fareBrl,
+  });
 });
 
 // Update Ride Status (State Machine with Race Condition Prevention)
@@ -1364,6 +1489,19 @@ const handleRideStatusUpdate = async (req: express.Request, res: express.Respons
         label: labels[status] || status,
       }]
     };
+
+    if (status === 'DRIVER_ARRIVING') {
+      updates.arrivedAt = new Date().toISOString();
+      updates.waitFreeMinutes = 4;
+      updates.waitPricePerMinute = 0.50;
+    }
+
+    if (ride.status === 'DRIVER_ARRIVING' && status !== 'DRIVER_ARRIVING') {
+      const finalCalc = calculateRideWaitingFee(ride);
+      updates.waitingMinutes = finalCalc.waitingMinutes;
+      updates.waitingFee = finalCalc.waitingFee;
+      updates.fareBrl = finalCalc.fareBrl;
+    }
 
     if (driverId) {
       updates.driverId = driverId;
@@ -2160,7 +2298,8 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
 app.post('/api/v1/drivers/auth', async (req, res) => {
   console.log('DEBUG: Received POST /api/v1/drivers/auth');
   try {
-    const { phone, verificationCode } = req.body;
+    const verificationCode = req.body.verificationCode || req.body.pin || req.body.code;
+    const { phone, email } = req.body;
     if (!phone) {
       return res.status(400).json({ error: 'WhatsApp/Telefone obrigatório' });
     }
@@ -2171,8 +2310,10 @@ app.post('/api/v1/drivers/auth', async (req, res) => {
     // Buscando motorista cadastrado por telefone
     let driverSnap = await db.collection('drivers').where('phone', '==', cleanPhone).get();
     let targetDriver: any = null;
+    let targetDocRef: any = null;
     if (!driverSnap.empty) {
       targetDriver = driverSnap.docs[0].data();
+      targetDocRef = driverSnap.docs[0].ref;
     } else {
       // Fallback por dígitos apenas
       const allDriversSnap = await db.collection('drivers').get();
@@ -2181,6 +2322,7 @@ app.post('/api/v1/drivers/auth', async (req, res) => {
         const dp = (d.phone || '').replace(/\D/g, '');
         if (dp === phoneDigits) {
           targetDriver = d;
+          targetDocRef = doc.ref;
           break;
         }
       }
@@ -2190,9 +2332,17 @@ app.post('/api/v1/drivers/auth', async (req, res) => {
       return res.status(404).json({ error: 'Nenhum credenciamento de motorista encontrado com este telefone. Por favor, realize o credenciamento completo.' });
     }
 
-    const cleanEmail = (targetDriver.email || '').trim().toLowerCase();
+    let cleanEmail = (email || '').trim().toLowerCase();
     if (!cleanEmail) {
-      return res.status(400).json({ error: 'Este motorista não possui um e-mail válido cadastrado no sistema. Por favor, contate o administrador.' });
+      cleanEmail = (targetDriver.email || '').trim().toLowerCase();
+    } else if (targetDocRef && (!targetDriver.email || targetDriver.email.endsWith('@vaicar.local') || targetDriver.email !== cleanEmail)) {
+      // Update target driver with the specified email
+      await targetDocRef.update({ email: cleanEmail }).catch(() => {});
+      targetDriver.email = cleanEmail;
+    }
+
+    if (!cleanEmail || cleanEmail.endsWith('@vaicar.local')) {
+      return res.status(400).json({ error: 'Por favor, informe seu e-mail para receber o código PIN.' });
     }
 
     if (!verificationCode) {

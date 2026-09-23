@@ -30,6 +30,8 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
     var passengerCount by remember { mutableStateOf(1) }
     var passengerName by remember { mutableStateOf(SecurityUtils.getPassengerName(context)) }
     var passengerPhone by remember { mutableStateOf(SecurityUtils.getPassengerPhone(context)) }
+    var originAddressDetails by remember { mutableStateOf("") }
+    var destAddressDetails by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
 
     var searchResults by remember { mutableStateOf<SearchDriversResponse?>(null) }
@@ -133,7 +135,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                     value = originZone?.name ?: "Selecione",
                                     onValueChange = {},
                                     readOnly = true,
-                                    label = { Text("Origem (De Onde?)") },
+                                    label = { Text("Origem (Região / Bairro)") },
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedBorderColor = EmeraldGreen,
                                         focusedLabelColor = EmeraldGreen,
@@ -167,13 +169,30 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                 }
                             }
 
+                            // Origin Completed Address Input (Street, Number, Landmark)
+                            OutlinedTextField(
+                                value = originAddressDetails,
+                                onValueChange = { originAddressDetails = it },
+                                label = { Text("Endereço exato de embarque (Rua, Número, Ref.)") },
+                                placeholder = { Text("Ex: Rua das Flores, 120 - Portão branco", color = TextSecondary.copy(alpha = 0.5f)) },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = EmeraldGreen,
+                                    focusedLabelColor = EmeraldGreen,
+                                    unfocusedLabelColor = TextSecondary,
+                                    unfocusedTextColor = Color.White,
+                                    focusedTextColor = Color.White
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
                             // Destination Zone Selector
                             Box(modifier = Modifier.fillMaxWidth()) {
                                 OutlinedTextField(
                                     value = destZone?.name ?: "Selecione",
                                     onValueChange = {},
                                     readOnly = true,
-                                    label = { Text("Destino (Para Onde?)") },
+                                    label = { Text("Destino (Região / Bairro)") },
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedBorderColor = EmeraldGreen,
                                         focusedLabelColor = EmeraldGreen,
@@ -206,6 +225,23 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                     }
                                 }
                             }
+
+                            // Destination Completed Address Input (Street, Number, Landmark)
+                            OutlinedTextField(
+                                value = destAddressDetails,
+                                onValueChange = { destAddressDetails = it },
+                                label = { Text("Endereço exato de desembarque (Rua, Número, Ref.)") },
+                                placeholder = { Text("Ex: Av. Beira Mar, 450 - Condomínio Azul", color = TextSecondary.copy(alpha = 0.5f)) },
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = EmeraldGreen,
+                                    focusedLabelColor = EmeraldGreen,
+                                    unfocusedLabelColor = TextSecondary,
+                                    unfocusedTextColor = Color.White,
+                                    focusedTextColor = Color.White
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            )
 
                             // Search Button
                             Button(
@@ -311,6 +347,17 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                             selectedDriver?.let { driver ->
                                 Button(
                                     onClick = {
+                                        val fullOrigin = if (originAddressDetails.isNotBlank()) {
+                                            "${originAddressDetails.trim()}, ${originZone!!.name}, São Sebastião - SP"
+                                        } else {
+                                            "${originZone!!.name}, São Sebastião - SP"
+                                        }
+                                        val fullDest = if (destAddressDetails.isNotBlank()) {
+                                            "${destAddressDetails.trim()}, ${destZone!!.name}, São Sebastião - SP"
+                                        } else {
+                                            "${destZone!!.name}, São Sebastião - SP"
+                                        }
+
                                         ApiService.createRide(
                                             passengerName = passengerName,
                                             passengerPhone = passengerPhone,
@@ -320,6 +367,8 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                             driverId = driver.driverId,
                                             fare = driver.fare,
                                             notes = notes,
+                                            originAddress = fullOrigin,
+                                            destAddress = fullDest,
                                             onSuccess = {
                                                 currentRide = it
                                                 message = "Solicitação enviada com sucesso!"
@@ -366,12 +415,14 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                 Text(currentRide!!.passengerName, color = Color.White, fontWeight = FontWeight.Bold)
                             }
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Rota:", color = TextSecondary)
-                                Text("${originZone?.name} ➔ ${destZone?.name}", color = Color.White, fontWeight = FontWeight.Bold)
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Embarque:", color = TextSecondary, fontSize = 12.sp)
+                                Text(currentRide!!.originAddress ?: originZone?.name ?: "Origem", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Desembarque:", color = TextSecondary, fontSize = 12.sp)
+                                Text(currentRide!!.destinationAddress ?: destZone?.name ?: "Destino", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                             }
 
                             val displayFare = if (currentRide!!.fareBrl > 0) currentRide!!.fareBrl else currentRide!!.estimatedPrice
@@ -417,13 +468,21 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                             // Google Maps Button for Passenger
                             Button(
                                 onClick = {
-                                    val orig = originZone ?: zones.find { it.id == currentRide!!.originZoneId }
-                                    val dest = destZone ?: zones.find { it.id == currentRide!!.destinationZoneId }
-                                    val oLat = currentRide!!.originLat ?: orig?.lat ?: -23.8078
-                                    val oLng = currentRide!!.originLng ?: orig?.lng ?: -45.4058
-                                    val dLat = currentRide!!.destinationLat ?: dest?.lat ?: -23.8078
-                                    val dLng = currentRide!!.destinationLng ?: dest?.lng ?: -45.4058
-                                    val mapsUri = Uri.parse("https://www.google.com/maps/dir/?api=1&origin=$oLat,$oLng&destination=$dLat,$dLng&travelmode=driving")
+                                    val oAddress = currentRide!!.originAddress
+                                    val dAddress = currentRide!!.destinationAddress
+                                    val mapsUri = if (!oAddress.isNullOrBlank() && !dAddress.isNullOrBlank() && oAddress != "Origem" && dAddress != "Destino") {
+                                        val cleanO = if (oAddress.contains("São Sebastião", ignoreCase = true)) oAddress else "$oAddress, São Sebastião - SP"
+                                        val cleanD = if (dAddress.contains("São Sebastião", ignoreCase = true)) dAddress else "$dAddress, São Sebastião - SP"
+                                        Uri.parse("https://www.google.com/maps/dir/?api=1&origin=${Uri.encode(cleanO)}&destination=${Uri.encode(cleanD)}&travelmode=driving")
+                                    } else {
+                                        val orig = originZone ?: zones.find { it.id == currentRide!!.originZoneId }
+                                        val dest = destZone ?: zones.find { it.id == currentRide!!.destinationZoneId }
+                                        val oLat = currentRide!!.originLat ?: orig?.lat ?: -23.8078
+                                        val oLng = currentRide!!.originLng ?: orig?.lng ?: -45.4058
+                                        val dLat = currentRide!!.destinationLat ?: dest?.lat ?: -23.8078
+                                        val dLng = currentRide!!.destinationLng ?: dest?.lng ?: -45.4058
+                                        Uri.parse("https://www.google.com/maps/dir/?api=1&origin=$oLat,$oLng&destination=$dLat,$dLng&travelmode=driving")
+                                    }
                                     val mapIntent = Intent(Intent.ACTION_VIEW, mapsUri)
                                     context.startActivity(mapIntent)
                                 },

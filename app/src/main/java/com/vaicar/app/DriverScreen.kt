@@ -36,6 +36,7 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
     // Onboarding Form States
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
     var cpf by remember { mutableStateOf("") }
     var vehicleModel by remember { mutableStateOf("") }
     var vehiclePlate by remember { mutableStateOf("") }
@@ -60,6 +61,23 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
 
                 registeredDriver = drv
                 onlineStatus = drv?.isOnline ?: false
+                if (drv != null) {
+                    SecurityUtils.setDriverId(context, drv.id)
+                    SecurityUtils.setDriverName(context, drv.name)
+                    SecurityUtils.setDriverOnline(context, drv.isOnline)
+                    val fcmToken = SecurityUtils.getFcmToken(context)
+                    if (fcmToken.isNotBlank()) {
+                        ApiService.updateDriverFcmToken(
+                            driverId = drv.id,
+                            fcmToken = fcmToken,
+                            onSuccess = { android.util.Log.i("DriverScreen", "Successfully uploaded FCM Token on driver load.") },
+                            onError = { android.util.Log.e("DriverScreen", "Failed to upload FCM Token on driver load: ${it.message}") }
+                        )
+                    }
+                    if (drv.isOnline) {
+                        DriverBackgroundService.startService(context)
+                    }
+                }
                 minFare = drv?.pricing?.minimumFare?.toString() ?: "25.0"
                 rateKm = drv?.pricing?.ratePerKm?.toString() ?: "3.5"
 
@@ -204,6 +222,14 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                 )
 
                                 OutlinedTextField(
+                                    value = email,
+                                    onValueChange = { email = it },
+                                    label = { Text("E-mail (para receber o código PIN)") },
+                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = EmeraldGreen, focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                OutlinedTextField(
                                     value = cpf,
                                     onValueChange = { cpf = it },
                                     label = { Text("CPF") },
@@ -229,11 +255,12 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
 
                                 Button(
                                     onClick = {
-                                        if (name.isNotEmpty() && phone.isNotEmpty() && cpf.isNotEmpty() && vehicleModel.isNotEmpty()) {
+                                        if (name.isNotEmpty() && phone.isNotEmpty() && email.isNotEmpty() && cpf.isNotEmpty() && vehicleModel.isNotEmpty()) {
                                             isFetching = true
                                             ApiService.registerDriver(
                                                 name = name,
                                                 phone = phone,
+                                                email = email,
                                                 cpf = cpf,
                                                 vehicleModel = vehicleModel,
                                                 vehiclePlate = vehiclePlate,
@@ -248,7 +275,7 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                 }
                                             )
                                         } else {
-                                            message = "Preencha todos os campos obrigatórios."
+                                            message = "Preencha todos os campos obrigatórios (incluindo e-mail para PIN)."
                                         }
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
@@ -307,7 +334,16 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                             isOnline = status,
                                             onSuccess = {
                                                 onlineStatus = it.isOnline
-                                                message = if (it.isOnline) "Você agora está Online!" else "Você saiu de serviço."
+                                                SecurityUtils.setDriverOnline(context, it.isOnline)
+                                                SecurityUtils.setDriverId(context, driver.id)
+                                                if (it.isOnline) {
+                                                    DriverBackgroundService.startService(context)
+                                                    message = "Você está Online! O radar em segundo plano acordará você com alarme e pop-up mesmo com o app fechado."
+                                                } else {
+                                                    DriverBackgroundService.stopService(context)
+                                                    SoundAlertHelper.stopAlarm(context)
+                                                    message = "Você saiu de serviço. Radar de segundo plano desativado."
+                                                }
                                             },
                                             onError = { err ->
                                                 message = err.message ?: "Erro ao atualizar status de serviço."
@@ -325,39 +361,96 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                     .background(Color.DarkGray.copy(alpha = 0.5f))
                             )
 
-                            Row(
+                            // Wake-Up Radar Banner (Background listening & screen wake-up)
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        Icons.Default.Notifications,
-                                        contentDescription = "Alerta Sonoro",
-                                        tint = EmeraldGreen,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Sino & vibração de chamados",
-                                        color = Color.White,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                                TextButton(
-                                    onClick = {
-                                        SoundAlertHelper.triggerIncomingRideAlert(context)
-                                    },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(
-                                        text = "Testar Som",
-                                        color = EmeraldGreen,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.Alarm,
+                                            contentDescription = "Radar Despertador",
+                                            tint = if (onlineStatus) EmeraldGreen else Color.Gray,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (onlineStatus) "Radar Ativo (Acorda Motorista)" else "Radar Desligado (Offline)",
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    if (SoundAlertHelper.isAlarmPlaying()) {
+                                        Button(
+                                            onClick = { SoundAlertHelper.stopAlarm(context) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("Silenciar", fontSize = 11.sp, color = Color.White)
+                                        }
+                                    }
+                                }
+
+                                Text(
+                                    text = "Mesmo com o aplicativo fechado ou a tela desligada, o sistema acordará você com alarme sonoro alto contínuo, vibração e pop-up em tela cheia com botão para aceitar.",
+                                    color = TextSecondary,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            // Test full-screen pop-up and loud wake-up alarm
+                                            SoundAlertHelper.startLoudWakeUpAlarm(context)
+                                            val testPopUpIntent = IncomingRideAlertActivity.createIntent(
+                                                context = context,
+                                                rideId = "test-preview-${System.currentTimeMillis()}",
+                                                passengerName = "Marina Silveira (Simulação Alarme)",
+                                                passengerPhone = "(12) 99887-1122",
+                                                originAddress = "Av. Dr. Manoel Hipólito, 850 - Hotel Ilha, Centro",
+                                                destAddress = "Rua das Palmeiras, 150 - Maresias",
+                                                fare = 48.00,
+                                                notes = "Teste do sistema de despertar e pop-up do motorista",
+                                                driverId = driver.id
+                                            )
+                                            context.startActivity(testPopUpIntent)
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = EmeraldGreen),
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = "🔔 Testar Alarme & Pop-up",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            SoundAlertHelper.triggerIncomingRideAlert(context)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("Sino Curto", fontSize = 11.sp, color = Color.White)
+                                    }
                                 }
                             }
                         }
@@ -768,17 +861,27 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                     // Google Maps GPS Navigation Button
                                     Button(
                                         onClick = {
-                                            val targetLat = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") {
-                                                ride.originLat ?: originZone?.lat ?: -23.8078
+                                            val targetAddress = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") {
+                                                ride.originAddress
                                             } else {
-                                                ride.destinationLat ?: destZone?.lat ?: -23.8078
+                                                ride.destinationAddress
                                             }
-                                            val targetLng = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") {
-                                                ride.originLng ?: originZone?.lng ?: -45.4058
+                                            val navUri = if (!targetAddress.isNullOrBlank() && targetAddress != "Origem" && targetAddress != "Destino") {
+                                                val cleanTarget = if (targetAddress.contains("São Sebastião", ignoreCase = true)) targetAddress else "$targetAddress, São Sebastião - SP"
+                                                Uri.parse("https://www.google.com/maps/dir/?api=1&destination=${Uri.encode(cleanTarget)}&travelmode=driving")
                                             } else {
-                                                ride.destinationLng ?: destZone?.lng ?: -45.4058
+                                                val targetLat = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") {
+                                                    ride.originLat ?: originZone?.lat ?: -23.8078
+                                                } else {
+                                                    ride.destinationLat ?: destZone?.lat ?: -23.8078
+                                                }
+                                                val targetLng = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") {
+                                                    ride.originLng ?: originZone?.lng ?: -45.4058
+                                                } else {
+                                                    ride.destinationLng ?: destZone?.lng ?: -45.4058
+                                                }
+                                                Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$targetLat,$targetLng&travelmode=driving")
                                             }
-                                            val navUri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$targetLat,$targetLng&travelmode=driving")
                                             val navIntent = Intent(Intent.ACTION_VIEW, navUri)
                                             context.startActivity(navIntent)
                                         },
@@ -849,6 +952,156 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                 onClick = {
                                                     ApiService.updateRideStatus(
                                                         rideId = ride.id,
+                                                        status = "DRIVER_ARRIVING",
+                                                        driverId = registeredDriver?.id,
+                                                        onSuccess = {
+                                                            refreshState()
+                                                            message = "Você informou que chegou ao ponto de embarque!"
+                                                        },
+                                                        onError = { err ->
+                                                            message = err.message ?: "Erro ao atualizar chegada."
+                                                        }
+                                                    )
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF06B6D4)), // Cyan
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.weight(1.5f)
+                                            ) {
+                                                Text("Cheguei ao Ponto 📍", color = Color.Black, fontWeight = FontWeight.Bold)
+                                            }
+
+                                            Button(
+                                                onClick = {
+                                                    ApiService.updateRideStatus(
+                                                        rideId = ride.id,
+                                                        status = "CANCELLED_BY_DRIVER",
+                                                        driverId = registeredDriver?.id,
+                                                        cancellationReason = "Cancelado pelo motorista",
+                                                        onSuccess = {
+                                                            refreshState()
+                                                            message = "Você cancelou a corrida."
+                                                        },
+                                                        onError = { err ->
+                                                            message = err.message ?: "Erro ao cancelar corrida."
+                                                        }
+                                                    )
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Text("Cancelar", color = Color.White)
+                                            }
+                                        } else if (ride.status == "DRIVER_ARRIVING") {
+                                            // Live waiting time counter
+                                            var elapsedSeconds by remember { mutableStateOf(0L) }
+                                            LaunchedEffect(ride.arrivedAt) {
+                                                while (true) {
+                                                    val parsedTime = try {
+                                                        if (!ride.arrivedAt.isNullOrBlank()) {
+                                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                                                java.time.Instant.parse(ride.arrivedAt).toEpochMilli()
+                                                            } else {
+                                                                java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).apply {
+                                                                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                                                                }.parse(ride.arrivedAt.substring(0, 19))?.time ?: System.currentTimeMillis()
+                                                            }
+                                                        } else {
+                                                            System.currentTimeMillis()
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        System.currentTimeMillis()
+                                                    }
+                                                    elapsedSeconds = ((System.currentTimeMillis() - parsedTime) / 1000).coerceAtLeast(0)
+                                                    kotlinx.coroutines.delay(1000)
+                                                }
+                                            }
+
+                                            val elapsedMinutes = (elapsedSeconds / 60).toInt()
+                                            val remSeconds = (elapsedSeconds % 60).toInt()
+                                            val isFree = elapsedMinutes < 4
+                                            val waitTimeText = "%02d:%02d".format(elapsedMinutes, remSeconds)
+                                            val activeFee = if (isFree) 0.0 else (elapsedMinutes - 4) * 0.50
+
+                                            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Card(
+                                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E2E)),
+                                                    border = BorderStroke(1.dp, if (isFree) EmeraldGreen else AccentRed),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                                        Text(
+                                                            text = if (isFree) "Tolerância Grátis de Espera ⏳" else "Tempo Adicional Excedido 🕒",
+                                                            color = if (isFree) EmeraldGreen else AccentRed,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 13.sp
+                                                        )
+                                                        Text(
+                                                            text = waitTimeText,
+                                                            color = Color.White,
+                                                            fontWeight = FontWeight.Black,
+                                                            fontSize = 24.sp
+                                                        )
+                                                        Text(
+                                                            text = if (isFree) "4 min gratuitos inclusos na chamada" else "Taxa de espera: R$ ${"%.2f".format(activeFee)} (R$ 0,50/min)",
+                                                            color = TextSecondary,
+                                                            fontSize = 11.sp
+                                                        )
+                                                    }
+                                                }
+
+                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    Button(
+                                                        onClick = {
+                                                            ApiService.updateRideStatus(
+                                                                rideId = ride.id,
+                                                                status = "IN_PROGRESS",
+                                                                driverId = registeredDriver?.id,
+                                                                onSuccess = {
+                                                                    refreshState()
+                                                                    message = "Viagem Iniciada! Boa corrida!"
+                                                                },
+                                                                onError = { err ->
+                                                                    message = err.message ?: "Erro ao iniciar viagem."
+                                                                }
+                                                            )
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        modifier = Modifier.weight(1.5f)
+                                                    ) {
+                                                        Text("Iniciar Viagem 🚀", color = Color.Black, fontWeight = FontWeight.Bold)
+                                                    }
+
+                                                    Button(
+                                                        onClick = {
+                                                            ApiService.updateRideStatus(
+                                                                rideId = ride.id,
+                                                                status = "CANCELLED_BY_DRIVER",
+                                                                driverId = registeredDriver?.id,
+                                                                cancellationReason = "Cancelado pelo motorista por não comparecimento",
+                                                                onSuccess = {
+                                                                    refreshState()
+                                                                    message = "Você cancelou a corrida."
+                                                                },
+                                                                onError = { err ->
+                                                                    message = err.message ?: "Erro ao cancelar corrida."
+                                                                }
+                                                            )
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        modifier = Modifier.weight(1f)
+                                                    ) {
+                                                        Text("Cancelar", color = Color.White)
+                                                    }
+                                                }
+                                            }
+                                        } else if (ride.status == "IN_PROGRESS") {
+                                            Button(
+                                                onClick = {
+                                                    ApiService.updateRideStatus(
+                                                        rideId = ride.id,
                                                         status = "COMPLETED",
                                                         driverId = registeredDriver?.id,
                                                         onSuccess = {
@@ -873,7 +1126,7 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                         rideId = ride.id,
                                                         status = "CANCELLED_BY_DRIVER",
                                                         driverId = registeredDriver?.id,
-                                                        cancellationReason = "Cancelado pelo motorista",
+                                                        cancellationReason = "Cancelado pelo motorista em andamento",
                                                         onSuccess = {
                                                             refreshState()
                                                             message = "Você cancelou a corrida."

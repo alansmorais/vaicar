@@ -234,6 +234,38 @@ object SecurityUtils {
     fun getDriverPhone(context: Context): String {
         return getPrefs(context).getString("driver_phone", "") ?: ""
     }
+
+    fun setDriverOnline(context: Context, isOnline: Boolean) {
+        getPrefs(context).edit().putBoolean("driver_is_online", isOnline).apply()
+    }
+
+    fun isDriverOnline(context: Context): Boolean {
+        return getPrefs(context).getBoolean("driver_is_online", false)
+    }
+
+    fun setDriverId(context: Context, driverId: String) {
+        getPrefs(context).edit().putString("driver_id", driverId).apply()
+    }
+
+    fun getDriverId(context: Context): String {
+        return getPrefs(context).getString("driver_id", "") ?: ""
+    }
+
+    fun setDriverName(context: Context, name: String) {
+        getPrefs(context).edit().putString("driver_name", name).apply()
+    }
+
+    fun getDriverName(context: Context): String {
+        return getPrefs(context).getString("driver_name", "") ?: ""
+    }
+
+    fun setFcmToken(context: Context, token: String) {
+        getPrefs(context).edit().putString("fcm_token", token).apply()
+    }
+
+    fun getFcmToken(context: Context): String {
+        return getPrefs(context).getString("fcm_token", "") ?: ""
+    }
 }
 
 data class AuthResult(

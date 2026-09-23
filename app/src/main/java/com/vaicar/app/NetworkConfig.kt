@@ -102,7 +102,10 @@ data class Ride(
     val estimatedPrice: Double = 0.0,
     val status: String = "REQUESTED", // REQUESTED, ACCEPTED, EN_ROUTE, ARRIVED, IN_PROGRESS, COMPLETED, CANCELLED_BY_PASSENGER, CANCELLED_BY_DRIVER
     val createdAt: String? = null,
-    val notes: String? = null
+    val notes: String? = null,
+    val arrivedAt: String? = null,
+    val waitingMinutes: Int? = null,
+    val waitingFee: Double? = null
 )
 
 data class PlatformMetrics(
