@@ -63,19 +63,22 @@ fun MainAppContainer() {
     var metrics by remember { mutableStateOf<PlatformMetrics?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf(false) }
+    var loadErrorMessage by remember { mutableStateOf("") }
 
     fun loadPlatformMeta() {
         isLoading = true
         loadError = false
+        loadErrorMessage = ""
         ApiService.fetchMeta(
             onSuccess = { res ->
                 zones = res.zones
                 metrics = res.metrics
                 isLoading = false
             },
-            onError = {
+            onError = { err ->
                 isLoading = false
                 loadError = true
+                loadErrorMessage = err.message ?: "Não foi possível conectar ao servidor real."
             }
         )
     }
@@ -99,6 +102,7 @@ fun MainAppContainer() {
             AppScreen.ROLE_SELECTOR -> RoleSelectorView(
                 isLoading = isLoading,
                 error = loadError,
+                errorMessage = loadErrorMessage,
                 onRetry = { loadPlatformMeta() },
                 onSelectRole = { selectedScreen ->
                     currentScreen = selectedScreen
@@ -198,6 +202,7 @@ fun SplashScreenView() {
 fun RoleSelectorView(
     isLoading: Boolean,
     error: Boolean,
+    errorMessage: String = "",
     onRetry: () -> Unit,
     onSelectRole: (AppScreen) -> Unit
 ) {
@@ -239,7 +244,13 @@ fun RoleSelectorView(
                 Spacer(modifier = Modifier.height(12.dp))
                 Text("Conectando ao banco de dados...", color = TextSecondary, fontSize = 12.sp)
             } else if (error) {
-                Text("Não foi possível conectar ao servidor real.", color = AccentRed, fontWeight = FontWeight.Bold)
+                Text(
+                    text = if (errorMessage.isNotBlank()) errorMessage else "Não foi possível conectar ao servidor real.",
+                    color = AccentRed,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    fontSize = 13.sp
+                )
                 Spacer(modifier = Modifier.height(12.dp))
                 Button(
                     onClick = onRetry,

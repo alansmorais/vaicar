@@ -8,12 +8,50 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import java.util.concurrent.TimeUnit
 
 object ApiService {
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
+
     private val gson = Gson()
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    fun parseNetworkError(e: Exception): String {
+        return when (e) {
+            is UnknownHostException -> "Erro de DNS: Não foi possível resolver o endereço do servidor (${e.message}). Verifique a conexão com a internet."
+            is SocketTimeoutException -> "Tempo limite esgotado (Timeout): O servidor demorou para responder. Verifique sua conexão e tente novamente."
+            is ConnectException -> "Não foi possível conectar ao servidor (Servidor offline ou sem conexão de rede)."
+            is IOException -> "Falha de rede: ${e.message ?: "Conexão interrompida"}"
+            else -> e.message ?: "Erro inesperado de comunicação"
+        }
+    }
+
+    fun parseHttpError(responseCode: Int, responseBody: String?): String {
+        if (!responseBody.isNullOrBlank()) {
+            try {
+                val map = gson.fromJson<Map<String, Any>>(responseBody, object : TypeToken<Map<String, Any>>() {}.type)
+                val err = map["error"] as? String ?: map["message"] as? String
+                if (!err.isNullOrBlank()) return err
+            } catch (_: Exception) {}
+        }
+        return when (responseCode) {
+            400 -> "Requisição inválida (400). Verifique os dados informados."
+            401 -> "Não autorizado (401). Credenciais incorretas."
+            403 -> "Acesso restrito (403). Seu acesso foi bloqueado ou não autorizado."
+            404 -> "Recurso não encontrado no servidor (404)."
+            500, 502, 503, 504 -> "Erro no servidor ($responseCode). Tente novamente em instantes."
+            else -> "Erro HTTP $responseCode do servidor."
+        }
+    }
 
     fun fetchMeta(onSuccess: (MetaResponse) -> Unit, onError: (Exception) -> Unit) {
         val request = Request.Builder()
@@ -23,20 +61,21 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 try {
+                    val bodyString = response.body?.string() ?: ""
                     if (response.isSuccessful) {
-                        val bodyString = response.body?.string() ?: ""
                         val metaResponse = gson.fromJson(bodyString, MetaResponse::class.java)
                         mainHandler.post { onSuccess(metaResponse) }
                     } else {
-                        mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
                     }
                 } catch (e: Exception) {
-                    mainHandler.post { onError(e) }
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -50,21 +89,22 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 try {
+                    val bodyString = response.body?.string() ?: ""
                     if (response.isSuccessful) {
-                        val bodyString = response.body?.string() ?: ""
                         val type = object : TypeToken<List<Driver>>() {}.type
                         val list: List<Driver> = gson.fromJson(bodyString, type)
                         mainHandler.post { onSuccess(list) }
                     } else {
-                        mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
                     }
                 } catch (e: Exception) {
-                    mainHandler.post { onError(e) }
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -91,20 +131,21 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 try {
+                    val bodyString = response.body?.string() ?: ""
                     if (response.isSuccessful) {
-                        val bodyString = response.body?.string() ?: ""
                         val searchResponse = gson.fromJson(bodyString, SearchDriversResponse::class.java)
                         mainHandler.post { onSuccess(searchResponse) }
                     } else {
-                        mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
                     }
                 } catch (e: Exception) {
-                    mainHandler.post { onError(e) }
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -141,20 +182,21 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 try {
+                    val bodyString = response.body?.string() ?: ""
                     if (response.isSuccessful) {
-                        val bodyString = response.body?.string() ?: ""
                         val ride = gson.fromJson(bodyString, Ride::class.java)
                         mainHandler.post { onSuccess(ride) }
                     } else {
-                        mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
                     }
                 } catch (e: Exception) {
-                    mainHandler.post { onError(e) }
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -168,21 +210,22 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 try {
+                    val bodyString = response.body?.string() ?: ""
                     if (response.isSuccessful) {
-                        val bodyString = response.body?.string() ?: ""
                         val type = object : TypeToken<List<Ride>>() {}.type
                         val list: List<Ride> = gson.fromJson(bodyString, type)
                         mainHandler.post { onSuccess(list) }
                     } else {
-                        mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
                     }
                 } catch (e: Exception) {
-                    mainHandler.post { onError(e) }
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -199,20 +242,21 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 try {
+                    val bodyString = response.body?.string() ?: ""
                     if (response.isSuccessful) {
-                        val bodyString = response.body?.string() ?: ""
                         val ride = gson.fromJson(bodyString, Ride::class.java)
                         mainHandler.post { onSuccess(ride) }
                     } else {
-                        mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
                     }
                 } catch (e: Exception) {
-                    mainHandler.post { onError(e) }
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -243,20 +287,21 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 try {
+                    val bodyString = response.body?.string() ?: ""
                     if (response.isSuccessful) {
-                        val bodyString = response.body?.string() ?: ""
                         val driver = gson.fromJson(bodyString, Driver::class.java)
                         mainHandler.post { onSuccess(driver) }
                     } else {
-                        mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
                     }
                 } catch (e: Exception) {
-                    mainHandler.post { onError(e) }
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -273,20 +318,21 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 try {
+                    val bodyString = response.body?.string() ?: ""
                     if (response.isSuccessful) {
-                        val bodyString = response.body?.string() ?: ""
                         val driver = gson.fromJson(bodyString, Driver::class.java)
                         mainHandler.post { onSuccess(driver) }
                     } else {
-                        mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
                     }
                 } catch (e: Exception) {
-                    mainHandler.post { onError(e) }
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -303,20 +349,21 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 try {
+                    val bodyString = response.body?.string() ?: ""
                     if (response.isSuccessful) {
-                        val bodyString = response.body?.string() ?: ""
                         val driver = gson.fromJson(bodyString, Driver::class.java)
                         mainHandler.post { onSuccess(driver) }
                     } else {
-                        mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
                     }
                 } catch (e: Exception) {
-                    mainHandler.post { onError(e) }
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -341,7 +388,7 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -353,12 +400,11 @@ object ApiService {
                         val msg = map["message"] as? String ?: "PIN enviado!"
                         mainHandler.post { onSuccess(codeSent, msg) }
                     } else {
-                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
-                        val err = map["error"] as? String ?: "Erro HTTP ${response.code}"
-                        mainHandler.post { onError(Exception(err)) }
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
                     }
                 } catch (e: Exception) {
-                    mainHandler.post { onError(e) }
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -379,7 +425,7 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -391,12 +437,11 @@ object ApiService {
                         val passenger = gson.fromJson(passengerJson, Passenger::class.java)
                         mainHandler.post { onSuccess(passenger) }
                     } else {
-                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
-                        val err = map["error"] as? String ?: "Erro HTTP ${response.code}"
-                        mainHandler.post { onError(Exception(err)) }
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
                     }
                 } catch (e: Exception) {
-                    mainHandler.post { onError(e) }
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -416,7 +461,7 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -428,12 +473,11 @@ object ApiService {
                         val msg = map["message"] as? String ?: "PIN enviado!"
                         mainHandler.post { onSuccess(codeSent, msg) }
                     } else {
-                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
-                        val err = map["error"] as? String ?: "Erro HTTP ${response.code}"
-                        mainHandler.post { onError(Exception(err)) }
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
                     }
                 } catch (e: Exception) {
-                    mainHandler.post { onError(e) }
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -454,7 +498,7 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -466,12 +510,11 @@ object ApiService {
                         val driver = gson.fromJson(driverJson, Driver::class.java)
                         mainHandler.post { onSuccess(driver) }
                     } else {
-                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
-                        val err = map["error"] as? String ?: "Erro HTTP ${response.code}"
-                        mainHandler.post { onError(Exception(err)) }
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
                     }
                 } catch (e: Exception) {
-                    mainHandler.post { onError(e) }
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -485,21 +528,22 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 try {
+                    val bodyString = response.body?.string() ?: ""
                     if (response.isSuccessful) {
-                        val bodyString = response.body?.string() ?: ""
                         val type = object : TypeToken<List<Passenger>>() {}.type
                         val list: List<Passenger> = gson.fromJson(bodyString, type)
                         mainHandler.post { onSuccess(list) }
                     } else {
-                        mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
                     }
                 } catch (e: Exception) {
-                    mainHandler.post { onError(e) }
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -515,14 +559,20 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    mainHandler.post { onSuccess() }
-                } else {
-                    mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        mainHandler.post { onSuccess() }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -536,14 +586,20 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    mainHandler.post { onSuccess() }
-                } else {
-                    mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        mainHandler.post { onSuccess() }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -559,14 +615,20 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    mainHandler.post { onSuccess() }
-                } else {
-                    mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        mainHandler.post { onSuccess() }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -582,14 +644,20 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    mainHandler.post { onSuccess() }
-                } else {
-                    mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        mainHandler.post { onSuccess() }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -605,14 +673,20 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    mainHandler.post { onSuccess() }
-                } else {
-                    mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        mainHandler.post { onSuccess() }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })
@@ -627,14 +701,20 @@ object ApiService {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                mainHandler.post { onError(e) }
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
             }
 
             override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    mainHandler.post { onSuccess() }
-                } else {
-                    mainHandler.post { onError(Exception("HTTP Code ${response.code}")) }
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        mainHandler.post { onSuccess() }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
                 }
             }
         })

@@ -1,8 +1,8 @@
 package com.vaicar.app
 
 object NetworkConfig {
-    // Both production and active preview environments are supported
-    const val PRODUCTION_URL = "https://www.vaicar.alansmsolutions.com"
+    // Centralized real production backend with live database, authentication, and services
+    const val PRODUCTION_URL = "https://vaicar.onrender.com"
     const val PREVIEW_URL = "https://ais-dev-57s7ktjqjz2sxaxitjmcqy-760146523751.europe-west2.run.app"
 
     var currentBaseUrl = PRODUCTION_URL

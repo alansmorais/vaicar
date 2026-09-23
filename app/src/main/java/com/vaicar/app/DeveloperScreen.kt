@@ -72,7 +72,7 @@ fun DeveloperScreen(onBack: () -> Unit, onUrlChanged: () -> Unit) {
                                     },
                                     colors = RadioButtonDefaults.colors(selectedColor = EmeraldGreen)
                                 )
-                                Text("Produção (vaicar.alansmsolutions.com)", color = Color.White, fontSize = 14.sp)
+                                Text("Produção Oficial (vaicar.onrender.com)", color = Color.White, fontSize = 14.sp)
                             }
 
                             Row(verticalAlignment = Alignment.CenterVertically) {
