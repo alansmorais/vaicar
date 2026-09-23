@@ -1,0 +1,45 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Dark slate background circle -->
+    <path
+        android:fillColor="#0F172A"
+        android:pathData="M54,54m-48,0a48,48 0,1 1,96 0a48,48 0,1 1,-96 0" />
+    
+    <!-- Emerald circle outer rim -->
+    <path
+        android:strokeColor="#10B981"
+        android:strokeWidth="3"
+        android:pathData="M54,54m-42,0a42,42 0,1 1,84 0a42,42 0,1 1,-84 0" />
+
+    <!-- Road / V line path -->
+    <path
+        android:fillColor="#1E293B"
+        android:strokeColor="#10B981"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M30,34 L48,74 L54,74 L78,34" />
+
+    <!-- Dashed road divider line inside the V -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M39,52 L44,63" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M57,68 L66,52" />
+
+    <!-- Small GPS marker/pin on the right of the V -->
+    <path
+        android:fillColor="#EF4444"
+        android:pathData="M78,30 C75,30 73,32 73,35 C73,39 78,44 78,44 C78,44 83,39 83,35 C83,32 81,30 78,30 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M78,35m-1.5,0a1.5,1.5 0,1 1,3 0a1.5,1.5 0,1 1,-3 0" />
+</vector>

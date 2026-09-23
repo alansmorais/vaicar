@@ -4,7 +4,7 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import nodemailer from 'nodemailer';
-import { db } from './src/lib/firebaseAdmin.ts';
+import { db } from './app/web/src/lib/firebaseAdmin.ts';
 
 // Force Node.js to use IPv4 instead of IPv6 to prevent ENETUNREACH in cloud containers
 try {
@@ -28,7 +28,7 @@ import {
   Passenger,
   PlatformFareSettings,
   DynamicPricingSettings,
-} from './src/types.ts';
+} from './app/web/src/types.ts';
 
 async function createMailer(cleanPass: string, user: string, port = 587, secure = false) {
   return nodemailer.createTransport({

@@ -20,85 +20,23 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Bubblewrap CLI
-        run: npm install -g @bubblewrap/cli@latest
-
-      - name: Configure Bubblewrap Non-Interactively
-        run: |
-          # Dynamically locate the pre-installed cmdline-tools under ANDROID_HOME
-          REAL_TOOLS_BIN=$(find $ANDROID_HOME/cmdline-tools -name "sdkmanager" -print -quit)
-          REAL_TOOLS_DIR=$(dirname $(dirname "$REAL_TOOLS_BIN"))
-          echo "Using verified cmdline-tools directory: $REAL_TOOLS_DIR"
-          
-          # Create a custom SDK layout that Bubblewrap expects, linking to the pre-installed SDK
-          mkdir -p /home/runner/android-sdk
-          ln -s "$REAL_TOOLS_DIR" /home/runner/android-sdk/tools
-          ln -s $ANDROID_HOME/build-tools /home/runner/android-sdk/build-tools
-          ln -s $ANDROID_HOME/platforms /home/runner/android-sdk/platforms
-          ln -s $ANDROID_HOME/platform-tools /home/runner/android-sdk/platform-tools
-          ln -s $ANDROID_HOME/licenses /home/runner/android-sdk/licenses
-          
-          # Verify the components are successfully mapped
-          echo "=== Verifying Custom Android SDK Structure ==="
-          ls -la /home/runner/android-sdk
-          ls -la /home/runner/android-sdk/tools/bin/sdkmanager
-          
-          mkdir -p ~/.bubblewrap
-          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"/home/runner/android-sdk\"}" > ~/.bubblewrap/config.json
-          cat ~/.bubblewrap/config.json
-
       - name: Deploy Permanent Android Keystore
         run: |
           # Write the permanent keystore matching public/.well-known/assetlinks.json
           echo "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" | base64 -d > android.keystore
 
-      - name: Generate Android Project and Build APK
-        env:
-          ANDROID_HOME: /home/runner/android-sdk
-          ANDROID_SDK_ROOT: /home/runner/android-sdk
-          BUBBLEWRAP_KEYSTORE_PASSWORD: "vaicar123"
-          BUBBLEWRAP_KEY_PASSWORD: "vaicar123"
+      - name: Build Android Native App with Gradle
         run: |
-          # Start a local static server to serve manifest.json locally so download never fails during generation
-          python3 -m http.server 8080 --directory public &
-          sleep 2
-          
-          # Temporarily set webManifestUrl to local server for initial reading
-          sed -i 's|"webManifestUrl": "https://[^"]*"|"webManifestUrl": "http://localhost:8080/manifest.json"|g' twa-manifest.json
-          
-          # Generate/update project with explicit non-empty appVersionName
-          yes "1.0.0" | bubblewrap update --manifest=twa-manifest.json --appVersionName="1.0.0" --skipConfig
-          
-          # Restore official production URL in twa-manifest.json and strings.xml
-          echo "=== Setting Official Production Domain (www.vaicar.alansmsolutions.com) ==="
-          sed -i 's|"webManifestUrl": "http://localhost:8080/manifest.json"|"webManifestUrl": "https://www.vaicar.alansmsolutions.com/manifest.json"|g' twa-manifest.json
-          find . -type f \( -name "*.xml" -o -name "*.json" \) -exec sed -i 's|http://localhost:8080/|https://www.vaicar.alansmsolutions.com/|g' {} +
-          find . -type f \( -name "*.xml" -o -name "*.json" \) -exec sed -i 's|http://localhost:8080|https://www.vaicar.alansmsolutions.com|g' {} +
-          
-          # Print strings.xml to verify production host and URLs
-          echo "=== Generated strings.xml ==="
-          find app -name "strings.xml" -exec cat {} + || true
-          
-          # Compile Android APK using Gradle directly (completely non-interactive)
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew assembleRelease
-          else
-            yes "1.0.0" | bubblewrap build --skipSigning
-          fi
+          chmod +x gradlew
+          ./gradlew assembleRelease
 
       - name: Robust Manual Align and Sign APK
         run: |
-          # Find the built unsigned APK under gradle's output
-          UNSIGNED_APK=$(find . -name "*unsigned.apk" -print -quit)
-          echo "Found unsigned APK at: $UNSIGNED_APK"
+          # Find the built release APK under gradle's output
+          UNSIGNED_APK=$(find . -name "*.apk" -print -quit)
+          echo "Found compiled APK at: $UNSIGNED_APK"
           if [ -z "$UNSIGNED_APK" ]; then
-            echo "Error: Unsigned APK not found!" && exit 1
+            echo "Error: APK not found!" && exit 1
           fi
           
           # Find build tools (zipalign and apksigner)
@@ -115,7 +53,7 @@ jobs:
           
           # Verify signature is 100% correct
           $APKSIGNER_BIN verify vaicar-release-signed.apk
-          echo "APK successfully verified and signed!"
+          echo "Native APK successfully verified and signed!"
 
       - name: Upload Signed APK
         uses: actions/upload-artifact@v4
