@@ -163,7 +163,7 @@ class DriverBackgroundService : Service() {
                     val driverId = SecurityUtils.getDriverId(this@DriverBackgroundService)
 
                     if (isDriverOnline) {
-                        ApiService.getRides(
+                        ApiService.fetchRides(
                             onSuccess = { rides ->
                                 handleIncomingRides(rides, driverId, driverPhone)
                             },
@@ -224,8 +224,8 @@ class DriverBackgroundService : Service() {
             rideId = ride.id,
             passengerName = ride.passengerName,
             passengerPhone = ride.passengerPhone,
-            originAddress = ride.originAddress,
-            destAddress = ride.destinationAddress,
+            originAddress = ride.originAddress ?: "Origem",
+            destAddress = ride.destinationAddress ?: "Destino",
             fare = ride.estimatedPrice,
             notes = ride.notes ?: "",
             driverId = driverId
@@ -263,13 +263,15 @@ class DriverBackgroundService : Service() {
         )
 
         // 5. Build High-Priority Heads-Up & Full Screen Notification
+        val originStr = ride.originAddress ?: "Origem"
+        val destStr = ride.destinationAddress ?: "Destino"
         val notification = NotificationCompat.Builder(this, CHANNEL_ID_ALARM)
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentTitle("🚨 NOVO CHAMADO: ${ride.passengerName}")
-            .setContentText("De: ${ride.originAddress.take(40)} • R$ ${"%.2f".format(ride.estimatedPrice)}")
+            .setContentText("De: ${originStr.take(40)} • R$ ${"%.2f".format(ride.estimatedPrice)}")
             .setStyle(
                 NotificationCompat.BigTextStyle()
-                    .bigText("🚨 NOVO CHAMADO DE CORRIDA!\nPassageiro: ${ride.passengerName}\nEmbarque: ${ride.originAddress}\nDestino: ${ride.destinationAddress}\nValor: R$ ${"%.2f".format(ride.estimatedPrice)}")
+                    .bigText("🚨 NOVO CHAMADO DE CORRIDA!\nPassageiro: ${ride.passengerName}\nEmbarque: $originStr\nDestino: $destStr\nValor: R$ ${"%.2f".format(ride.estimatedPrice)}")
             )
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)

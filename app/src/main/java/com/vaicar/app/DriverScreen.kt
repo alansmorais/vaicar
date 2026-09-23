@@ -999,7 +999,7 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                 while (true) {
                                                     val parsedTime = try {
                                                         if (!ride.arrivedAt.isNullOrBlank()) {
-                                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                                                                 java.time.Instant.parse(ride.arrivedAt).toEpochMilli()
                                                             } else {
                                                                 java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).apply {
