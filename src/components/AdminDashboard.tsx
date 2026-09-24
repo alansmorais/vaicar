@@ -755,7 +755,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span>Autenticação Segura</span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Chave inicial de primeiro acesso: <code className="text-emerald-400 font-mono font-bold bg-slate-900 px-1 py-0.5 rounded">Admin1989</code>
+              Acesso restrito: utilize a chave padrão de fábrica para o primeiro login.
             </p>
             <p className="text-[10px] text-amber-400/90 font-medium">
               * A troca para sua senha pessoal será exigida na primeira ação.
@@ -802,7 +802,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               onClick={() => {
                 if (window.confirm('Deseja realmente redefinir todas as senhas personalizadas de administrador e desenvolvedor para os valores padrões de fábrica?')) {
                   resetAllPasswords();
-                  alert('Senhas redefinidas com sucesso! Use "Admin1989" para acessar como Administrador e "Dev1989" para Desenvolvedor.');
+                  alert('Senhas redefinidas com sucesso! Use as chaves de fábrica para o primeiro login.');
                   window.location.reload();
                 }
               }}
