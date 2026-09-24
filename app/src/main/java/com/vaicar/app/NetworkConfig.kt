@@ -114,6 +114,8 @@ data class Ride(
     val matchedDriverId: String? = null,
     val driverName: String? = null,
     val driverPhone: String? = null,
+    val driverVehicle: String? = null,
+    val driverLicensePlate: String? = null,
     val driverLocation: DriverLocation? = null,
     val fareBrl: Double = 0.0,
     val estimatedPrice: Double = 0.0,

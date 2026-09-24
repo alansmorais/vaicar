@@ -323,8 +323,9 @@ fun LivePassengerMapView(
                 ) {
                     Column {
                         Text(ride.driverName ?: "Motorista Parceiro", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        val vehicleInfo = ride.driverVehicle ?: "Veículo cadastrado"
                         Text(
-                            "${ride.driverVehicle} ${if (!ride.driverLicensePlate.isNullOrBlank()) "• Placa: ${ride.driverLicensePlate}" else ""}",
+                            "$vehicleInfo ${if (!ride.driverLicensePlate.isNullOrBlank()) "• Placa: ${ride.driverLicensePlate}" else ""}",
                             color = TextSecondary,
                             fontSize = 12.sp
                         )
