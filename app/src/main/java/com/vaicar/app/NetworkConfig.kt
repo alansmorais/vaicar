@@ -81,6 +81,19 @@ data class Driver(
     val whatsappDirectNumber: String? = null
 )
 
+data class DriverLocation(
+    val lat: Double,
+    val lng: Double,
+    val heading: Float? = null,
+    val speed: Float? = null,
+    val accuracy: Float? = null,
+    val updatedAt: String? = null,
+    val distanceKm: Double? = null,
+    val etaMinutes: Int? = null,
+    val isStale: Boolean = false,
+    val secondsAgo: Int? = null
+)
+
 data class Ride(
     val id: String,
     val passengerName: String,
@@ -101,6 +114,7 @@ data class Ride(
     val matchedDriverId: String? = null,
     val driverName: String? = null,
     val driverPhone: String? = null,
+    val driverLocation: DriverLocation? = null,
     val fareBrl: Double = 0.0,
     val estimatedPrice: Double = 0.0,
     val status: String = "REQUESTED", // REQUESTED, ACCEPTED, EN_ROUTE, ARRIVED, IN_PROGRESS, COMPLETED, CANCELLED_BY_PASSENGER, CANCELLED_BY_DRIVER

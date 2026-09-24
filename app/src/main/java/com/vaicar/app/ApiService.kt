@@ -434,6 +434,115 @@ object ApiService {
         })
     }
 
+    fun updateDriverLocation(
+        driverId: String,
+        rideId: String? = null,
+        lat: Double,
+        lng: Double,
+        heading: Float? = null,
+        speed: Float? = null,
+        accuracy: Float? = null,
+        onSuccess: ((DriverLocation) -> Unit)? = null,
+        onError: ((Exception) -> Unit)? = null
+    ) {
+        val bodyMap = mutableMapOf<String, Any>(
+            "driverId" to driverId,
+            "lat" to lat,
+            "lng" to lng
+        )
+        if (!rideId.isNullOrEmpty()) bodyMap["rideId"] = rideId
+        if (heading != null) bodyMap["heading"] = heading
+        if (speed != null) bodyMap["speed"] = speed
+        if (accuracy != null) bodyMap["accuracy"] = accuracy
+
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+        val url = if (!rideId.isNullOrEmpty()) {
+            "${NetworkConfig.apiBaseUrl}/rides/$rideId/driver-location"
+        } else {
+            "${NetworkConfig.apiBaseUrl}/drivers/$driverId/location"
+        }
+
+        val request = Request.Builder()
+            .url(url)
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError?.invoke(Exception(parseNetworkError(e), e)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
+                        val locJson = gson.toJson(map["driverLocation"])
+                        val location = gson.fromJson(locJson, DriverLocation::class.java)
+                        mainHandler.post { onSuccess?.invoke(location) }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError?.invoke(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError?.invoke(Exception(parseNetworkError(e), e)) }
+                }
+            }
+        })
+    }
+
+    fun fetchDriverLocation(
+        rideId: String,
+        passengerPhone: String? = null,
+        driverId: String? = null,
+        onSuccess: (DriverLocation?, String?, String?) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        var url = "${NetworkConfig.apiBaseUrl}/rides/$rideId/driver-location"
+        val params = mutableListOf<String>()
+        if (!passengerPhone.isNullOrEmpty()) {
+            params.add("passengerPhone=${java.net.URLEncoder.encode(passengerPhone, "UTF-8")}")
+        }
+        if (!driverId.isNullOrEmpty()) {
+            params.add("driverId=${java.net.URLEncoder.encode(driverId, "UTF-8")}")
+        }
+        if (params.isNotEmpty()) {
+            url += "?" + params.joinToString("&")
+        }
+
+        val request = Request.Builder().url(url).get().build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
+                        val hasLive = map["hasLiveLocation"] as? Boolean ?: false
+                        val status = map["status"] as? String
+                        val arrivedAt = map["arrivedAt"] as? String
+                        if (hasLive && map["driverLocation"] != null) {
+                            val locJson = gson.toJson(map["driverLocation"])
+                            val location = gson.fromJson(locJson, DriverLocation::class.java)
+                            mainHandler.post { onSuccess(location, status, arrivedAt) }
+                        } else {
+                            mainHandler.post { onSuccess(null, status, arrivedAt) }
+                        }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+                }
+            }
+        })
+    }
+
     fun registerDriver(
         name: String,
         phone: String,

@@ -1952,6 +1952,216 @@ app.post('/api/v1/rides/:id/resolve-payment', async (req, res) => {
   }
 });
 
+// =========================================================================
+// REAL-TIME DRIVER LOCATION TRACKING (PASSENGER MAP & GPS INTEGRATION)
+// =========================================================================
+
+function calculateHaversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Radius of earth in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Number((R * c).toFixed(2));
+}
+
+// Update driver real-time GPS location (called by Driver Android App)
+app.post(['/api/v1/drivers/:id/location', '/api/v1/rides/:rideId/driver-location'], async (req, res) => {
+  try {
+    const driverId = req.params.id || req.body.driverId;
+    const rideId = req.params.rideId || req.body.rideId;
+    const { lat, lng, heading, speed, accuracy } = req.body;
+
+    if (typeof lat !== 'number' || typeof lng !== 'number') {
+      return res.status(400).json({ error: 'Coordenadas de latitude e longitude inválidas.' });
+    }
+
+    const timestamp = new Date().toISOString();
+    const locationData: any = {
+      lat: Number(lat),
+      lng: Number(lng),
+      heading: typeof heading === 'number' ? heading : 0,
+      speed: typeof speed === 'number' ? speed : 0,
+      accuracy: typeof accuracy === 'number' ? accuracy : 0,
+      updatedAt: timestamp,
+      isStale: false,
+    };
+
+    // 1. Update driver's last known location in database
+    if (driverId) {
+      try {
+        await db.collection('drivers').doc(driverId).update({
+          lastLocation: {
+            lat: locationData.lat,
+            lng: locationData.lng,
+            heading: locationData.heading,
+            updatedAt: timestamp,
+          },
+        });
+      } catch (dErr) {
+        // Driver doc might not exist yet or update might fail, non-fatal
+      }
+    }
+
+    // 2. If an active ride is associated, compute real distance and ETA to pickup / destination
+    if (rideId) {
+      const rideRef = db.collection('rides').doc(rideId);
+      const rideDoc = await rideRef.get();
+      if (rideDoc.exists) {
+        const ride = rideDoc.data() as Ride;
+
+        // Security check: Only update if driver matches the assigned ride
+        if (driverId && ride.driverId && ride.driverId !== driverId && ride.requestedDriverId !== driverId) {
+          return res.status(403).json({ error: 'Motorista não autorizado para esta corrida.' });
+        }
+
+        // Determine target destination based on ride status:
+        // Before pickup (ACCEPTED, EN_ROUTE, ARRIVED) -> target is origin pickup
+        // During trip (IN_PROGRESS) -> target is destination
+        let targetLat = ride.originLat;
+        let targetLng = ride.originLng;
+
+        if (ride.status === 'IN_PROGRESS' && ride.destinationLat && ride.destinationLng) {
+          targetLat = ride.destinationLat;
+          targetLng = ride.destinationLng;
+        }
+
+        if (targetLat && targetLng) {
+          const distKm = calculateHaversineDistanceKm(locationData.lat, locationData.lng, targetLat, targetLng);
+          locationData.distanceKm = distKm;
+          // Calculate realistic arrival time in minutes (average urban speed in São Sebastião ~30 km/h = 0.5 km/min)
+          locationData.etaMinutes = Math.max(1, Math.round(distKm / 0.5));
+        }
+
+        const rideUpdates: any = {
+          driverLocation: locationData,
+          updatedAt: timestamp,
+        };
+
+        // Proximity arrival check: if driver is within 50m of pickup and still in ACCEPTED / DRIVER_ARRIVING
+        if (
+          ((ride.status as string) === 'ACCEPTED' || (ride.status as string) === 'DRIVER_ARRIVING' || (ride.status as string) === 'EN_ROUTE') &&
+          locationData.distanceKm !== undefined &&
+          locationData.distanceKm <= 0.05
+        ) {
+          rideUpdates.driverNearby = true;
+        }
+
+        await rideRef.update(rideUpdates);
+
+        const updatedRide = { ...ride, ...rideUpdates };
+        // Broadcast location update over real-time SSE stream
+        broadcastLiveEvent('RIDE_UPDATED', updatedRide);
+      }
+    }
+
+    res.json({ success: true, driverLocation: locationData });
+  } catch (err: any) {
+    console.error('Error in driver location update:', err);
+    res.status(500).json({ error: 'Falha ao atualizar localização do motorista: ' + err.message });
+  }
+});
+
+// Authoritative retrieval of driver's real-time location for an active ride (Passenger Map)
+app.get('/api/v1/rides/:id/driver-location', async (req, res) => {
+  try {
+    const rideId = req.params.id;
+    const passengerPhone = req.query.passengerPhone as string | undefined;
+    const driverId = req.query.driverId as string | undefined;
+
+    const rideDoc = await db.collection('rides').doc(rideId).get();
+    if (!rideDoc.exists) {
+      return res.status(404).json({ error: 'Corrida não encontrada.' });
+    }
+
+    const ride = rideDoc.data() as Ride;
+
+    // Privacy & Authorization verification:
+    // Only the passenger belonging to this ride, the assigned driver, or an admin can access this location
+    if (passengerPhone) {
+      const cleanReq = passengerPhone.replace(/\D/g, '');
+      const cleanRide = (ride.passengerPhone || '').replace(/\D/g, '');
+      if (cleanReq && cleanRide && !cleanRide.endsWith(cleanReq) && !cleanReq.endsWith(cleanRide)) {
+        return res.status(403).json({ error: 'Acesso não autorizado aos dados de localização desta corrida.' });
+      }
+    } else if (driverId) {
+      if (ride.driverId && ride.driverId !== driverId && ride.requestedDriverId !== driverId) {
+        return res.status(403).json({ error: 'Acesso não autorizado aos dados de localização desta corrida.' });
+      }
+    }
+
+    // Only active rides expose live driver tracking (before acceptance, exact location is private)
+    const isActive = ['ACCEPTED', 'EN_ROUTE', 'ARRIVED', 'DRIVER_ARRIVING', 'IN_PROGRESS'].includes(ride.status as string);
+    if (!isActive) {
+      return res.json({
+        rideId: ride.id,
+        status: ride.status,
+        hasLiveLocation: false,
+        message: 'Rastreamento em tempo real disponível apenas para corridas aceitas e ativas.',
+      });
+    }
+
+    let loc = (ride as any).driverLocation;
+
+    // If ride doesn't have a direct driverLocation yet, look up driver's last known location
+    if (!loc && ride.driverId) {
+      const drvDoc = await db.collection('drivers').doc(ride.driverId).get();
+      if (drvDoc.exists) {
+        const drvData = drvDoc.data();
+        if (drvData?.lastLocation) {
+          loc = {
+            lat: drvData.lastLocation.lat,
+            lng: drvData.lastLocation.lng,
+            heading: drvData.lastLocation.heading || 0,
+            updatedAt: drvData.lastLocation.updatedAt || new Date().toISOString(),
+          };
+
+          if (ride.originLat && ride.originLng) {
+            const dist = calculateHaversineDistanceKm(loc.lat, loc.lng, ride.originLat, ride.originLng);
+            loc.distanceKm = dist;
+            loc.etaMinutes = Math.max(1, Math.round(dist / 0.5));
+          }
+        }
+      }
+    }
+
+    if (!loc) {
+      return res.json({
+        rideId: ride.id,
+        status: ride.status,
+        hasLiveLocation: false,
+        message: 'Aguardando o primeiro sinal GPS do motorista...',
+      });
+    }
+
+    // Check for stale location (last update > 45 seconds ago)
+    const lastUpdateMs = loc.updatedAt ? new Date(loc.updatedAt).getTime() : 0;
+    const isStale = Date.now() - lastUpdateMs > 45000;
+    const secondsAgo = Math.max(0, Math.floor((Date.now() - lastUpdateMs) / 1000));
+
+    res.json({
+      rideId: ride.id,
+      driverId: ride.driverId,
+      driverName: ride.driverName,
+      driverVehicle: ride.driverVehicle,
+      driverLicensePlate: (ride as any).driverLicensePlate,
+      status: ride.status,
+      arrivedAt: (ride as any).arrivedAt || null,
+      hasLiveLocation: true,
+      driverLocation: {
+        ...loc,
+        isStale,
+        secondsAgo,
+      },
+    });
+  } catch (err: any) {
+    console.error('Error fetching driver location:', err);
+    res.status(500).json({ error: 'Falha ao obter localização do motorista: ' + err.message });
+  }
+});
+
 // --- RIDE RECEIPT ENDPOINTS (COMPROVANTE DA CORRIDA) ---
 
 // Get Receipt JSON for a Ride

@@ -153,6 +153,11 @@ class DriverBackgroundService : Service() {
         if (isRunning) return
         isRunning = true
 
+        val driverId = SecurityUtils.getDriverId(this)
+        if (driverId.isNotBlank()) {
+            DriverLocationManager.startTracking(this, driverId)
+        }
+
         serviceJob?.cancel()
         serviceJob = CoroutineScope(Dispatchers.IO).launch {
             Log.i(TAG, "Started background ride polling loop (running even with app closed)...")
@@ -358,6 +363,7 @@ class DriverBackgroundService : Service() {
         isRunning = false
         serviceJob?.cancel()
         serviceJob = null
+        DriverLocationManager.stopTracking()
         SoundAlertHelper.stopAlarm(this)
         clearRideAlertNotification()
         stopForeground(STOP_FOREGROUND_REMOVE)

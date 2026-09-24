@@ -259,6 +259,18 @@ export interface DynamicPricingSettings {
   surgeIcon: string; // Ex: "⚡"
 }
 
+export interface DriverLocation {
+  lat: number;
+  lng: number;
+  heading?: number;
+  speed?: number;
+  accuracy?: number;
+  updatedAt?: string;
+  distanceKm?: number;
+  etaMinutes?: number;
+  isStale?: boolean;
+}
+
 export interface Ride {
   id: string;
   passengerName: string;
@@ -275,6 +287,7 @@ export interface Ride {
   driverVehicle: string;
   driverAvatar: string;
   driverLicensePlate?: string;
+  driverLocation?: DriverLocation;
   receiptId?: string;
   receiptGeneratedAt?: string;
   originZoneId: string;

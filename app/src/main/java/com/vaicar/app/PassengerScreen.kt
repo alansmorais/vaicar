@@ -98,18 +98,39 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
 
     // Poll current ride status if active
     val currentRideId = currentRide?.id
+    var liveDriverLocation by remember { mutableStateOf<DriverLocation?>(null) }
+
     LaunchedEffect(currentRideId) {
         if (currentRideId != null) {
             while (true) {
-                kotlinx.coroutines.delay(2500)
                 ApiService.getRide(
                     rideId = currentRideId,
                     onSuccess = { updated ->
                         currentRide = updated
+                        if (updated.driverLocation != null) {
+                            liveDriverLocation = updated.driverLocation
+                        }
                     },
                     onError = {}
                 )
+
+                // Fetch real-time driver GPS location for this active ride
+                if (currentRide?.status in listOf("ACCEPTED", "EN_ROUTE", "ARRIVED", "DRIVER_ARRIVING", "IN_PROGRESS")) {
+                    ApiService.fetchDriverLocation(
+                        rideId = currentRideId,
+                        passengerPhone = passengerPhone,
+                        onSuccess = { loc, status, arrivedAt ->
+                            if (loc != null) {
+                                liveDriverLocation = loc
+                            }
+                        },
+                        onError = {}
+                    )
+                }
+                kotlinx.coroutines.delay(2500)
             }
+        } else {
+            liveDriverLocation = null
         }
     }
 
@@ -473,199 +494,194 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                         }
                     }
                 } else {
-                    // Active Ride Tracker Card
-                    item {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                Text(
-                                    text = if (currentRide!!.status == "COMPLETED") "Viagem Concluída com Sucesso! 🏁" else "Sua Viagem está Ativa! 🚗",
-                                    color = EmeraldGreen,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                    // Active Ride View
+                    val isActiveRide = currentRide!!.status in listOf("ACCEPTED", "EN_ROUTE", "ARRIVED", "DRIVER_ARRIVING", "IN_PROGRESS")
 
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Passageiro:", color = TextSecondary)
-                                    Text(currentRide!!.passengerName, color = Color.White, fontWeight = FontWeight.Bold)
+                    if (isActiveRide) {
+                        item {
+                            LivePassengerMapView(
+                                ride = currentRide!!,
+                                liveLocation = liveDriverLocation,
+                                onCancelRide = {
+                                    ApiService.updateRideStatus(
+                                        rideId = currentRide!!.id,
+                                        status = "CANCELLED_BY_PASSENGER",
+                                        onSuccess = {
+                                            currentRide = it
+                                            message = "Corrida cancelada por você."
+                                        },
+                                        onError = {
+                                            message = "Falha ao cancelar corrida."
+                                        }
+                                    )
                                 }
+                            )
+                        }
+                    } else {
+                        // Requested or Completed or Cancelled Ride Tracker Card
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    Text(
+                                        text = if (currentRide!!.status == "COMPLETED") "Viagem Concluída com Sucesso! 🏁" else if (currentRide!!.status == "REQUESTED") "Aguardando Confirmação do Motorista ⏳" else "Status da Corrida",
+                                        color = EmeraldGreen,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
 
-                                if (!currentRide!!.driverName.isNullOrBlank()) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Text("Motorista:", color = TextSecondary)
-                                        Text(currentRide!!.driverName ?: "Motorista", color = Color.White, fontWeight = FontWeight.Bold)
+                                        Text("Passageiro:", color = TextSecondary)
+                                        Text(currentRide!!.passengerName, color = Color.White, fontWeight = FontWeight.Bold)
                                     }
-                                }
 
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("Embarque:", color = TextSecondary, fontSize = 12.sp)
-                                    Text(currentRide!!.originAddress ?: originZone?.name ?: "Origem", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                }
-
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("Desembarque:", color = TextSecondary, fontSize = 12.sp)
-                                    Text(currentRide!!.destinationAddress ?: destZone?.name ?: "Destino", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                }
-
-                                val displayFare = if (currentRide!!.fareBrl > 0) currentRide!!.fareBrl else currentRide!!.estimatedPrice
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Valor Total:", color = TextSecondary)
-                                    Text("R$ ${"%.2f".format(displayFare)}", color = EmeraldGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                                }
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Status:", color = TextSecondary)
-                                    Badge(
-                                        containerColor = when (currentRide!!.status) {
-                                            "REQUESTED" -> Color(0xFFEAB308)
-                                            "ACCEPTED" -> Color(0xFF3B82F6)
-                                            "COMPLETED" -> Color(0xFF10B981)
-                                            else -> AccentRed
-                                        }
-                                    ) {
-                                        Text(
-                                            text = when (currentRide!!.status) {
-                                                "REQUESTED" -> "Aguardando Motorista Aceitar"
-                                                "ACCEPTED" -> "Corrida Aceita! Motorista a caminho"
-                                                "COMPLETED" -> "Finalizada"
-                                                "CANCELLED_BY_PASSENGER" -> "Cancelada por Você"
-                                                "CANCELLED_BY_DRIVER" -> "Cancelada pelo Motorista"
-                                                else -> currentRide!!.status
-                                            },
-                                            color = if (currentRide!!.status == "REQUESTED") Color.Black else Color.White,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-
-                                // COMPROVANTE DA CORRIDA BUTTON (PART 1 & 5)
-                                if (currentRide!!.status == "COMPLETED") {
-                                    Card(
-                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF022C22)),
-                                        border = BorderStroke(1.dp, Color(0xFF059669)),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(14.dp),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    if (!currentRide!!.driverName.isNullOrBlank()) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text("🧾 Comprovante da Corrida", color = EmeraldGreen, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                                Text("OFICIAL", color = Color(0xFFA7F3D0), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            Text("Motorista:", color = TextSecondary)
+                                            Text(currentRide!!.driverName ?: "Motorista", color = Color.White, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("Embarque:", color = TextSecondary, fontSize = 12.sp)
+                                        Text(currentRide!!.originAddress ?: originZone?.name ?: "Origem", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                    }
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("Desembarque:", color = TextSecondary, fontSize = 12.sp)
+                                        Text(currentRide!!.destinationAddress ?: destZone?.name ?: "Destino", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                    }
+
+                                    val displayFare = if (currentRide!!.fareBrl > 0) currentRide!!.fareBrl else currentRide!!.estimatedPrice
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Valor Total:", color = TextSecondary)
+                                        Text("R$ ${"%.2f".format(displayFare)}", color = EmeraldGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Status:", color = TextSecondary)
+                                        Badge(
+                                            containerColor = when (currentRide!!.status) {
+                                                "REQUESTED" -> Color(0xFFEAB308)
+                                                "ACCEPTED" -> Color(0xFF3B82F6)
+                                                "COMPLETED" -> Color(0xFF10B981)
+                                                else -> AccentRed
                                             }
+                                        ) {
                                             Text(
-                                                "O comprovante em formato PDF oficial com assinatura digital foi emitido para esta corrida e enviado ao seu e-mail.",
-                                                color = Color(0xFFD1FAE5),
-                                                fontSize = 11.sp
-                                            )
-                                            Button(
-                                                onClick = {
-                                                    val pdfUrl = "${NetworkConfig.PRODUCTION_URL}/api/v1/rides/${currentRide!!.id}/receipt/pdf"
-                                                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(pdfUrl))
-                                                    context.startActivity(browserIntent)
+                                                text = when (currentRide!!.status) {
+                                                    "REQUESTED" -> "Aguardando Motorista Aceitar"
+                                                    "ACCEPTED" -> "Corrida Aceita! Motorista a caminho"
+                                                    "COMPLETED" -> "Finalizada"
+                                                    "CANCELLED_BY_PASSENGER" -> "Cancelada por Você"
+                                                    "CANCELLED_BY_DRIVER" -> "Cancelada pelo Motorista"
+                                                    else -> currentRide!!.status
                                                 },
-                                                colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
-                                                shape = RoundedCornerShape(8.dp),
-                                                modifier = Modifier.fillMaxWidth()
+                                                color = if (currentRide!!.status == "REQUESTED") Color.Black else Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+
+                                    // COMPROVANTE DA CORRIDA BUTTON (PART 1 & 5)
+                                    if (currentRide!!.status == "COMPLETED") {
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = Color(0xFF022C22)),
+                                            border = BorderStroke(1.dp, Color(0xFF059669)),
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(14.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
-                                                Icon(Icons.Default.Download, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text("Visualizar / Baixar Comprovante PDF", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text("🧾 Comprovante da Corrida", color = EmeraldGreen, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                                    Text("OFICIAL", color = Color(0xFFA7F3D0), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                                Text(
+                                                    "O comprovante em formato PDF oficial com assinatura digital foi emitido para esta corrida e enviado ao seu e-mail.",
+                                                    color = Color(0xFFD1FAE5),
+                                                    fontSize = 11.sp
+                                                )
+                                                Button(
+                                                    onClick = {
+                                                        val pdfUrl = "${NetworkConfig.PRODUCTION_URL}/api/v1/rides/${currentRide!!.id}/receipt/pdf"
+                                                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(pdfUrl))
+                                                        context.startActivity(browserIntent)
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Icon(Icons.Default.Download, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text("Visualizar / Baixar Comprovante PDF", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                }
                                             }
                                         }
                                     }
-                                }
 
-                                // Google Maps Route Button
-                                Button(
-                                    onClick = {
-                                        val oAddress = currentRide!!.originAddress
-                                        val dAddress = currentRide!!.destinationAddress
-                                        val mapsUri = if (!oAddress.isNullOrBlank() && !dAddress.isNullOrBlank() && oAddress != "Origem" && dAddress != "Destino") {
-                                            val cleanO = if (oAddress.contains("São Sebastião", ignoreCase = true)) oAddress else "$oAddress, São Sebastião - SP"
-                                            val cleanD = if (dAddress.contains("São Sebastião", ignoreCase = true)) dAddress else "$dAddress, São Sebastião - SP"
-                                            Uri.parse("https://www.google.com/maps/dir/?api=1&origin=${Uri.encode(cleanO)}&destination=${Uri.encode(cleanD)}&travelmode=driving")
-                                        } else {
-                                            val orig = originZone ?: zones.find { it.id == currentRide!!.originZoneId }
-                                            val dest = destZone ?: zones.find { it.id == currentRide!!.destinationZoneId }
-                                            val oLat = currentRide!!.originLat ?: orig?.lat ?: -23.8078
-                                            val oLng = currentRide!!.originLng ?: orig?.lng ?: -45.4058
-                                            val dLat = currentRide!!.destinationLat ?: dest?.lat ?: -23.8078
-                                            val dLng = currentRide!!.destinationLng ?: dest?.lng ?: -45.4058
-                                            Uri.parse("https://www.google.com/maps/dir/?api=1&origin=$oLat,$oLng&destination=$dLat,$dLng&travelmode=driving")
+                                    if (currentRide!!.status == "REQUESTED") {
+                                        Button(
+                                            onClick = {
+                                                ApiService.updateRideStatus(
+                                                    rideId = currentRide!!.id,
+                                                    status = "CANCELLED_BY_PASSENGER",
+                                                    onSuccess = {
+                                                        currentRide = it
+                                                        message = "Corrida cancelada por você."
+                                                    },
+                                                    onError = {
+                                                        message = "Falha ao cancelar corrida."
+                                                    }
+                                                )
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text("Cancelar Solicitação", color = Color.White, fontWeight = FontWeight.Bold)
                                         }
-                                        val mapIntent = Intent(Intent.ACTION_VIEW, mapsUri)
-                                        context.startActivity(mapIntent)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
-                                    border = BorderStroke(1.dp, Color(0xFF38BDF8)),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(Icons.Default.Place, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Acompanhar Rota no Google Maps 🗺", color = Color(0xFF38BDF8), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                }
-
-                                if (currentRide!!.status == "REQUESTED" || currentRide!!.status == "ACCEPTED") {
-                                    Button(
-                                        onClick = {
-                                            ApiService.updateRideStatus(
-                                                rideId = currentRide!!.id,
-                                                status = "CANCELLED_BY_PASSENGER",
-                                                onSuccess = {
-                                                    currentRide = it
-                                                    message = "Corrida cancelada por você."
-                                                },
-                                                onError = {
-                                                    message = "Falha ao cancelar corrida."
-                                                }
-                                            )
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = AccentRed),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text("Cancelar Solicitação", color = Color.White, fontWeight = FontWeight.Bold)
-                                    }
-                                } else {
-                                    Button(
-                                        onClick = {
-                                            currentRide = null
-                                            searchResults = null
-                                            selectedDriver = null
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text("Fazer Nova Solicitação", color = Color.Black, fontWeight = FontWeight.Bold)
+                                    } else {
+                                        Button(
+                                            onClick = {
+                                                currentRide = null
+                                                searchResults = null
+                                                selectedDriver = null
+                                                liveDriverLocation = null
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text("Fazer Nova Solicitação", color = Color.Black, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
