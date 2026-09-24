@@ -188,6 +188,13 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
           color: 'text-amber-400 bg-amber-950/40 border-amber-500/20',
           step: 1
         };
+      case 'QUEUED':
+        return {
+          title: 'Motorista em corrida anterior',
+          desc: `${ride.driverName || 'Seu motorista'} está finalizando uma corrida próxima e responderá/chegará em seguida.`,
+          color: 'text-amber-400 bg-amber-950/40 border-amber-500/20',
+          step: 1
+        };
       case 'ACCEPTED':
         return {
           title: 'Chamada Aceita!',
@@ -358,6 +365,7 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
             <div>
               <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Status do Carro</span>
               <span className="text-xs font-black text-white">
+                {ride.status === 'QUEUED' ? `${driverFirstName} está finalizando a viagem anterior` : ''}
                 {ride.status === 'ACCEPTED' || ride.status === 'DRIVER_ARRIVING' ? `${driverFirstName} a caminho do embarque` : ''}
                 {ride.status === 'PASSENGER_PICKED_UP' ? 'Aguardando partida' : ''}
                 {ride.status === 'IN_PROGRESS' ? 'Em direção ao destino' : ''}

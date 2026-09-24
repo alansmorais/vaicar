@@ -22,6 +22,7 @@ export type SubscriptionStatus =
 export type RideStatus = 
   | 'REQUESTED'
   | 'ACCEPTED'
+  | 'QUEUED'
   | 'DRIVER_ARRIVING'
   | 'PASSENGER_PICKED_UP'
   | 'IN_PROGRESS'

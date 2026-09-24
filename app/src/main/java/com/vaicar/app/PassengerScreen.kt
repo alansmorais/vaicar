@@ -495,7 +495,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                     }
                 } else {
                     // Active Ride View
-                    val isActiveRide = currentRide!!.status in listOf("ACCEPTED", "EN_ROUTE", "ARRIVED", "DRIVER_ARRIVING", "IN_PROGRESS")
+                    val isActiveRide = currentRide!!.status in listOf("ACCEPTED", "EN_ROUTE", "ARRIVED", "DRIVER_ARRIVING", "IN_PROGRESS", "QUEUED")
 
                     if (isActiveRide) {
                         item {

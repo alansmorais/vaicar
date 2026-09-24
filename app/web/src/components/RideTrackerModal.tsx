@@ -48,6 +48,11 @@ export const RideTrackerModal: React.FC<RideTrackerModalProps> = ({
       desc: 'O motorista recebeu sua solicitação em São Sebastião e responderá em instantes.',
       color: 'text-amber-400 bg-amber-950/60 border-amber-500/30',
     },
+    QUEUED: {
+      title: 'Motorista em corrida anterior',
+      desc: 'O motorista está finalizando uma viagem próxima e atenderá você em seguida.',
+      color: 'text-amber-400 bg-amber-950/60 border-amber-500/30',
+    },
     ACCEPTED: {
       title: 'Corrida Aceita!',
       desc: 'O motorista confirmou sua corrida e já está se preparando para o embarque.',

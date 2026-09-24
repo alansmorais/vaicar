@@ -299,6 +299,8 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
   const activeRide = driverRides.find((r) =>
     ['ACCEPTED', 'DRIVER_ARRIVING', 'PASSENGER_PICKED_UP', 'IN_PROGRESS'].includes(r.status),
   );
+  const queuedRide = driverRides.find((r) => r.status === 'QUEUED');
+  const allPendingRequests = rides.filter((r) => r.status === 'REQUESTED');
 
   const prevPendingCountRef = useRef<number>(pendingRequests.length);
 
@@ -548,6 +550,19 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
       await onRefreshRides();
     } catch (err: any) {
       alert(err.message || 'Erro ao aceitar corrida');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleAcceptNextRide = async (rideId: string) => {
+    try {
+      setIsUpdating(true);
+      const updated = await updateRideStatus(rideId, 'QUEUED', undefined, { driverId: driver.id });
+      broadcastLocalRideUpdate(updated);
+      await onRefreshRides();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao aceitar próxima corrida');
     } finally {
       setIsUpdating(false);
     }
@@ -1394,6 +1409,141 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* PRÓXIMA CORRIDA / SEQUENTIAL RIDE SECTION */}
+          {(activeRide || queuedRide || driver.isOnline) && (
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-amber-400" />
+                  <h3 className="text-base font-black text-amber-400 uppercase tracking-wider">
+                    PRÓXIMA CORRIDA (SEQUENCIAL)
+                  </h3>
+                </div>
+                <span className="text-xs bg-slate-800 text-slate-300 font-bold px-3 py-1 rounded-full border border-slate-700">
+                  {queuedRide ? '1 Corrida Agendada em Fila' : 'Nenhuma próxima corrida agendada'}
+                </span>
+              </div>
+
+              {queuedRide ? (
+                <div className="bg-gradient-to-br from-slate-950 to-emerald-950/30 border-2 border-emerald-500/50 rounded-2xl p-5 space-y-4 shadow-lg">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={queuedRide.passengerAvatarUrl || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80"}
+                        alt={queuedRide.passengerName}
+                        className="w-12 h-12 rounded-xl object-cover border border-slate-700 shrink-0"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div>
+                        <span className="text-[10px] font-extrabold text-emerald-400 bg-emerald-950/90 border border-emerald-500/30 px-2 py-0.5 rounded uppercase">
+                          Nova corrida após a atual
+                        </span>
+                        <h4 className="text-lg font-black text-white mt-0.5">
+                          Passageiro(a): {queuedRide.passengerName}
+                        </h4>
+                        <p className="text-xs text-slate-300 font-medium">
+                          Tel: {queuedRide.passengerPhone} • Distância ~{queuedRide.estimatedDistanceKm} km
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="text-left sm:text-right shrink-0">
+                      <span className="text-[10px] text-slate-400 uppercase font-bold block">
+                        Valor Estimado
+                      </span>
+                      <span className="text-2xl font-black text-emerald-400">
+                        R$ {queuedRide.estimatedPrice}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="text-slate-400">Embarque (Pickup):</span>
+                      <span className="text-white font-bold">{queuedRide.originAddress}</span>
+                    </div>
+                    <div className="flex items-center gap-2 border-t border-slate-800/60 pt-2">
+                      <Navigation className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <span className="text-slate-400">Destino Final:</span>
+                      <span className="text-white font-bold">{queuedRide.destinationAddress}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1 border-t border-slate-800">
+                    <span className="text-xs text-emerald-400 font-bold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      Status: CONFIRMADA EM FILA (Iniciará automaticamente após finalizar a viagem atual)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeclineRide(queuedRide.id)}
+                      disabled={isUpdating}
+                      className="px-4 py-2 bg-slate-800 hover:bg-rose-950/60 text-rose-400 font-bold text-xs rounded-xl cursor-pointer transition-all"
+                    >
+                      Recusar Próxima Corrida
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Nenhuma próxima corrida disponível no momento. Assim que outro passageiro solicitar uma viagem compatível com o seu trajeto em São Sebastião, você poderá aceitá-la como sua próxima corrida em fila.
+                  </p>
+
+                  {allPendingRequests.length > 0 && (
+                    <div className="space-y-3 pt-2">
+                      <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">
+                        ⚡ Solicitações Compatíveis Disponíveis para Próxima Viagem
+                      </span>
+                      {allPendingRequests.map((req) => (
+                        <div
+                          key={req.id}
+                          className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-white text-sm">{req.passengerName}</span>
+                              <span className="text-[10px] text-amber-400 bg-amber-950/80 px-2 py-0.5 rounded font-bold">
+                                Solicitação Aberta
+                              </span>
+                            </div>
+                            <p className="text-slate-300">
+                              Origem: <strong>{req.originAddress}</strong> ➔ Destino: <strong>{req.destinationAddress}</strong>
+                            </p>
+                            <span className="text-emerald-400 font-black text-sm block">
+                              R$ {req.estimatedPrice}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleAcceptNextRide(req.id)}
+                              disabled={isUpdating}
+                              className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow cursor-pointer transition-all flex items-center gap-1.5"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                              <span>Aceitar como Próxima</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeclineRide(req.id)}
+                              disabled={isUpdating}
+                              className="px-3 py-2.5 bg-slate-800 text-slate-400 hover:text-white font-bold text-xs rounded-xl cursor-pointer transition-all"
+                            >
+                              Recusar
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

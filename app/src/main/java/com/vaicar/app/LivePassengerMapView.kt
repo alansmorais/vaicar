@@ -303,6 +303,7 @@ fun LivePassengerMapView(
                         )
                         Text(
                             text = when (ride.status) {
+                                "QUEUED" -> "Motorista em corrida anterior ⏳ (Finalizando viagem próxima)"
                                 "ACCEPTED", "EN_ROUTE" -> "Seu motorista está a caminho 🚗"
                                 "ARRIVED", "DRIVER_ARRIVING" -> "Seu motorista chegou! 📍"
                                 "IN_PROGRESS" -> "Viagem em andamento rumo ao destino 🏁"

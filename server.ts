@@ -1671,8 +1671,9 @@ const handleRideStatusUpdate = async (req: express.Request, res: express.Respons
     }
 
     const validTransitions: Record<string, string[]> = {
-      REQUESTED: ['ACCEPTED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED', 'REJECTED'],
-      ACCEPTED: ['DRIVER_ARRIVING', 'PASSENGER_PICKED_UP', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
+      REQUESTED: ['ACCEPTED', 'QUEUED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED', 'REJECTED'],
+      ACCEPTED: ['QUEUED', 'DRIVER_ARRIVING', 'PASSENGER_PICKED_UP', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
+      QUEUED: ['ACCEPTED', 'DRIVER_ARRIVING', 'PASSENGER_PICKED_UP', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED', 'REJECTED'],
       DRIVER_ARRIVING: ['PASSENGER_PICKED_UP', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
       PASSENGER_PICKED_UP: ['IN_PROGRESS', 'COMPLETED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
       IN_PROGRESS: ['COMPLETED', 'CANCELLED_BY_DRIVER', 'CANCELLED_BY_PASSENGER', 'CANCELLED'],
@@ -1683,9 +1684,9 @@ const handleRideStatusUpdate = async (req: express.Request, res: express.Respons
       REJECTED: [],
     };
 
-    // Race condition checks for ACCEPTED
-    if (status === 'ACCEPTED') {
-      if (ride.status === 'ACCEPTED' || ride.status === 'DRIVER_ARRIVING' || ride.status === 'IN_PROGRESS' || ride.status === 'COMPLETED') {
+    // Race condition checks for ACCEPTED & QUEUED
+    if (status === 'ACCEPTED' || status === 'QUEUED') {
+      if (ride.status === 'ACCEPTED' || ride.status === 'QUEUED' || ride.status === 'DRIVER_ARRIVING' || ride.status === 'IN_PROGRESS' || ride.status === 'COMPLETED') {
         if (driverId && ride.driverId && ride.driverId !== driverId) {
           return res.status(409).json({
             error: 'Esta corrida já foi aceita por outro motorista.',
@@ -1712,6 +1713,7 @@ const handleRideStatusUpdate = async (req: express.Request, res: express.Respons
 
     const labels: Record<string, string> = {
       ACCEPTED: 'Motorista aceitou a corrida',
+      QUEUED: 'Corrida agendada como próxima viagem do motorista (Em fila)',
       DRIVER_ARRIVING: 'Motorista a caminho',
       PASSENGER_PICKED_UP: 'Passageiro a bordo',
       IN_PROGRESS: 'Em andamento',
@@ -1819,6 +1821,53 @@ const handleRideStatusUpdate = async (req: express.Request, res: express.Respons
         updatedRide.receiptGeneratedAt = receiptResult.receipt.createdAt;
       } catch (receiptErr: any) {
         console.error('[RECEIPT] Error generating receipt for completed ride:', receiptErr);
+      }
+
+      // Automatic Sequential Ride promotion: if driver has a queued ride, promote it to active (DRIVER_ARRIVING)
+      const activeDriverId = updates.driverId || ride.driverId;
+      if (activeDriverId) {
+        try {
+          const queuedSnap = await db.collection('rides')
+            .where('driverId', '==', activeDriverId)
+            .where('status', '==', 'QUEUED')
+            .get();
+
+          if (!queuedSnap.empty) {
+            const queuedDocs = queuedSnap.docs.map((d: any) => ({ ...d.data() as Ride, id: d.id }));
+            queuedDocs.sort((a: any, b: any) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+            const nextRideToActivate = queuedDocs[0];
+
+            const nextRideRef = db.collection('rides').doc(nextRideToActivate.id);
+            const nextUpdates: any = {
+              status: 'DRIVER_ARRIVING',
+              updatedAt: new Date().toISOString(),
+              arrivedAt: new Date().toISOString(),
+              timeline: [
+                ...(nextRideToActivate.timeline || []),
+                {
+                  status: 'DRIVER_ARRIVING',
+                  timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                  label: 'O motorista finalizou a corrida anterior e agora está a caminho da sua localização!'
+                }
+              ]
+            };
+            await nextRideRef.update(nextUpdates);
+            const updatedNextRide = { ...nextRideToActivate, ...nextUpdates };
+            broadcastLiveEvent('RIDE_UPDATED', updatedNextRide);
+            sendFcmNotification(activeDriverId, {
+              rideId: nextRideToActivate.id,
+              passengerName: nextRideToActivate.passengerName,
+              passengerPhone: nextRideToActivate.passengerPhone,
+              originAddress: nextRideToActivate.originAddress,
+              destAddress: nextRideToActivate.destinationAddress,
+              fare: String(nextRideToActivate.fareBrl || nextRideToActivate.estimatedPrice),
+              notes: 'Sua próxima corrida em fila começou! Dirija-se até o passageiro.',
+            });
+            console.log(`[SEQUENTIAL RIDE] Promoted queued ride ${nextRideToActivate.id} to DRIVER_ARRIVING for driver ${activeDriverId}`);
+          }
+        } catch (seqErr) {
+          console.error('[SEQUENTIAL RIDE] Error promoting next queued ride:', seqErr);
+        }
       }
     }
 
