@@ -6,8 +6,8 @@ const DEV_STORAGE_KEY = 'vaicar_dev_sec_pwd';
 const DEV_INITIAL_CHANGED_KEY = 'vaicar_dev_pwd_changed';
 
 // Default temporary initial credentials (must be changed upon first access)
-const DEFAULT_ADMIN_INITIAL_PIN = 'admin2025';
-const DEFAULT_DEV_INITIAL_PIN = 'dev2025';
+const DEFAULT_ADMIN_INITIAL_PIN = 'Admin1989';
+const DEFAULT_DEV_INITIAL_PIN = 'Dev1989';
 
 // Explicitly banned passwords
 const BANNED_PASSWORDS = ['demo', 'demo123', 'teste', '123456', 'senha'];
@@ -114,4 +114,13 @@ export const setDevPassword = (newPwd: string): { success: boolean; message?: st
   localStorage.setItem(DEV_STORAGE_KEY, trimmed);
   localStorage.setItem(DEV_INITIAL_CHANGED_KEY, 'true');
   return { success: true };
+};
+
+export const resetAllPasswords = (): void => {
+  localStorage.removeItem(ADMIN_STORAGE_KEY);
+  localStorage.removeItem(ADMIN_INITIAL_CHANGED_KEY);
+  localStorage.removeItem(DEV_STORAGE_KEY);
+  localStorage.removeItem(DEV_INITIAL_CHANGED_KEY);
+  localStorage.removeItem('vaicar_admin_auth');
+  localStorage.removeItem('vaicar_dev_auth');
 };

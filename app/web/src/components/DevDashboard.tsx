@@ -18,6 +18,7 @@ import { Driver, Ride, PlatformMetrics, SubscriptionPlan } from '../types.ts';
 import {
   verifyDevPassword,
   setDevPassword,
+  resetAllPasswords,
 } from '../lib/authSecurity.ts';
 
 interface DevDashboardProps {
@@ -214,7 +215,7 @@ export const DevDashboard: React.FC<DevDashboardProps> = ({
               <span>Proteção de Console Dev</span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Chave inicial de primeiro acesso: <code className="text-amber-400 font-mono font-bold bg-slate-900 px-1 py-0.5 rounded">dev2025</code>
+              Acesso restrito: utilize a chave técnica de fábrica para o primeiro acesso.
             </p>
             <p className="text-[10px] text-amber-400/90 font-medium">
               * A troca para sua senha pessoal será exigida na primeira ação.
@@ -252,10 +253,23 @@ export const DevDashboard: React.FC<DevDashboardProps> = ({
             </button>
           </form>
 
-          <div className="pt-2 border-t border-slate-800/80 text-center">
+          <div className="pt-2 border-t border-slate-800/80 text-center flex flex-col gap-2">
             <span className="text-[11px] text-slate-500 font-medium">
               Credenciais genéricas como "demo" foram desativadas por segurança.
             </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Deseja realmente redefinir todas as senhas personalizadas de administrador e desenvolvedor para os valores padrões de fábrica?')) {
+                  resetAllPasswords();
+                  alert('Senhas redefinidas com sucesso! Use as chaves de fábrica para o primeiro login.');
+                  window.location.reload();
+                }
+              }}
+              className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
+            >
+              Redefinir Todas as Senhas da Plataforma
+            </button>
           </div>
         </div>
       </div>
