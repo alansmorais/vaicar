@@ -390,113 +390,123 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
             // ==========================================
             if (selectedTab == 0) {
                 if (currentRide == null) {
-                    // Booking Form
+                    // 1. PRIMARY INTERACTIVE NATIVE MAP
+                    item {
+                        InteractivePassengerRequestMap(
+                            passengerLocation = passengerGpsLocation,
+                            originZone = originZone,
+                            destZone = destZone,
+                            availableDrivers = searchResults?.results ?: emptyList(),
+                            selectedDriver = selectedDriver,
+                            onSelectDriver = { drv -> selectedDriver = drv },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(280.dp)
+                        )
+                    }
+
+                    // 2. "PARA ONDE VAMOS?" DESTINATION & PICKUP CARD
                     item {
                         Card(
                             colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(
                                 modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Text(
-                                    text = "Dados da Corrida",
-                                    color = EmeraldGreen,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-
-                                // Passenger Name Input
-                                OutlinedTextField(
-                                    value = passengerName,
-                                    onValueChange = { passengerName = it },
-                                    label = { Text("Seu Nome") },
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = EmeraldGreen,
-                                        focusedLabelColor = EmeraldGreen,
-                                        unfocusedLabelColor = TextSecondary,
-                                        unfocusedTextColor = Color.White,
-                                        focusedTextColor = Color.White
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-
-                                // Origin Zone Selector
-                                Box(modifier = Modifier.fillMaxWidth()) {
-                                    OutlinedTextField(
-                                        value = originZone?.name ?: "Selecione",
-                                        onValueChange = {},
-                                        readOnly = true,
-                                        label = { Text("Origem (Região / Bairro)") },
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = EmeraldGreen,
-                                            focusedLabelColor = EmeraldGreen,
-                                            unfocusedLabelColor = TextSecondary,
-                                            unfocusedTextColor = Color.White,
-                                            focusedTextColor = Color.White
-                                        ),
-                                        trailingIcon = {
-                                            Icon(
-                                                Icons.Default.ArrowDropDown,
-                                                contentDescription = null,
-                                                modifier = Modifier.clickable { originExpanded = true }
-                                            )
-                                        },
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    DropdownMenu(
-                                        expanded = originExpanded,
-                                        onDismissRequest = { originExpanded = false },
-                                        modifier = Modifier.background(SurfaceSlate)
+                                // Pickup location header with change trigger
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Place, contentDescription = null, tint = EmeraldGreen, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Embarque: ${originZone?.name ?: "Sua localização atual"}",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                    TextButton(
+                                        onClick = { originExpanded = !originExpanded },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                                     ) {
-                                        zones.forEach { z ->
-                                            DropdownMenuItem(
-                                                text = { Text(z.name, color = Color.White) },
-                                                onClick = {
-                                                    originZone = z
-                                                    originExpanded = false
-                                                }
-                                            )
-                                        }
+                                        Text("Alterar", color = EmeraldGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
 
-                                // Origin Street / Landmark
-                                OutlinedTextField(
-                                    value = originAddressDetails,
-                                    onValueChange = { originAddressDetails = it },
-                                    label = { Text("Rua e Número / Ponto de Referência") },
-                                    placeholder = { Text("Ex: Rua da Praia, 120", color = TextSecondary.copy(alpha = 0.5f)) },
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = EmeraldGreen,
-                                        focusedLabelColor = EmeraldGreen,
-                                        unfocusedLabelColor = TextSecondary,
-                                        unfocusedTextColor = Color.White,
-                                        focusedTextColor = Color.White
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-
-                                // Destination Zone Selector
-                                Box(modifier = Modifier.fillMaxWidth()) {
+                                if (originExpanded) {
+                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                        OutlinedTextField(
+                                            value = originZone?.name ?: "Selecione Bairro de Embarque",
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            label = { Text("Região / Bairro de Embarque") },
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = EmeraldGreen,
+                                                focusedTextColor = Color.White,
+                                                unfocusedTextColor = Color.White
+                                            ),
+                                            trailingIcon = { Icon(Icons.Default.ArrowDropDown, contentDescription = null) },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        DropdownMenu(
+                                            expanded = originExpanded,
+                                            onDismissRequest = { originExpanded = false },
+                                            modifier = Modifier.background(SurfaceSlate)
+                                        ) {
+                                            zones.forEach { z ->
+                                                DropdownMenuItem(
+                                                    text = { Text(z.name, color = Color.White) },
+                                                    onClick = {
+                                                        originZone = z
+                                                        originExpanded = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
                                     OutlinedTextField(
-                                        value = destZone?.name ?: "Selecione",
-                                        onValueChange = {},
-                                        readOnly = true,
-                                        label = { Text("Destino (Região / Bairro)") },
+                                        value = originAddressDetails,
+                                        onValueChange = { originAddressDetails = it },
+                                        label = { Text("Rua, Número e Ponto de Referência") },
+                                        placeholder = { Text("Ex: Av. Dr. Manoel Hipólito, 850", color = TextSecondary.copy(alpha = 0.5f)) },
                                         colors = OutlinedTextFieldDefaults.colors(
                                             focusedBorderColor = EmeraldGreen,
-                                            focusedLabelColor = EmeraldGreen,
-                                            unfocusedLabelColor = TextSecondary,
-                                            unfocusedTextColor = Color.White,
-                                            focusedTextColor = Color.White
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+
+                                Divider(color = DarkSlate, thickness = 1.dp)
+
+                                // 🔍 "PARA ONDE VAMOS?" DESTINATION SELECTOR
+                                Text("🔍 Para Onde Vamos?", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedTextField(
+                                        value = destZone?.name ?: "Selecione o Destino",
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        label = { Text("Destino (Praia / Bairro / Hotel / Centro)") },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = Color(0xFF06B6D4),
+                                            focusedLabelColor = Color(0xFF06B6D4),
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White
                                         ),
                                         trailingIcon = {
                                             Icon(
                                                 Icons.Default.ArrowDropDown,
                                                 contentDescription = null,
+                                                tint = Color(0xFF06B6D4),
                                                 modifier = Modifier.clickable { destExpanded = true }
                                             )
                                         },
@@ -513,148 +523,191 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                 onClick = {
                                                     destZone = z
                                                     destExpanded = false
+                                                    if (originZone != null) {
+                                                        isSearching = true
+                                                        ApiService.searchDrivers(
+                                                            originId = originZone!!.id,
+                                                            destId = z.id,
+                                                            passengerCount = passengerCount,
+                                                            onSuccess = { res ->
+                                                                isSearching = false
+                                                                searchResults = res
+                                                                if (res.results.isNotEmpty()) {
+                                                                    selectedDriver = res.results.first()
+                                                                }
+                                                            },
+                                                            onError = {
+                                                                isSearching = false
+                                                            }
+                                                        )
+                                                    }
                                                 }
                                             )
                                         }
                                     }
                                 }
 
-                                // Destination Address / Landmark
                                 OutlinedTextField(
                                     value = destAddressDetails,
                                     onValueChange = { destAddressDetails = it },
-                                    label = { Text("Endereço Completo de Destino") },
-                                    placeholder = { Text("Ex: Av. Francisco Loup, 100 - Maresias", color = TextSecondary.copy(alpha = 0.5f)) },
+                                    label = { Text("Endereço / Ponto de Referência no Destino") },
+                                    placeholder = { Text("Ex: Rua das Palmeiras, 150 - Maresias", color = TextSecondary.copy(alpha = 0.5f)) },
                                     colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = EmeraldGreen,
-                                        focusedLabelColor = EmeraldGreen,
-                                        unfocusedLabelColor = TextSecondary,
-                                        unfocusedTextColor = Color.White,
-                                        focusedTextColor = Color.White
+                                        focusedBorderColor = Color(0xFF06B6D4),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
                                     ),
                                     modifier = Modifier.fillMaxWidth()
                                 )
 
-                                // Passenger Count
+                                // Passenger count & Search trigger
                                 Row(
-                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth()
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Passageiros:", color = TextSecondary, fontSize = 14.sp)
                                     Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Passageiros: ", color = TextSecondary, fontSize = 13.sp)
                                         IconButton(onClick = { if (passengerCount > 1) passengerCount-- }) {
-                                            Icon(Icons.Default.RemoveCircleOutline, contentDescription = "Diminuir", tint = EmeraldGreen)
+                                            Icon(Icons.Default.RemoveCircleOutline, contentDescription = null, tint = EmeraldGreen)
                                         }
-                                        Text("$passengerCount", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                        Text("$passengerCount", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                         IconButton(onClick = { if (passengerCount < 4) passengerCount++ }) {
-                                            Icon(Icons.Default.AddCircleOutline, contentDescription = "Aumentar", tint = EmeraldGreen)
+                                            Icon(Icons.Default.AddCircleOutline, contentDescription = null, tint = EmeraldGreen)
                                         }
                                     }
-                                }
 
-                                // Search Drivers Button
-                                Button(
-                                    onClick = {
-                                        if (originZone != null && destZone != null) {
-                                            isSearching = true
-                                            message = ""
-                                            ApiService.searchDrivers(
-                                                originId = originZone!!.id,
-                                                destId = destZone!!.id,
-                                                passengerCount = passengerCount,
-                                                onSuccess = { res ->
-                                                    isSearching = false
-                                                    searchResults = res
-                                                    if (res.results.isEmpty()) {
-                                                        message = "Nenhum motorista disponível nesta rota no momento."
+                                    Button(
+                                        onClick = {
+                                            if (originZone != null && destZone != null) {
+                                                isSearching = true
+                                                message = ""
+                                                ApiService.searchDrivers(
+                                                    originId = originZone!!.id,
+                                                    destId = destZone!!.id,
+                                                    passengerCount = passengerCount,
+                                                    onSuccess = { res ->
+                                                        isSearching = false
+                                                        searchResults = res
+                                                        if (res.results.isNotEmpty()) {
+                                                            selectedDriver = res.results.first()
+                                                        } else {
+                                                            message = "Nenhum motorista disponível nesta rota no momento."
+                                                        }
+                                                    },
+                                                    onError = { err ->
+                                                        isSearching = false
+                                                        message = err.message ?: "Erro ao buscar motoristas."
                                                     }
-                                                },
-                                                onError = {
-                                                    isSearching = false
-                                                    message = "Erro ao buscar motoristas."
-                                                }
-                                            )
+                                                )
+                                            } else {
+                                                message = "Selecione origem e destino válidos."
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        if (isSearching) {
+                                            CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(18.dp))
                                         } else {
-                                            message = "Selecione origem e destino válidos."
+                                            Text("Buscar Motoristas 🔍", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                         }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    if (isSearching) {
-                                        CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp))
-                                    } else {
-                                        Text("Buscar Motoristas Disponíveis", color = Color.Black, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
                         }
                     }
 
-                    // Search Results List
+                    // 3. BACKEND ERROR ALERT BANNER (e.g., PAYMENT_PENDING)
+                    if (message.isNotBlank()) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (message.contains("pagamento pendente", ignoreCase = true)) Color(0xFF451A03) else Color(0xFF1E293B)
+                                ),
+                                border = BorderStroke(1.dp, if (message.contains("pagamento pendente", ignoreCase = true)) Color(0xFFF59E0B) else EmeraldGreen),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (message.contains("pagamento pendente", ignoreCase = true)) Icons.Default.Warning else Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = if (message.contains("pagamento pendente", ignoreCase = true)) Color(0xFFF59E0B) else EmeraldGreen
+                                    )
+                                    Text(
+                                        text = message,
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        lineHeight = 17.sp,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 4. AVAILABLE DRIVERS BOTTOM CARDS & REQUEST TRIGGER
                     if (searchResults != null && searchResults!!.results.isNotEmpty()) {
                         item {
-                            Text(
-                                text = "Motoristas Encontrados (${searchResults!!.results.size}):",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
-                            )
+                            Text("Motoristas Disponíveis no Mapa (${searchResults!!.results.size}):", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         }
 
                         items(searchResults!!.results) { driver ->
+                            val isSelected = driver.driverId == selectedDriver?.driverId
                             Card(
-                                colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) Color(0xFF0F172A) else SurfaceSlate
+                                ),
                                 shape = RoundedCornerShape(12.dp),
+                                border = if (isSelected) BorderStroke(2.dp, EmeraldGreen) else null,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { selectedDriver = driver }
                             ) {
-                                Column(
-                                    modifier = Modifier.padding(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(driver.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                        Text("R$ ${"%.2f".format(driver.fare)}", color = EmeraldGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                        Column {
+                                            Text(driver.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                            Text("${driver.vehicle.brand} ${driver.vehicle.model} • ${driver.vehicle.color}", color = TextSecondary, fontSize = 12.sp)
+                                        }
+                                        Text("R$ ${"%.2f".format(driver.fare)}", color = EmeraldGreen, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                                     }
-                                    Text(
-                                        "${driver.vehicle.brand} ${driver.vehicle.model} - ${driver.vehicle.color}",
-                                        color = TextSecondary,
-                                        fontSize = 13.sp
-                                    )
+
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Text("⭐ ${driver.ratingAverage} (${driver.ratingCount} avaliações)", color = TextSecondary, fontSize = 12.sp)
-                                        Text("Chega em aprox. ${driver.arrivalTimeMin} min", color = EmeraldGreen, fontSize = 12.sp)
+                                        Text("Chega em ~${driver.arrivalTimeMin} min", color = Color(0xFF38BDF8), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
 
                                     Button(
                                         onClick = {
                                             val fullOrigin = if (originAddressDetails.isNotBlank()) {
-                                                "$originAddressDetails, ${originZone?.name}, São Sebastião - SP"
+                                                "$originAddressDetails, ${originZone?.name ?: "Centro"}, São Sebastião - SP"
                                             } else {
-                                                "${originZone?.name}, São Sebastião - SP"
+                                                "${originZone?.name ?: "Centro"}, São Sebastião - SP"
                                             }
                                             val fullDest = if (destAddressDetails.isNotBlank()) {
-                                                "$destAddressDetails, ${destZone?.name}, São Sebastião - SP"
+                                                "$destAddressDetails, ${destZone?.name ?: "Maresias"}, São Sebastião - SP"
                                             } else {
-                                                "${destZone?.name}, São Sebastião - SP"
+                                                "${destZone?.name ?: "Maresias"}, São Sebastião - SP"
                                             }
 
                                             ApiService.createRide(
                                                 passengerName = passengerName,
                                                 passengerPhone = passengerPhone,
-                                                originId = originZone!!.id,
-                                                destId = destZone!!.id,
+                                                originId = originZone?.id ?: "z-centro",
+                                                destId = destZone?.id ?: "z-maresias",
                                                 passengerCount = passengerCount,
                                                 driverId = driver.driverId,
                                                 fare = driver.fare,
@@ -663,10 +716,10 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                 destAddress = fullDest,
                                                 onSuccess = { ride ->
                                                     currentRide = ride
-                                                    message = "Chamada solicitada! Aguardando o motorista aceitar."
+                                                    message = "Corrida solicitada com sucesso! Aguardando o motorista aceitar."
                                                 },
-                                                onError = {
-                                                    message = "Falha ao solicitar corrida."
+                                                onError = { err ->
+                                                    message = err.message ?: "Falha ao solicitar corrida."
                                                 }
                                             )
                                         },
@@ -674,7 +727,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                         shape = RoundedCornerShape(8.dp),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Text("Chamar Este Motorista", color = Color.Black, fontWeight = FontWeight.Bold)
+                                        Text("Solicitar Corrida (R$ ${"%.2f".format(driver.fare)}) 🚗", color = Color.Black, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }

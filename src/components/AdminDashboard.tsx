@@ -38,6 +38,7 @@ import {
   verifyAdminPassword,
   setAdminPassword,
   isAdminPasswordChanged,
+  resetAllPasswords,
 } from '../lib/authSecurity.ts';
 import {
   Driver,
@@ -754,7 +755,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span>Autenticação Segura</span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Chave inicial de primeiro acesso: <code className="text-emerald-400 font-mono font-bold bg-slate-900 px-1 py-0.5 rounded">admin2025</code>
+              Chave inicial de primeiro acesso: <code className="text-emerald-400 font-mono font-bold bg-slate-900 px-1 py-0.5 rounded">Admin1989</code>
             </p>
             <p className="text-[10px] text-amber-400/90 font-medium">
               * A troca para sua senha pessoal será exigida na primeira ação.
@@ -792,10 +793,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </button>
           </form>
 
-          <div className="pt-2 border-t border-slate-800/80 text-center">
+          <div className="pt-2 border-t border-slate-800/80 text-center flex flex-col gap-2">
             <span className="text-[11px] text-slate-500 font-medium">
               Acessos de teste "demo" foram desativados para segurança dos dados municipais.
             </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Deseja realmente redefinir todas as senhas personalizadas de administrador e desenvolvedor para os valores padrões de fábrica?')) {
+                  resetAllPasswords();
+                  alert('Senhas redefinidas com sucesso! Use "Admin1989" para acessar como Administrador e "Dev1989" para Desenvolvedor.');
+                  window.location.reload();
+                }
+              }}
+              className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
+            >
+              Redefinir Todas as Senhas da Plataforma
+            </button>
           </div>
         </div>
       </div>
