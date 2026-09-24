@@ -599,23 +599,88 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     }
   };
 
-  const handleSimulateDocUpload = async (reqId: string) => {
+  const [uploadingDocId, setUploadingDocId] = useState<string | null>(null);
+
+  const handleRealDocUpload = async (reqId: string, file: File) => {
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) {
+      alert('O arquivo selecionado é muito grande. O limite máximo é 8MB.');
+      return;
+    }
+
     try {
+      setUploadingDocId(reqId);
       setIsUpdating(true);
-      await submitDriverDocument(driver.id, {
+
+      const toBase64 = (f: File): Promise<string> =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            if (f.type.startsWith('image/')) {
+              const img = new Image();
+              img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const maxDim = 1200;
+                let width = img.width;
+                let height = img.height;
+                if (width > height) {
+                  if (width > maxDim) {
+                    height = Math.round((height * maxDim) / width);
+                    width = maxDim;
+                  }
+                } else {
+                  if (height > maxDim) {
+                    width = Math.round((width * maxDim) / height);
+                    height = maxDim;
+                  }
+                }
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                  ctx.drawImage(img, 0, 0, width, height);
+                  resolve(canvas.toDataURL('image/jpeg', 0.88));
+                } else {
+                  resolve(e.target?.result as string);
+                }
+              };
+              img.onerror = () => resolve(e.target?.result as string);
+              img.src = e.target?.result as string;
+            } else {
+              resolve(e.target?.result as string);
+            }
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(f);
+        });
+
+      const base64Data = await toBase64(file);
+      const updatedDoc = await submitDriverDocument(driver.id, {
         requirementId: reqId,
-        documentNumber: `REG-${Math.floor(100000 + Math.random() * 900000)}`,
-        expiryDate: '2027-12-31',
-        fileUrl: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=600&q=80',
+        documentNumber: `DOC-${Math.floor(100000 + Math.random() * 900000)}`,
+        expiryDate: '2028-12-31',
+        fileUrl: base64Data,
       });
-      alert('Documento enviado para análise administrativa!');
-      // Update local state
-      const doc = driver.documents.find((d) => d.requirementId === reqId);
-      if (doc) doc.status = 'IN_REVIEW';
-      onRefreshDriver({ ...driver });
+
+      // Update local driver documents state
+      const existingDocIdx = driver.documents.findIndex((d) => d.requirementId === reqId);
+      if (existingDocIdx >= 0) {
+        driver.documents[existingDocIdx] = {
+          ...driver.documents[existingDocIdx],
+          fileUrl: base64Data,
+          status: 'IN_REVIEW',
+          rejectionReason: undefined,
+        };
+      } else {
+        driver.documents.push(updatedDoc);
+      }
+
+      onRefreshDriver({ ...driver, regulatoryStatus: driver.regulatoryStatus === 'APPROVED' ? 'APPROVED' : 'IN_REVIEW' });
+      alert('Documento enviado com sucesso! Está em análise pela auditoria municipal.');
     } catch (err: any) {
-      alert(err.message || 'Erro no envio');
+      alert(err.message || 'Erro ao enviar documento');
     } finally {
+      setUploadingDocId(null);
       setIsUpdating(false);
     }
   };
@@ -1998,6 +2063,18 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                   </div>
 
                   <div className="flex items-center gap-3 self-end sm:self-auto">
+                    {doc?.fileUrl && (
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={doc.fileUrl}
+                          alt={req.name}
+                          className="w-10 h-10 rounded-lg object-cover border border-slate-700 cursor-pointer hover:opacity-80"
+                          onClick={() => window.open(doc.fileUrl, '_blank')}
+                          title="Clique para visualizar em tela cheia"
+                        />
+                      </div>
+                    )}
+
                     <span
                       className={`text-xs font-bold px-2.5 py-1 rounded-lg border ${
                         status === 'APPROVED'
@@ -2015,13 +2092,33 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                     </span>
 
                     {status !== 'APPROVED' && (
-                      <button
-                        onClick={() => handleSimulateDocUpload(req.id)}
-                        disabled={isUpdating}
-                        className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-3 py-2 rounded-xl border border-slate-700 transition-colors cursor-pointer"
-                      >
-                        Enviar Documento
-                      </button>
+                      <div>
+                        <input
+                          type="file"
+                          id={`doc-input-${req.id}`}
+                          accept="image/*,application/pdf"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleRealDocUpload(req.id, file);
+                          }}
+                        />
+                        <label
+                          htmlFor={`doc-input-${req.id}`}
+                          className={`bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-3 py-2 rounded-xl border border-slate-700 transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
+                            uploadingDocId === req.id ? 'opacity-50 pointer-events-none' : ''
+                          }`}
+                        >
+                          {uploadingDocId === req.id ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Enviando...</span>
+                            </>
+                          ) : (
+                            <span>{doc?.fileUrl ? 'Reenviar Arquivo' : 'Enviar Arquivo'}</span>
+                          )}
+                        </label>
+                      </div>
                     )}
                   </div>
                 </div>

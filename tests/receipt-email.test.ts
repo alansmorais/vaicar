@@ -30,34 +30,45 @@ async function runReceiptAndEmailTest() {
 
     // 3. Create an isolated test driver
     console.log('\n[Passo 3] Criando motorista de teste isolado...');
-    const driverData: Driver = {
+    const driverData: any = {
       id: testDriverId,
       name: `Carlos Motorista ${testSuffix}`,
       phone: `129888${testSuffix}`,
       email: `motorista.${testSuffix}@exemplo.com`,
+      cpf: '123.456.789-00',
+      birthDate: '1985-05-15',
+      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
+      professionalCategory: 'MOTORISTA_APP',
       regulatoryStatus: 'APPROVED',
       subscriptionStatus: 'ACTIVE',
       monthlyFeeBrl: 100,
       isOnline: true,
+      acceptsImmediate: true,
+      acceptsScheduled: true,
+      documents: [],
+      whatsappDirectNumber: `129888${testSuffix}`,
       vehicle: {
+        id: `veh-${testSuffix}`,
+        driverId: testDriverId,
         brand: 'Toyota',
         model: 'Corolla',
         year: 2023,
         color: 'Prata',
         licensePlate: `VAI-${testSuffix}`,
         category: 'SEDAN',
+        passengerCapacity: 4,
         isApproved: true,
       },
       pricing: {
         minimumFare: 25,
         ratePerKm: 3.5,
         pricingType: 'KM_ONLY',
+        fixedRoutes: [],
       },
       operatingZones: ['z-centro', 'z-maresias'],
       ratingAverage: 5.0,
       ratingCount: 12,
       ridesCompleted: 45,
-      createdAt: new Date().toISOString(),
       isDemo: true,
     };
     await db.collection('drivers').doc(testDriverId).set(driverData);

@@ -383,29 +383,29 @@ const defaultZones: Zone[] = [
 
 const defaultRequirements: RegulatoryRequirement[] = [
   {
-    id: 'req-alvara',
+    id: 'req-cnh-frente',
     municipalityId: 'mun-ss',
-    name: 'Alvará Municipal de Transporte Remunerado',
-    code: 'ALVARA_TRANSPORTE',
-    description: 'Inscrição municipal regular de condutor autônomo / alvará da Prefeitura de São Sebastião.',
+    name: "CNH - Frente (Carteira Nacional de Habilitação)",
+    code: 'CNH_FRENTE',
+    description: 'Foto nítida da frente da CNH aberta ou em formato digital oficial com EAR.',
     isMandatory: true,
     requiresExpiryDate: true,
   },
   {
-    id: 'req-cnh-ear',
+    id: 'req-cnh-verso',
     municipalityId: 'mun-ss',
-    name: 'CNH Definitiva com atividade remunerada (EAR)',
-    code: 'CNH_EAR',
-    description: 'Carteira Nacional de Habilitação na categoria correspondente constando EAR.',
+    name: "CNH - Verso (Carteira Nacional de Habilitação)",
+    code: 'CNH_VERSO',
+    description: 'Foto nítida do verso da CNH contendo as observações e QR code.',
     isMandatory: true,
     requiresExpiryDate: true,
   },
   {
-    id: 'req-vistoria',
+    id: 'req-crlv',
     municipalityId: 'mun-ss',
-    name: 'Laudo de Vistoria Veicular e Segurança',
-    code: 'LAUDO_VISTORIA',
-    description: 'Inspeção mecânica obrigatória periódica válida.',
+    name: 'Certificado de Registro e Licenciamento do Veículo (CRLV)',
+    code: 'CRLV_VEICULO',
+    description: 'Documento CRLV do veículo cadastrado atualizado e quitado.',
     isMandatory: true,
     requiresExpiryDate: true,
   },
@@ -414,8 +414,26 @@ const defaultRequirements: RegulatoryRequirement[] = [
     municipalityId: 'mun-ss',
     name: 'Apólice de Seguro de Acidentes Pessoais a Passageiros (APP)',
     code: 'SEGURO_APP',
-    description: 'Comprovante vigente de cobertura securitária APP para passageiros.',
+    description: 'Comprovante vigente de apólice de seguro APP com cobertura aos passageiros transportados.',
     isMandatory: true,
+    requiresExpiryDate: true,
+  },
+  {
+    id: 'req-selfie-cnh',
+    municipalityId: 'mun-ss',
+    name: 'Selfie do Motorista Segurando a CNH',
+    code: 'SELFIE_CNH',
+    description: 'Foto do rosto do condutor segurando o documento de habilitação legível ao lado do rosto para validação biométrica.',
+    isMandatory: true,
+    requiresExpiryDate: false,
+  },
+  {
+    id: 'req-alvara',
+    municipalityId: 'mun-ss',
+    name: 'Alvará Municipal de Transporte Remunerado / Vistoria',
+    code: 'ALVARA_TRANSPORTE',
+    description: 'Inscrição municipal regular ou laudo de vistoria mecânica de São Sebastião.',
+    isMandatory: false,
     requiresExpiryDate: true,
   },
 ];
@@ -516,13 +534,12 @@ async function seedStaticData() {
     }
   }
 
-  const reqsSnap = await db.collection('requirements').limit(1).get();
-  if (reqsSnap.empty) {
-    const batch = db.batch();
-    for (const req of defaultRequirements) {
-      batch.set(db.collection('requirements').doc(req.id), req);
+  for (const req of defaultRequirements) {
+    const docRef = db.collection('requirements').doc(req.id);
+    const existing = await docRef.get();
+    if (!existing.exists) {
+      await docRef.set(req);
     }
-    await batch.commit();
   }
 
   // Automatic purge of fictitious "Carlos" records and legacy cancelled test rides
@@ -1132,10 +1149,25 @@ app.post('/api/v1/drivers/:id/documents', async (req, res) => {
     doc.expiryDate = expiryDate || doc.expiryDate;
     doc.fileUrl = fileUrl || 'https://via.placeholder.com/600x400.png?text=Documento+Enviado';
     doc.status = 'IN_REVIEW';
+    delete doc.rejectionReason;
 
     const updates: any = { documents: driver.documents };
     if (driver.regulatoryStatus !== 'APPROVED') {
       updates.regulatoryStatus = 'IN_REVIEW';
+    }
+
+    if (fileUrl) {
+      if (requirementId === 'req-cnh-frente' || requirementId.includes('frente')) {
+        updates.cnhFrontUrl = fileUrl;
+      } else if (requirementId === 'req-cnh-verso' || requirementId.includes('verso')) {
+        updates.cnhBackUrl = fileUrl;
+      } else if (requirementId === 'req-crlv' || requirementId.includes('crlv')) {
+        updates.crlvDocumentUrl = fileUrl;
+      } else if (requirementId === 'req-seguro-app' || requirementId.includes('seguro')) {
+        updates.insuranceDocumentUrl = fileUrl;
+      } else if (requirementId === 'req-selfie-cnh' || requirementId.includes('selfie')) {
+        updates.selfieCnhUrl = fileUrl;
+      }
     }
 
     await docRef.update(updates);
@@ -1886,6 +1918,7 @@ app.patch('/api/v1/drivers/:id', async (req, res) => {
       phone,
       email,
       avatarUrl,
+      removeAvatar,
       whatsappDirectNumber,
       vehicle,
       operatingZones,
@@ -1897,10 +1930,60 @@ app.patch('/api/v1/drivers/:id', async (req, res) => {
     } = req.body;
 
     const updates: any = {};
-    if (name !== undefined) updates.name = name.trim();
-    if (phone !== undefined) updates.phone = phone.trim();
-    if (email !== undefined) updates.email = email.trim().toLowerCase();
-    if (avatarUrl !== undefined) updates.avatarUrl = avatarUrl;
+
+    // Validate email format and prevent duplicates
+    if (email !== undefined) {
+      const cleanEmail = email.trim().toLowerCase();
+      if (cleanEmail) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(cleanEmail)) {
+          return res.status(400).json({ error: 'Formato de e-mail inválido.' });
+        }
+        const dupSnap = await db.collection('drivers').where('email', '==', cleanEmail).get();
+        const otherDoc = dupSnap.docs.find((d: any) => d.id !== doc.id);
+        if (otherDoc) {
+          return res.status(409).json({ error: 'Este e-mail já está em uso por outro motorista cadastrado.' });
+        }
+        updates.email = cleanEmail;
+      } else {
+        updates.email = '';
+      }
+    }
+
+    // Validate phone and prevent duplicates
+    if (phone !== undefined) {
+      const cleanPhone = phone.trim();
+      const phoneDigits = cleanPhone.replace(/\D/g, '');
+      if (phoneDigits.length < 10) {
+        return res.status(400).json({ error: 'Telefone inválido. Informe o DDD e o número completo.' });
+      }
+      const dupPhoneSnap = await db.collection('drivers').where('phone', '==', cleanPhone).get();
+      const otherDoc = dupPhoneSnap.docs.find((d: any) => d.id !== doc.id);
+      if (otherDoc) {
+        return res.status(409).json({ error: 'Este número de telefone já está cadastrado para outro motorista.' });
+      }
+      updates.phone = cleanPhone;
+    }
+
+    if (name !== undefined) {
+      const cleanName = name.trim();
+      if (!cleanName) {
+        return res.status(400).json({ error: 'O nome não pode ficar vazio.' });
+      }
+      updates.name = cleanName;
+    }
+
+    if (removeAvatar) {
+      updates.avatarUrl = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80';
+    } else if (avatarUrl !== undefined) {
+      if (avatarUrl && typeof avatarUrl === 'string') {
+        if (avatarUrl.length > 5 * 1024 * 1024) {
+          return res.status(400).json({ error: 'A imagem de perfil não pode ultrapassar 5MB.' });
+        }
+        updates.avatarUrl = avatarUrl;
+      }
+    }
+
     if (whatsappDirectNumber !== undefined) updates.whatsappDirectNumber = whatsappDirectNumber.trim();
     if (operatingZones !== undefined && Array.isArray(operatingZones)) updates.operatingZones = operatingZones;
     if (customZones !== undefined && Array.isArray(customZones)) updates.customZones = customZones;
@@ -1909,12 +1992,18 @@ app.patch('/api/v1/drivers/:id', async (req, res) => {
     if (acceptsCardMachine !== undefined) updates.acceptsCardMachine = Boolean(acceptsCardMachine);
     if (Array.isArray(acceptedPaymentMethods)) updates.acceptedPaymentMethods = acceptedPaymentMethods;
 
+    // Guard vehicle information: Plate and verification docs cannot be modified via profile update
     if (vehicle && typeof vehicle === 'object') {
+      const currentPlate = (existing.vehicle as any)?.licensePlate || (existing.vehicle as any)?.plate || (vehicle as any).licensePlate || (vehicle as any).plate;
       updates.vehicle = {
         ...existing.vehicle,
-        ...vehicle,
+        model: vehicle.model ? vehicle.model.trim() : existing.vehicle?.model,
+        color: vehicle.color ? vehicle.color.trim() : existing.vehicle?.color,
+        year: vehicle.year ? vehicle.year : existing.vehicle?.year,
+        // Plate remains protected under verification workflow
+        licensePlate: currentPlate,
+        plate: currentPlate,
         driverId: existing.id,
-        // Regulatory status of vehicle cannot be bypassed
         isApproved: existing.vehicle?.isApproved ?? false,
       };
     }
@@ -2948,6 +3037,88 @@ app.patch('/api/v1/admin/passengers/:id', async (req, res) => {
     res.json({ success: true, passenger: { ...doc.data(), ...updates } });
   } catch (err: any) {
     res.status(500).json({ error: 'Falha ao editar passageiro', details: err.message });
+  }
+});
+
+// Passenger Profile Self-Update
+app.patch('/api/v1/passengers/:id', async (req, res) => {
+  try {
+    const rawId = req.params.id;
+    const { name, email, phone, avatarUrl, removeAvatar } = req.body;
+
+    let docRef = db.collection('passengers').doc(rawId);
+    let doc = await docRef.get();
+    if (!doc.exists) {
+      const snap = await db.collection('passengers').where('phone', '==', rawId).get();
+      if (!snap.empty) {
+        doc = snap.docs[0];
+        docRef = snap.docs[0].ref;
+      } else {
+        return res.status(404).json({ error: 'Passageiro não encontrado' });
+      }
+    }
+
+    const currentData = doc.data() as Passenger;
+    const updates: any = {};
+
+    // Validate email format and prevent duplicates
+    if (email !== undefined) {
+      const cleanEmail = email.trim().toLowerCase();
+      if (cleanEmail) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(cleanEmail)) {
+          return res.status(400).json({ error: 'Formato de e-mail inválido.' });
+        }
+        const dupSnap = await db.collection('passengers').where('email', '==', cleanEmail).get();
+        const otherDoc = dupSnap.docs.find((d: any) => d.id !== doc.id);
+        if (otherDoc) {
+          return res.status(409).json({ error: 'Este e-mail já está associado a outra conta.' });
+        }
+        updates.email = cleanEmail;
+      } else {
+        updates.email = '';
+      }
+    }
+
+    // Validate phone and prevent duplicates
+    if (phone !== undefined) {
+      const cleanPhone = phone.trim();
+      const phoneDigits = cleanPhone.replace(/\D/g, '');
+      if (phoneDigits.length < 10) {
+        return res.status(400).json({ error: 'Telefone inválido. Informe o DDD e o número completo.' });
+      }
+      const dupPhoneSnap = await db.collection('passengers').where('phone', '==', cleanPhone).get();
+      const otherDoc = dupPhoneSnap.docs.find((d: any) => d.id !== doc.id);
+      if (otherDoc) {
+        return res.status(409).json({ error: 'Este telefone já está associado a outra conta.' });
+      }
+      updates.phone = cleanPhone;
+    }
+
+    if (name !== undefined) {
+      const cleanName = name.trim();
+      if (!cleanName) {
+        return res.status(400).json({ error: 'O nome não pode ficar vazio.' });
+      }
+      updates.name = cleanName;
+    }
+
+    if (removeAvatar) {
+      updates.avatarUrl = 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80';
+    } else if (avatarUrl !== undefined) {
+      if (avatarUrl && typeof avatarUrl === 'string') {
+        if (avatarUrl.length > 5 * 1024 * 1024) {
+          return res.status(400).json({ error: 'A foto excede o limite máximo permitido de 5MB.' });
+        }
+        updates.avatarUrl = avatarUrl;
+      }
+    }
+
+    await docRef.update(updates);
+    const updated = { ...currentData, ...updates };
+    res.json({ success: true, passenger: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Falha ao atualizar perfil do passageiro: ' + err.message });
   }
 });
 

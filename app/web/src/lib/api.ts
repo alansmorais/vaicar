@@ -9,6 +9,8 @@ import {
   SubscriptionPlan,
   PlatformMetrics,
   PlatformFareSettings,
+  RideReceipt,
+  MobilityMapData,
 } from '../types.ts';
 
 export interface MetaResponse {

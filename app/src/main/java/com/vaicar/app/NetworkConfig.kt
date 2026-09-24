@@ -161,3 +161,47 @@ data class Passenger(
     val isBlocked: Boolean,
     val createdAt: String?
 )
+
+data class RideReceipt(
+    val id: String,
+    val receiptCode: String,
+    val rideId: String,
+    val passengerName: String,
+    val passengerPhone: String,
+    val passengerEmail: String? = null,
+    val driverName: String,
+    val driverPhone: String,
+    val driverVehicle: String,
+    val driverLicensePlate: String? = null,
+    val originAddress: String,
+    val destinationAddress: String,
+    val tripStartTime: String? = null,
+    val tripEndTime: String? = null,
+    val durationMinutes: Int = 0,
+    val distanceKm: Double = 0.0,
+    val baseFare: Double = 0.0,
+    val waitingMinutes: Int? = null,
+    val waitingFee: Double? = null,
+    val finalTotal: Double = 0.0,
+    val paymentMethod: String = "PIX",
+    val paymentStatus: String? = null,
+    val createdAt: String? = null
+)
+
+data class ZoneDemand(
+    val zoneId: String,
+    val zoneName: String,
+    val lat: Double,
+    val lng: Double,
+    val onlineDrivers: Int,
+    val activeRequests: Int,
+    val multiplier: Double,
+    val isSurgeActive: Boolean,
+    val estimatedPickupMin: Int
+)
+
+data class MobilityMapData(
+    val zones: List<Zone>,
+    val zoneDemand: List<ZoneDemand>,
+    val timestamp: String
+)

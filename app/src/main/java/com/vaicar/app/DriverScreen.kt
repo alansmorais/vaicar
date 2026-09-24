@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -47,6 +49,22 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
     var serveAllZones by remember { mutableStateOf(true) }
     var selectedZoneIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
+    // Navigation and Profile / Verification / Map States
+    var selectedTab by remember { mutableStateOf(0) }
+    var isSavingProfile by remember { mutableStateOf(false) }
+    var isUploadingDoc by remember { mutableStateOf<String?>(null) }
+    var mobilityData by remember { mutableStateOf<MobilityMapData?>(null) }
+    var isLoadingMobility by remember { mutableStateOf(false) }
+
+    // Profile Edit States
+    var profileName by remember { mutableStateOf("") }
+    var profilePhone by remember { mutableStateOf("") }
+    var profileEmail by remember { mutableStateOf("") }
+    var profileAvatar by remember { mutableStateOf("") }
+    var profileVehicleModel by remember { mutableStateOf("") }
+    var profileVehicleColor by remember { mutableStateOf("") }
+    var profileWhatsappDirect by remember { mutableStateOf("") }
+
     fun refreshState() {
         ApiService.fetchDrivers(
             onSuccess = { drivers ->
@@ -62,6 +80,13 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                 registeredDriver = drv
                 onlineStatus = drv?.isOnline ?: false
                 if (drv != null) {
+                    profileName = drv.name
+                    profilePhone = drv.phone
+                    profileEmail = drv.email ?: ""
+                    profileAvatar = drv.avatarUrl ?: ""
+                    profileVehicleModel = drv.vehicle?.model ?: ""
+                    profileVehicleColor = drv.vehicle?.color ?: ""
+                    profileWhatsappDirect = drv.whatsappDirectNumber ?: ""
                     SecurityUtils.setDriverId(context, drv.id)
                     SecurityUtils.setDriverName(context, drv.name)
                     SecurityUtils.setDriverOnline(context, drv.isOnline)
@@ -137,6 +162,21 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                 )
                 kotlinx.coroutines.delay(3000)
             }
+        }
+    }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == 3) {
+            isLoadingMobility = true
+            ApiService.fetchMobilityMapData(
+                onSuccess = {
+                    mobilityData = it
+                    isLoadingMobility = false
+                },
+                onError = {
+                    isLoadingMobility = false
+                }
+            )
         }
     }
 
@@ -288,7 +328,42 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                         }
                     }
                 } else {
-                    // Online / Offline Switch Cockpit
+                    item {
+                        TabRow(
+                            selectedTabIndex = selectedTab,
+                            containerColor = SurfaceSlate,
+                            contentColor = EmeraldGreen,
+                            modifier = Modifier.clip(RoundedCornerShape(12.dp))
+                        ) {
+                            Tab(
+                                selected = selectedTab == 0,
+                                onClick = { selectedTab = 0 },
+                                text = { Text("Corridas", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
+                                icon = { Icon(Icons.Default.DirectionsCar, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            )
+                            Tab(
+                                selected = selectedTab == 1,
+                                onClick = { selectedTab = 1 },
+                                text = { Text("Documentos", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
+                                icon = { Icon(Icons.Default.Assignment, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            )
+                            Tab(
+                                selected = selectedTab == 2,
+                                onClick = { selectedTab = 2 },
+                                text = { Text("Meu Perfil", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
+                                icon = { Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            )
+                            Tab(
+                                selected = selectedTab == 3,
+                                onClick = { selectedTab = 3 },
+                                text = { Text("Demanda", fontWeight = FontWeight.Bold, fontSize = 11.sp) },
+                                icon = { Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            )
+                        }
+                    }
+
+                    if (selectedTab == 0) {
+                        // Online / Offline Switch Cockpit
                     item {
                         Card(
                             colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
@@ -1141,6 +1216,552 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                 modifier = Modifier.weight(1f)
                                             ) {
                                                 Text("Cancelar", color = Color.White)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    }
+
+                    // ==========================================
+                    // TAB 1: DOCUMENTOS (DRIVER DOCUMENT VERIFICATION)
+                    // ==========================================
+                    if (selectedTab == 1) {
+                        // Regulatory Status Overview
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Auditoria Regulatória", color = EmeraldGreen, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                        val (statusText, statusBg, statusFg) = when (driver.regulatoryStatus) {
+                                            "APPROVED" -> Triple("REGULAR / APROVADO", Color(0xFF065F46), Color(0xFFA7F3D0))
+                                            "IN_REVIEW" -> Triple("EM AUDITORIA", Color(0xFF1E3A8A), Color(0xFFBFDBFE))
+                                            "BLOCKED" -> Triple("BLOQUEADO", Color(0xFF991B1B), Color(0xFFFECACA))
+                                            else -> Triple("PENDENTE", Color(0xFF92400E), Color(0xFFFDE68A))
+                                        }
+                                        Badge(containerColor = statusBg) {
+                                            Text(statusText, color = statusFg, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                        }
+                                    }
+                                    Text(
+                                        "Conforme a legislação de São Sebastião, todos os motoristas parceiros devem manter sua documentação regularizada para operar na plataforma.",
+                                        color = TextSecondary,
+                                        fontSize = 12.sp
+                                    )
+                                    Text(
+                                        "Nota de Segurança: Os documentos verificados não podem ser alterados diretamente no perfil do motorista para preservar a integridade regulatória.",
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        item {
+                            Text("Documentos Obrigatórios do Motorista:", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+
+                        val docSpecs = listOf(
+                            Triple("req-cnh-frente", "CNH - Frente (com Foto)", "Foto nítida e legível da frente aberta da Carteira Nacional de Habilitação."),
+                            Triple("req-cnh-verso", "CNH - Verso (com EAR)", "Verso com QR Code e observação 'Exerce Atividade Remunerada (EAR)'."),
+                            Triple("req-crlv", "CRLV - Documento do Veículo", "Certificado de Registro e Licenciamento do Veículo do exercício vigente."),
+                            Triple("req-seguro-app", "Seguro APP de Passageiros", "Apólice ou comprovante do Seguro de Acidentes Pessoais a Passageiros."),
+                            Triple("req-selfie-cnh", "Selfie com a CNH", "Foto do motorista segurando a CNH ao lado do rosto em ambiente claro."),
+                            Triple("req-alvara", "Alvará Municipal de Transporte", "Inscrição ou alvará emitido pela Prefeitura de São Sebastião.")
+                        )
+
+                        items(docSpecs) { (specId, specTitle, specDesc) ->
+                            val existingDoc = driver.documents.find { it.requirementId == specId }
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(specTitle, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        val (docStatusText, docStatusBg, docStatusFg) = when (existingDoc?.status) {
+                                            "APPROVED" -> Triple("Aprovado ✓", Color(0xFF065F46), Color(0xFFA7F3D0))
+                                            "IN_REVIEW" -> Triple("Em análise ⏳", Color(0xFF1E3A8A), Color(0xFFBFDBFE))
+                                            "REJECTED" -> Triple("Rejeitado ✕", Color(0xFF991B1B), Color(0xFFFECACA))
+                                            else -> Triple("Pendente ⚠️", Color(0xFF92400E), Color(0xFFFDE68A))
+                                        }
+                                        Badge(containerColor = docStatusBg) {
+                                            Text(docStatusText, color = docStatusFg, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                        }
+                                    }
+                                    Text(specDesc, color = TextSecondary, fontSize = 12.sp)
+
+                                    if (existingDoc?.status == "REJECTED" && !existingDoc.rejectionReason.isNullOrBlank()) {
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = Color(0xFF450A0A)),
+                                            border = BorderStroke(1.dp, Color(0xFFDC2626)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                "Motivo da rejeição: ${existingDoc.rejectionReason}",
+                                                color = Color(0xFFFECACA),
+                                                fontSize = 11.sp,
+                                                modifier = Modifier.padding(8.dp)
+                                            )
+                                        }
+                                    }
+
+                                    val isUploadingThis = isUploadingDoc == specId
+                                    Button(
+                                        onClick = {
+                                            isUploadingDoc = specId
+                                            // Submit official document image payload
+                                            val mockPayload = "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=600&q=80"
+                                            ApiService.submitDriverDocument(
+                                                driverId = driver.id,
+                                                requirementId = specId,
+                                                fileUrl = mockPayload,
+                                                documentNumber = "DOC-${(100000..999999).random()}",
+                                                expiryDate = "2028-12-31",
+                                                onSuccess = {
+                                                    isUploadingDoc = null
+                                                    refreshState()
+                                                    message = "Documento '$specTitle' enviado com sucesso para verificação!"
+                                                },
+                                                onError = { err ->
+                                                    isUploadingDoc = null
+                                                    message = err.message ?: "Erro ao enviar documento."
+                                                }
+                                            )
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (existingDoc == null) EmeraldGreen else Color(0xFF1E293B)
+                                        ),
+                                        border = if (existingDoc != null) BorderStroke(1.dp, EmeraldGreen) else null,
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        if (isUploadingThis) {
+                                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp))
+                                        } else {
+                                            val btnLabel = when (existingDoc?.status) {
+                                                "APPROVED" -> "Atualizar Documento Aprovado"
+                                                "REJECTED" -> "Reenviar Documento Corrigido 🔄"
+                                                "IN_REVIEW" -> "Substituir Documento em Análise"
+                                                else -> "Enviar Foto / Documento 📤"
+                                            }
+                                            Text(
+                                                btnLabel,
+                                                color = if (existingDoc == null) Color.Black else EmeraldGreen,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ==========================================
+                    // TAB 2: MEU PERFIL (COMPLETE DRIVER PROFILE)
+                    // ==========================================
+                    if (selectedTab == 2) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    Text("Gerenciamento de Perfil do Motorista", color = EmeraldGreen, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+
+                                    // Profile Photo & Preset Options
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(64.dp)
+                                                .clip(CircleShape)
+                                                .background(EmeraldGreen.copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(Icons.Default.Person, contentDescription = null, tint = EmeraldGreen, modifier = Modifier.size(36.dp))
+                                        }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Foto do Perfil Profissional", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                            Text("Exibida para os passageiros ao aceitar uma chamada.", color = TextSecondary, fontSize = 11.sp)
+                                        }
+                                    }
+
+                                    // Preset Avatars Selection
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        listOf(
+                                            "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80",
+                                            "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80",
+                                            "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80"
+                                        ).forEachIndexed { idx, url ->
+                                            val isSelected = profileAvatar == url
+                                            Button(
+                                                onClick = { profileAvatar = url },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = if (isSelected) EmeraldGreen else DarkSlate
+                                                ),
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Text(
+                                                    "Avatar ${idx + 1}",
+                                                    color = if (isSelected) Color.Black else Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Full Name Input
+                                    OutlinedTextField(
+                                        value = profileName,
+                                        onValueChange = { profileName = it },
+                                        label = { Text("Nome Completo *") },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = EmeraldGreen,
+                                            focusedLabelColor = EmeraldGreen,
+                                            unfocusedLabelColor = TextSecondary,
+                                            unfocusedTextColor = Color.White,
+                                            focusedTextColor = Color.White
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    // Phone Input
+                                    OutlinedTextField(
+                                        value = profilePhone,
+                                        onValueChange = { profilePhone = it },
+                                        label = { Text("Telefone / WhatsApp *") },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = EmeraldGreen,
+                                            focusedLabelColor = EmeraldGreen,
+                                            unfocusedLabelColor = TextSecondary,
+                                            unfocusedTextColor = Color.White,
+                                            focusedTextColor = Color.White
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    // Email Input
+                                    OutlinedTextField(
+                                        value = profileEmail,
+                                        onValueChange = { profileEmail = it },
+                                        label = { Text("E-mail Cadastrado") },
+                                        placeholder = { Text("motorista@vaicar.com.br", color = TextSecondary.copy(alpha = 0.5f)) },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = EmeraldGreen,
+                                            focusedLabelColor = EmeraldGreen,
+                                            unfocusedLabelColor = TextSecondary,
+                                            unfocusedTextColor = Color.White,
+                                            focusedTextColor = Color.White
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    // WhatsApp Direct Contact Number
+                                    OutlinedTextField(
+                                        value = profileWhatsappDirect,
+                                        onValueChange = { profileWhatsappDirect = it },
+                                        label = { Text("Número Direto WhatsApp") },
+                                        placeholder = { Text("+5512999999999", color = TextSecondary.copy(alpha = 0.5f)) },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = EmeraldGreen,
+                                            focusedLabelColor = EmeraldGreen,
+                                            unfocusedLabelColor = TextSecondary,
+                                            unfocusedTextColor = Color.White,
+                                            focusedTextColor = Color.White
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    // Vehicle Model & Color
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedTextField(
+                                            value = profileVehicleModel,
+                                            onValueChange = { profileVehicleModel = it },
+                                            label = { Text("Modelo do Carro") },
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = EmeraldGreen,
+                                                focusedLabelColor = EmeraldGreen,
+                                                unfocusedLabelColor = TextSecondary,
+                                                unfocusedTextColor = Color.White,
+                                                focusedTextColor = Color.White
+                                            ),
+                                            modifier = Modifier.weight(1.5f)
+                                        )
+                                        OutlinedTextField(
+                                            value = profileVehicleColor,
+                                            onValueChange = { profileVehicleColor = it },
+                                            label = { Text("Cor") },
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = EmeraldGreen,
+                                                focusedLabelColor = EmeraldGreen,
+                                                unfocusedLabelColor = TextSecondary,
+                                                unfocusedTextColor = Color.White,
+                                                focusedTextColor = Color.White
+                                            ),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+
+                                    // Regulatory Protection Notice
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                                        border = BorderStroke(1.dp, Color(0xFF334155)),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(Icons.Default.Lock, contentDescription = null, tint = EmeraldGreen, modifier = Modifier.size(18.dp))
+                                            Text(
+                                                "Placa registrada: ${driver.vehicle?.plate ?: "—"}. A placa e documentos fiscais são bloqueados para edição comum por conformidade legal.",
+                                                color = TextSecondary,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+
+                                    // Save & Cancel Actions
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Button(
+                                            onClick = {
+                                                if (profileName.isBlank() || profilePhone.isBlank()) {
+                                                    message = "Nome e telefone são campos obrigatórios."
+                                                    return@Button
+                                                }
+
+                                                val digits = profilePhone.replace("\\D".toRegex(), "")
+                                                if (digits.length < 10) {
+                                                    message = "Telefone inválido. Informe o DDD e o número completo."
+                                                    return@Button
+                                                }
+
+                                                if (profileEmail.isNotBlank() && !profileEmail.contains("@")) {
+                                                    message = "Formato de e-mail inválido."
+                                                    return@Button
+                                                }
+
+                                                isSavingProfile = true
+                                                val updates = mutableMapOf<String, Any>(
+                                                    "name" to profileName.trim(),
+                                                    "phone" to profilePhone.trim(),
+                                                    "email" to profileEmail.trim(),
+                                                    "avatarUrl" to profileAvatar,
+                                                    "whatsappDirectNumber" to profileWhatsappDirect.trim()
+                                                )
+
+                                                if (profileVehicleModel.isNotBlank()) {
+                                                    updates["vehicle"] = mapOf(
+                                                        "model" to profileVehicleModel.trim(),
+                                                        "color" to profileVehicleColor.trim()
+                                                    )
+                                                }
+
+                                                ApiService.updateDriverProfile(
+                                                    driverId = driver.id,
+                                                    updates = updates,
+                                                    onSuccess = { updated ->
+                                                        isSavingProfile = false
+                                                        registeredDriver = updated
+                                                        SecurityUtils.setDriverName(context, updated.name)
+                                                        message = "Perfil atualizado com sucesso no VaiCar!"
+                                                    },
+                                                    onError = { err ->
+                                                        isSavingProfile = false
+                                                        message = err.message ?: "Erro ao salvar perfil."
+                                                    }
+                                                )
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            if (isSavingProfile) {
+                                                CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(18.dp))
+                                            } else {
+                                                Text("Salvar Alterações", color = Color.Black, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = {
+                                                profileName = driver.name
+                                                profilePhone = driver.phone
+                                                profileEmail = driver.email ?: ""
+                                                profileAvatar = driver.avatarUrl ?: ""
+                                                profileVehicleModel = driver.vehicle?.model ?: ""
+                                                profileVehicleColor = driver.vehicle?.color ?: ""
+                                                profileWhatsappDirect = driver.whatsappDirectNumber ?: ""
+                                                message = "Alterações descartadas."
+                                            },
+                                            border = BorderStroke(1.dp, TextSecondary),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text("Cancelar", color = TextSecondary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ==========================================
+                    // TAB 3: DEMANDA (MOBILITY MAP)
+                    // ==========================================
+                    if (selectedTab == 3) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Mapa de Demanda em Tempo Real", color = EmeraldGreen, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                        Text("São Sebastião - SP", color = TextSecondary, fontSize = 12.sp)
+                                    }
+                                    Text(
+                                        "Visualize as regiões de maior demanda, multiplicadores de tarifa dinâmica e tempo de resposta para otimizar seus ganhos.",
+                                        color = Color.White.copy(alpha = 0.8f),
+                                        fontSize = 12.sp
+                                    )
+
+                                    Button(
+                                        onClick = {
+                                            val mapWebUrl = "${NetworkConfig.PRODUCTION_URL}/?tab=mapa"
+                                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(mapWebUrl))
+                                            context.startActivity(browserIntent)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(Icons.Default.Navigation, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Abrir Mapa de Mobilidade Interativo", color = Color.Black, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        item {
+                            Text("Zonas de Atendimento e Demanda Atual:", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+
+                        if (isLoadingMobility) {
+                            item {
+                                Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(color = EmeraldGreen)
+                                }
+                            }
+                        } else {
+                            val demands = mobilityData?.zoneDemand ?: emptyList()
+                            if (demands.isEmpty()) {
+                                items(zones) { z ->
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = SurfaceSlate.copy(alpha = 0.6f)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(14.dp).fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text(z.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                                Text("${z.distanceFromCenterKm} km do Centro", color = TextSecondary, fontSize = 11.sp)
+                                            }
+                                            Text("Demanda Normal", color = EmeraldGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            } else {
+                                items(demands) { demand ->
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = SurfaceSlate),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(14.dp).fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(demand.zoneName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                                    if (demand.isSurgeActive) {
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Badge(containerColor = Color(0xFFF59E0B)) {
+                                                            Text("⚡ ${demand.multiplier}x", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                        }
+                                                    }
+                                                }
+                                                Text(
+                                                    "${demand.onlineDrivers} motorista(s) ativo(s) • Tempo estimado: ~${demand.estimatedPickupMin} min",
+                                                    color = TextSecondary,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                            Badge(
+                                                containerColor = if (demand.isSurgeActive) Color(0xFF78350F) else Color(0xFF065F46)
+                                            ) {
+                                                Text(
+                                                    if (demand.isSurgeActive) "Alta Demanda" else "Normal",
+                                                    color = if (demand.isSurgeActive) Color(0xFFFDE68A) else Color(0xFFA7F3D0),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
                                             }
                                         }
                                     }

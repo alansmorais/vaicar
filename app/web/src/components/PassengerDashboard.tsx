@@ -2089,19 +2089,32 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   />
                 </div>
                 <div className="space-y-2">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePassengerAvatarChange}
-                    className="hidden"
-                    id="passenger-avatar-upload"
-                  />
-                  <label
-                    htmlFor="passenger-avatar-upload"
-                    className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3.5 py-2 rounded-lg cursor-pointer transition-all border border-slate-700"
-                  >
-                    Selecionar Foto do Dispositivo
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePassengerAvatarChange}
+                      className="hidden"
+                      id="passenger-avatar-upload"
+                    />
+                    <label
+                      htmlFor="passenger-avatar-upload"
+                      className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3.5 py-2 rounded-lg cursor-pointer transition-all border border-slate-700"
+                    >
+                      Selecionar Foto
+                    </label>
+                    {passengerAvatarUrl && !passengerAvatarUrl.includes('unsplash.com/photo-1494790108377') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPassengerAvatarUrl('https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80');
+                        }}
+                        className="text-xs text-rose-400 hover:text-rose-300 font-bold px-2 py-1 transition-colors cursor-pointer"
+                      >
+                        Remover Foto
+                      </button>
+                    )}
+                  </div>
                   <p className="text-[10px] text-slate-400">Ajuda o motorista a te identificar visualmente no local de embarque.</p>
                 </div>
               </div>
@@ -2130,7 +2143,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-300">E-mail (Opcional)</label>
+              <label className="text-xs font-bold text-slate-300">E-mail Cadastrado</label>
               <input
                 type="email"
                 value={passengerEmail}
@@ -2157,12 +2170,29 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               <p className="text-xs text-emerald-400 font-semibold">{authMessage}</p>
             )}
 
-            <button
-              type="submit"
-              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs cursor-pointer shadow-md"
-            >
-              {codeRequested ? 'Confirmar Código e Salvar' : 'Atualizar / Validar Perfil'}
-            </button>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="submit"
+                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs cursor-pointer shadow-md"
+              >
+                {codeRequested ? 'Confirmar Código e Salvar' : 'Salvar Alterações'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPassengerName(localStorage.getItem('vaicar_passenger_name') || '');
+                  setPassengerPhone(localStorage.getItem('vaicar_passenger_phone') || '');
+                  setPassengerEmail(localStorage.getItem('vaicar_passenger_email') || '');
+                  setPassengerAvatarUrl(localStorage.getItem('vaicar_passenger_avatar') || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80');
+                  setCodeRequested(false);
+                  setAuthMessage('Edição cancelada.');
+                  setTimeout(() => setAuthMessage(null), 2500);
+                }}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2.5 rounded-xl text-xs cursor-pointer transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
           </form>
         </div>
       )}

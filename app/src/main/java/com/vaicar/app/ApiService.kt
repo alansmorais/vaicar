@@ -875,4 +875,192 @@ object ApiService {
             }
         })
     }
+
+    fun updatePassengerProfile(
+        passengerId: String,
+        name: String? = null,
+        phone: String? = null,
+        email: String? = null,
+        avatarUrl: String? = null,
+        onSuccess: (Passenger) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val bodyMap = mutableMapOf<String, Any>()
+        if (name != null) bodyMap["name"] = name
+        if (phone != null) bodyMap["phone"] = phone
+        if (email != null) bodyMap["email"] = email
+        if (avatarUrl != null) bodyMap["avatarUrl"] = avatarUrl
+
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/passengers/$passengerId")
+            .patch(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
+                        val pJson = gson.toJson(map["passenger"] ?: map)
+                        val p = gson.fromJson(pJson, Passenger::class.java)
+                        mainHandler.post { onSuccess(p) }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+                }
+            }
+        })
+    }
+
+    fun updateDriverProfile(
+        driverId: String,
+        updates: Map<String, Any>,
+        onSuccess: (Driver) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val requestBody = gson.toJson(updates).toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/drivers/$driverId")
+            .patch(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
+                        val dJson = gson.toJson(map["driver"] ?: map)
+                        val d = gson.fromJson(dJson, Driver::class.java)
+                        mainHandler.post { onSuccess(d) }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+                }
+            }
+        })
+    }
+
+    fun submitDriverDocument(
+        driverId: String,
+        requirementId: String,
+        fileUrl: String,
+        documentNumber: String? = null,
+        expiryDate: String? = null,
+        onSuccess: (DriverDocument) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val bodyMap = mutableMapOf<String, Any>(
+            "requirementId" to requirementId,
+            "fileUrl" to fileUrl
+        )
+        if (documentNumber != null) bodyMap["documentNumber"] = documentNumber
+        if (expiryDate != null) bodyMap["expiryDate"] = expiryDate
+
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/drivers/$driverId/documents")
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val doc = gson.fromJson(bodyString, DriverDocument::class.java)
+                        mainHandler.post { onSuccess(doc) }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+                }
+            }
+        })
+    }
+
+    fun fetchRideReceipt(
+        rideId: String,
+        onSuccess: (RideReceipt) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/rides/$rideId/receipt")
+            .get()
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val receipt = gson.fromJson(bodyString, RideReceipt::class.java)
+                        mainHandler.post { onSuccess(receipt) }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+                }
+            }
+        })
+    }
+
+    fun fetchMobilityMapData(
+        onSuccess: (MobilityMapData) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/mobility/map-data")
+            .get()
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val data = gson.fromJson(bodyString, MobilityMapData::class.java)
+                        mainHandler.post { onSuccess(data) }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+                }
+            }
+        })
+    }
 }
