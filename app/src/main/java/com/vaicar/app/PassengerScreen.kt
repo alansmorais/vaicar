@@ -214,6 +214,8 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
     // Viagem State
     var originZone by remember { mutableStateOf<Zone?>(zones.firstOrNull()) }
     var destZone by remember { mutableStateOf<Zone?>(zones.getOrNull(1)) }
+    var originExpanded by remember { mutableStateOf(false) }
+    var destExpanded by remember { mutableStateOf(false) }
     var passengerCount by remember { mutableStateOf(1) }
     var passengerName by remember { mutableStateOf(SecurityUtils.getPassengerName(context)) }
     var passengerPhone by remember { mutableStateOf(SecurityUtils.getPassengerPhone(context)) }
