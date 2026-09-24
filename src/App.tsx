@@ -416,7 +416,7 @@ export default function App() {
           </button>
           <span>•</span>
           <button onClick={() => handleOpenLegal('regulacao')} className="hover:text-emerald-400 cursor-pointer">
-            Regulamento Municipal
+            Marco Legal
           </button>
         </div>
       </footer>

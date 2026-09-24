@@ -148,7 +148,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [actionModalDriver, setActionModalDriver] = useState<Driver | null>(null);
   const [actionModalType, setActionModalType] = useState<'REJECT' | 'SUSPEND' | 'BLOCK' | 'REQUEST_DOC' | null>(null);
   const [actionReason, setActionReason] = useState('');
-  const [selectedReqDoc, setSelectedReqDoc] = useState('Alvará de Licença Municipal');
+  const [selectedReqDoc, setSelectedReqDoc] = useState('CNH com EAR');
 
   // Plan & Zones
   const [newPlanPrice, setNewPlanPrice] = useState<number>(plan.priceBrl);
@@ -527,7 +527,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleConfirmActionModal = async () => {
     if (!actionModalDriver || !actionModalType) return;
     if (actionModalType !== 'REQUEST_DOC' && !actionReason.trim()) {
-      alert('O motivo é obrigatório conforme regulamento municipal.');
+      alert('O motivo é obrigatório para registrar a decisão.');
       return;
     }
 
@@ -736,7 +736,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
             <h2 className="text-2xl font-black text-white">Acesso Administrativo</h2>
             <p className="text-xs text-slate-400">
-              Gestão restrita de credenciamento municipal, auditoria e finanças do VaiCar.
+              Gestão de cadastros, auditoria e finanças do VaiCar.
             </p>
           </div>
 
@@ -1204,7 +1204,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </div>
 
                         <p className="text-xs text-slate-400">
-                          CPF: {d.cpf} • Tel: {d.phone} • Alvará: {d.licenseNumber || 'Pendente'}
+                          CPF: {d.cpf} • Tel: {d.phone}
                         </p>
                         <p className="text-xs text-slate-300">
                           Veículo: {d.vehicle.brand} {d.vehicle.model} ({d.vehicle.year}) • Placa: {d.vehicle.licensePlate} • Cor: {d.vehicle.color}
@@ -1303,7 +1303,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   {/* Documents Inspection List */}
                   <div className="border-t border-slate-800 pt-3 space-y-2">
                     <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                      Auditoria de Documentos Exigidos por São Sebastião:
+                      Auditoria de Documentos de Cadastro:
                     </span>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {d.documents.map((doc) => (
@@ -1379,7 +1379,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       onChange={(e) => setSelectedReqDoc(e.target.value)}
                       className="w-full bg-slate-950 text-white p-2.5 rounded-xl border border-slate-700 outline-none"
                     >
-                      <option value="Alvará de Licença Municipal">Alvará de Licença Municipal (São Sebastião)</option>
                       <option value="CNH com EAR">CNH Definitiva com EAR</option>
                       <option value="Seguro APP Passageiros">Apólice de Seguro APP Passageiros</option>
                       <option value="Laudo de Vistoria Veicular">Laudo de Vistoria Veicular Atualizado</option>
@@ -1396,7 +1395,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     rows={3}
                     value={actionReason}
                     onChange={(e) => setActionReason(e.target.value)}
-                    placeholder="Especifique a justificativa técnica / regulamentar..."
+                    placeholder="Especifique a justificativa técnica ou motivo..."
                     className="w-full bg-slate-950 text-white p-3 rounded-xl border border-slate-700 outline-none resize-none"
                   />
                 </div>
@@ -1798,7 +1797,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           Ativar Bloqueio Automático na Plataforma
                         </span>
                         <span className="text-[11px] text-slate-400 block">
-                          Quando ativado, o sistema rejeita qualquer tentativa do motorista de salvar tarifas abaixo desses pisos e garante que a estimativa da corrida nunca fique inferior ao piso municipal.
+                          Quando ativado, o sistema rejeita qualquer tentativa do motorista de salvar tarifas abaixo desses pisos e garante que a estimativa da corrida nunca fique inferior ao piso configurado pela plataforma.
                         </span>
                       </div>
                     </label>

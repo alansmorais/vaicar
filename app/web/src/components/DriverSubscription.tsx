@@ -132,7 +132,7 @@ export const DriverSubscription: React.FC<DriverSubscriptionProps> = ({
         {/* Tiered Table Transparency Breakdown */}
         <div className="space-y-3 pt-2">
           <span className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
-            Estrutura Oficial de Mensalidades da Plataforma:
+            Estrutura de Mensalidades da Plataforma:
           </span>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             {VAICAR_SUBSCRIPTION_TIERS.map((tier, idx) => {

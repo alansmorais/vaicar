@@ -155,8 +155,8 @@ export async function generateRideReceiptPdf(data: RideReceipt): Promise<Buffer>
       // --- LEGAL NOTICE & PLATFORM FOOTER ---
       doc.roundedRect(40, currentY, 515, 50, 4).fillAndStroke('#f1f5f9', '#cbd5e1');
       doc.fillColor('#64748b').fontSize(7.5).font('Helvetica')
-        .text('Este documento é um comprovante de prestação de serviço de transporte emitido pela plataforma tecnológica VaiCar São Sebastião, intermediadora entre passageiro e motorista autônomo credenciado.', 50, currentY + 8, { width: 495, align: 'justify' })
-        .text('Para dúvidas, suporte ou reporte de ocorrências acesse o painel VaiCar ou entre em contato pelo canal oficial de suporte da plataforma.', 50, currentY + 28, { width: 495, align: 'center' });
+        .text('Este documento é um comprovante emitido pela plataforma tecnológica VaiCar, intermediadora entre passageiro e motorista autônomo cadastrado.', 50, currentY + 8, { width: 495, align: 'justify' })
+        .text('Para dúvidas, suporte ou reporte de ocorrências acesse o painel VaiCar ou entre em contato pelos canais de atendimento da plataforma.', 50, currentY + 28, { width: 495, align: 'center' });
 
       doc.end();
     } catch (error) {

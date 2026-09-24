@@ -212,7 +212,7 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
     <div className="w-full max-w-2xl mx-auto px-4 py-8 space-y-6">
       <div className="text-center space-y-2">
         <span className="text-xs font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-500/30 px-3 py-1 rounded-full uppercase tracking-wider">
-          Credenciamento de Motorista
+          Cadastro de Motorista
         </span>
         <h1 className="text-2xl sm:text-3xl font-black text-white">Seja motorista VaiCar</h1>
         <p className="text-sm text-slate-300">
@@ -220,7 +220,7 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
         </p>
       </div>
 
-      {/* Alternador Credenciamento vs Login */}
+      {/* Alternador Cadastro vs Login */}
       <div className="grid grid-cols-2 gap-2 bg-slate-900 p-1.5 rounded-2xl border border-slate-800">
         <button
           type="button"
@@ -234,7 +234,7 @@ export const DriverOnboarding: React.FC<DriverOnboardingProps> = ({
               : 'text-slate-400 hover:text-white'
           }`}
         >
-          Novo Credenciamento
+          Novo Cadastro
         </button>
         <button
           type="button"

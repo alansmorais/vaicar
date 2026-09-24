@@ -74,7 +74,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({ ride, onClose }) => {
             <h2 className="text-xl font-black text-white">Reportar Ocorrência de Segurança</h2>
           </div>
           <p className="text-xs text-slate-400">
-            {ride ? `Ocorrência vinculada à corrida #${ride.id} (${ride.driverName})` : 'Canal oficial de auditoria e integridade do VaiCar'}
+            {ride ? `Ocorrência vinculada à corrida #${ride.id} (${ride.driverName})` : 'Canal de auditoria e suporte da plataforma VaiCar'}
           </p>
         </div>
 

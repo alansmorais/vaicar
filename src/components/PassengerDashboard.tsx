@@ -31,6 +31,9 @@ import {
   Navigation,
   XCircle,
   Package,
+  FileText,
+  Download,
+  Compass,
 } from 'lucide-react';
 import { Zone, Ride, Driver, PaymentMethod, SearchDriversResponse } from '../types.ts';
 import {
@@ -47,6 +50,8 @@ import {
 } from '../lib/api.ts';
 import { LiveRideTracker } from './LiveRideTracker.tsx';
 import { ReportModal } from './ReportModal.tsx';
+import { RideReceiptModal } from './RideReceiptModal.tsx';
+import { VaiCarMobilityMap } from './VaiCarMobilityMap.tsx';
 import { realtimeSync, broadcastLocalRideCreated, broadcastLocalRideUpdate } from '../lib/realtimeSync.ts';
 
 export function parseDeliveryDetails(originLandmark?: string) {
@@ -92,8 +97,9 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   onOpenLegal,
   onLogout,
 }) => {
-  const [activeTab, setActiveTab] = useState<'SOLICITAR' | 'ATUAL' | 'HISTORICO' | 'AVALIACOES' | 'PERFIL' | 'AJUDA'>('SOLICITAR');
+  const [activeTab, setActiveTab] = useState<'SOLICITAR' | 'MAPA' | 'ATUAL' | 'HISTORICO' | 'AVALIACOES' | 'PERFIL' | 'AJUDA'>('SOLICITAR');
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [selectedReceiptRideId, setSelectedReceiptRideId] = useState<string | null>(null);
 
   // Service Type: Passenger Ride vs Item Delivery
   const [serviceType, setServiceType] = useState<'RIDE' | 'DELIVERY'>(() => {
@@ -812,6 +818,18 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('MAPA')}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'MAPA'
+              ? 'bg-emerald-500 text-slate-950 shadow-md'
+              : 'text-slate-300 hover:text-white hover:bg-slate-800'
+          }`}
+        >
+          <Compass className="w-4 h-4" />
+          <span>Mapa da Cidade</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('ATUAL')}
           className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap relative ${
             activeTab === 'ATUAL'
@@ -889,7 +907,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               </h2>
               <p className="text-xs text-slate-400">
                 {serviceType === 'RIDE' 
-                  ? 'Selecione as zonas de origem e destino para consultar motoristas credenciados disponíveis.'
+                  ? 'Selecione as zonas de origem e destino para consultar motoristas cadastrados disponíveis.'
                   : 'Preencha os dados do envio e selecione os endereços de coleta e entrega.'}
               </p>
             </div>
@@ -1256,7 +1274,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   </div>
                   <h4 className="text-base font-bold text-white">Nenhum motorista disponível no momento.</h4>
                   <p className="text-xs text-slate-400 max-w-md mx-auto">
-                    Não há motoristas profissionais credenciados e online para esta rota no momento. Tente novamente em alguns minutos.
+                    Não há motoristas cadastrados e online para esta rota no momento. Tente novamente em alguns minutos.
                   </p>
                   <button
                     onClick={onGoToDriverSignup}
@@ -1273,7 +1291,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                       ? (deliveryVehicle === 'MOTO' ? '🏍️ Motocicleta Honda CG Titan 160 (Preta)' : '🚲 Bicicleta Caloi Vulcan (Vermelha)')
                       : `${driver.vehicle.brand} ${driver.vehicle.model} • ${driver.vehicle.color}`;
                     
-                    const labelRoleText = isDelivery ? 'Entregador Credenciado' : 'Credenciado';
+                    const labelRoleText = isDelivery ? 'Entregador Verificado' : 'Verificado';
                     const priceLabel = isDelivery ? 'Preço da entrega' : 'Preço do motorista';
                     const selectButtonText = isDelivery ? 'Escolher este Entregador' : 'Escolher este Motorista';
                     const capacityLabel = isDelivery ? `Tipo: Envio por ${deliveryVehicle === 'MOTO' ? 'Moto' : 'Bike'}` : `Capacidade: ${driver.vehicle.capacity} passageiros`;
@@ -1543,6 +1561,25 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ABA: MAPA DE MOBILIDADE */}
+      {/* ========================================================================= */}
+      {activeTab === 'MAPA' && (
+        <div className="space-y-4">
+          <VaiCarMobilityMap
+            mode="PASSENGER"
+            zones={zones}
+            selectedOriginId={originZoneId}
+            selectedDestId={destinationZoneId}
+            onSelectRoute={(origId, destId) => {
+              setOriginZoneId(origId);
+              setDestinationZoneId(destId);
+              setActiveTab('SOLICITAR');
+            }}
+          />
         </div>
       )}
 
@@ -1977,13 +2014,23 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                     </p>
                   </div>
 
-                  <div className="text-right">
+                  <div className="text-right space-y-1.5">
                     <span className="text-base font-black text-emerald-400 block">
                       R$ {ride.estimatedPrice.toFixed(2)}
                     </span>
-                    <span className="text-[11px] text-slate-400">
+                    <span className="text-[11px] text-slate-400 block">
                       {ride.paymentStatus === 'PAID' || ride.paymentStatus === 'CONFIRMED_BY_DRIVER' ? '🟢 Pago' : '🟡 Pendente'}
                     </span>
+                    {ride.status === 'COMPLETED' && (
+                      <button
+                        onClick={() => setSelectedReceiptRideId(ride.id)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-[10px] font-bold text-emerald-300 transition-all cursor-pointer shadow-sm"
+                        title="Ver Comprovante da Corrida (PDF)"
+                      >
+                        <FileText className="w-3 h-3 text-emerald-400" />
+                        <span>Comprovante PDF</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -2042,19 +2089,32 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   />
                 </div>
                 <div className="space-y-2">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePassengerAvatarChange}
-                    className="hidden"
-                    id="passenger-avatar-upload"
-                  />
-                  <label
-                    htmlFor="passenger-avatar-upload"
-                    className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3.5 py-2 rounded-lg cursor-pointer transition-all border border-slate-700"
-                  >
-                    Selecionar Foto do Dispositivo
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePassengerAvatarChange}
+                      className="hidden"
+                      id="passenger-avatar-upload"
+                    />
+                    <label
+                      htmlFor="passenger-avatar-upload"
+                      className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3.5 py-2 rounded-lg cursor-pointer transition-all border border-slate-700"
+                    >
+                      Selecionar Foto
+                    </label>
+                    {passengerAvatarUrl && !passengerAvatarUrl.includes('unsplash.com/photo-1494790108377') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPassengerAvatarUrl('https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80');
+                        }}
+                        className="text-xs text-rose-400 hover:text-rose-300 font-bold px-2 py-1 transition-colors cursor-pointer"
+                      >
+                        Remover Foto
+                      </button>
+                    )}
+                  </div>
                   <p className="text-[10px] text-slate-400">Ajuda o motorista a te identificar visualmente no local de embarque.</p>
                 </div>
               </div>
@@ -2083,7 +2143,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-300">E-mail (Opcional)</label>
+              <label className="text-xs font-bold text-slate-300">E-mail Cadastrado</label>
               <input
                 type="email"
                 value={passengerEmail}
@@ -2110,12 +2170,29 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               <p className="text-xs text-emerald-400 font-semibold">{authMessage}</p>
             )}
 
-            <button
-              type="submit"
-              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs cursor-pointer shadow-md"
-            >
-              {codeRequested ? 'Confirmar Código e Salvar' : 'Atualizar / Validar Perfil'}
-            </button>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="submit"
+                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs cursor-pointer shadow-md"
+              >
+                {codeRequested ? 'Confirmar Código e Salvar' : 'Salvar Alterações'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPassengerName(localStorage.getItem('vaicar_passenger_name') || '');
+                  setPassengerPhone(localStorage.getItem('vaicar_passenger_phone') || '');
+                  setPassengerEmail(localStorage.getItem('vaicar_passenger_email') || '');
+                  setPassengerAvatarUrl(localStorage.getItem('vaicar_passenger_avatar') || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80');
+                  setCodeRequested(false);
+                  setAuthMessage('Edição cancelada.');
+                  setTimeout(() => setAuthMessage(null), 2500);
+                }}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2.5 rounded-xl text-xs cursor-pointer transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
           </form>
         </div>
       )}
@@ -2228,6 +2305,14 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         <ReportModal
           ride={activeRide}
           onClose={() => setIsReportModalOpen(false)}
+        />
+      )}
+
+      {/* Ride Receipt Modal (Comprovante da Corrida) */}
+      {selectedReceiptRideId && (
+        <RideReceiptModal
+          rideId={selectedReceiptRideId}
+          onClose={() => setSelectedReceiptRideId(null)}
         />
       )}
     </div>

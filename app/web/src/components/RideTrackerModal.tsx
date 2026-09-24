@@ -70,7 +70,7 @@ export const RideTrackerModal: React.FC<RideTrackerModalProps> = ({
     },
     COMPLETED: {
       title: 'Viagem Concluída',
-      desc: 'Obrigado por utilizar o transporte profissional autorizado VaiCar!',
+      desc: 'Obrigado por utilizar a plataforma tecnológica VaiCar!',
       color: 'text-emerald-400 bg-emerald-950/60 border-emerald-500/30',
     },
     CANCELLED_BY_PASSENGER: {
@@ -183,7 +183,7 @@ export const RideTrackerModal: React.FC<RideTrackerModalProps> = ({
                 <p className="text-xs text-slate-300 font-medium">{ride.driverVehicle}</p>
                 <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold mt-0.5">
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Motorista Autorizado de São Sebastião</span>
+                  <span>Motorista Verificado VaiCar</span>
                 </div>
               </div>
             </div>

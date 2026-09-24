@@ -89,7 +89,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({
             }`}
           >
             <Scale className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>Regulação Municipal</span>
+            <span>Marco Legal</span>
           </button>
         </div>
 
@@ -104,10 +104,10 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                   Princípio de Segurança e Intermediação Tecnológica:
                 </p>
                 <p>
-                  O VaiCar atua como plataforma tecnológica de intermediação conectando passageiros e motoristas autônomos. A plataforma disponibiliza a infraestrutura digital para cadastros, solicitações de viagem, conexão, informações em tempo real, comunicação, histórico e suporte.
+                  A VaiCar fornece a tecnologia para conectar usuários e motoristas. A realização da viagem é feita pelo motorista, observadas as obrigações legais aplicáveis.
                 </p>
                 <p>
-                  A execução material do transporte é realizada pelo motorista parceiro, que deve cumprir todas as exigências legais e normas de trânsito. O passageiro é responsável por sua conduta e ambos devem seguir rigorosamente as regras de segurança abaixo.
+                  A plataforma disponibiliza a infraestrutura digital para cadastros, solicitações de viagem, conexão, informações em tempo real, comunicação, histórico e suporte. Os motoristas devem cumprir os requisitos legais, de habilitação e as exigências aplicáveis à atividade.
                 </p>
               </div>
 
@@ -263,10 +263,10 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                   Estrutura e Relação Jurídica dos Usuários:
                 </p>
                 <p>
-                  O VaiCar é uma plataforma tecnológica de intermediação que viabiliza o contato entre passageiros e motoristas profissionais autônomos credenciados na cidade de São Sebastião/SP.
+                  A VaiCar é uma plataforma tecnológica que conecta passageiros a motoristas cadastrados para facilitar a solicitação de viagens.
                 </p>
                 <p>
-                  A plataforma não é proprietária dos veículos utilizados, não presta serviço direto de transporte rodoviário e não estabelece vínculo de subordinação ou emprego com os motoristas parceiros, atuando nos termos da Lei Federal nº 13.640/2018 e Marco Civil da Internet (Lei nº 12.965/2014).
+                  A VaiCar fornece a tecnologia para conectar usuários e motoristas. A realização da viagem é feita pelo motorista, observadas as obrigações legais aplicáveis. A plataforma não é proprietária dos veículos utilizados, não presta serviço direto de transporte rodoviário e não estabelece vínculo de subordinação ou emprego com os motoristas parceiros, atuando nos termos da Lei Federal nº 13.640/2018 e Marco Civil da Internet (Lei nº 12.965/2014).
                 </p>
               </div>
 
@@ -277,22 +277,10 @@ export const LegalModal: React.FC<LegalModalProps> = ({
 
               <h3 className="text-sm sm:text-base font-bold text-white">2. Autonomia do Motorista e Cumprimento Legal</h3>
               <p>
-                Os motoristas cadastrados exercem atividade econômica de forma independente e autônoma, cabendo-lhes a posse de CNH com EAR, licenciamento veicular atualizado, seguro de acidentes para passageiros (APP) e cumprimento das normas de circulação e segurança viária.
+                Os motoristas devem cumprir os requisitos legais, de habilitação e as exigências aplicáveis à atividade, cabendo-lhes a posse de CNH com EAR, licenciamento veicular atualizado, seguro de acidentes para passageiros (APP) e cumprimento das normas de circulação e segurança viária.
               </p>
-
-              <h3 className="text-sm sm:text-base font-bold text-white">3. Responsabilidades das Partes</h3>
               <p>
-                O motorista parceiro é responsável pela execução material do transporte, manutenção das condições de segurança do seu veículo e atendimento à legislação. O passageiro é responsável por sua conduta e integridade das informações fornecidas. O VaiCar mantém canais de suporte, moderação e registro para auxílio na resolução de incidentes e aprimoramento contínuo da segurança.
-              </p>
-
-              <h3 className="text-sm sm:text-base font-bold text-white">4. Transparência nos Pagamentos e Planos</h3>
-              <p>
-                Para corridas de passageiros, motoristas contam com modelos de cobrança transparentes (10% por corrida ou assinatura fixa de R$100/mês). Para entregas por moto (10% ou R$79/mês) e bicicleta (10% ou R$49/mês). Os pagamentos de transporte de passageiros ocorrem de forma direta entre usuário e prestador através de Pix, dinheiro ou cartão conforme opções disponibilizadas.
-              </p>
-
-              <h3 className="text-sm sm:text-base font-bold text-white">5. Canal de Atendimento e Reporte de Incidentes</h3>
-              <p>
-                A plataforma disponibiliza funcionalidade de suporte e reporte de problemas (comportamento inadequado, divergência cadastral de veículo, cobrança indevida, acidentes ou objetos esquecidos), comprometendo-se a auditar os casos reportados.
+                Os motoristas cadastrados exercem atividade econômica de forma independente e autônoma.
               </p>
             </div>
           )}
@@ -327,16 +315,16 @@ export const LegalModal: React.FC<LegalModalProps> = ({
             </div>
           )}
 
-          {/* TAB 4: REGULAÇÃO MUNICIPAL */}
+          {/* TAB 4: MARCO LEGAL */}
           {tab === 'regulacao' && (
             <div className="space-y-4">
               <div className="bg-amber-950/40 border border-amber-500/30 p-4 rounded-2xl text-xs space-y-1.5 text-amber-200">
                 <p className="font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4" />
-                  Transporte Remunerado Privado Individual de Passageiros — São Sebastião/SP
+                  Transporte Privado Individual de Passageiros — São Sebastião/SP
                 </p>
                 <p>
-                  Regulamentado em consonância com a Lei Federal nº 13.640/2018 e normativas municipais de trânsito da Estância Balneária de São Sebastião.
+                  Plataforma de tecnologia para conexão entre passageiros e motoristas, observada a Lei Federal nº 13.640/2018 e os requisitos legais aplicáveis.
                 </p>
               </div>
 
@@ -349,15 +337,15 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                   <strong className="text-white">Seguro APP:</strong> Apólice vigente de Seguro de Acidentes Pessoais a Passageiros com cobertura por assento.
                 </li>
                 <li>
-                  <strong className="text-white">CRLV e Condições do Veículo:</strong> Veículo devidamente licenciado, com inspeção em dia e dentro dos limites etários regulamentares.
+                  <strong className="text-white">CRLV e Condições do Veículo:</strong> Veículo devidamente licenciado, com documentação em dia e em adequadas condições de segurança.
                 </li>
                 <li>
-                  <strong className="text-white">Certidão Negativa de Antecedentes Criminais:</strong> Apresentação na admissão e renovação periódica.
+                  <strong className="text-white">Certidão Negativa de Antecedentes Criminais:</strong> Apresentação no cadastro e renovação periódica.
                 </li>
               </ul>
 
               <div className="pt-2 border-t border-slate-800 text-xs text-slate-400">
-                <p>Órgão fiscalizador: Secretaria Municipal de Segurança Urbana e Trânsito de São Sebastião • Rua Prefeito João Cupertino dos Santos, 249 - Centro.</p>
+                <p>Os motoristas estão sujeitos aos requisitos legais, de habilitação e às exigências municipais aplicáveis.</p>
               </div>
             </div>
           )}

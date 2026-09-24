@@ -907,7 +907,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               </h2>
               <p className="text-xs text-slate-400">
                 {serviceType === 'RIDE' 
-                  ? 'Selecione as zonas de origem e destino para consultar motoristas credenciados disponíveis.'
+                  ? 'Selecione as zonas de origem e destino para consultar motoristas cadastrados disponíveis.'
                   : 'Preencha os dados do envio e selecione os endereços de coleta e entrega.'}
               </p>
             </div>
@@ -1274,7 +1274,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   </div>
                   <h4 className="text-base font-bold text-white">Nenhum motorista disponível no momento.</h4>
                   <p className="text-xs text-slate-400 max-w-md mx-auto">
-                    Não há motoristas profissionais credenciados e online para esta rota no momento. Tente novamente em alguns minutos.
+                    Não há motoristas cadastrados e online para esta rota no momento. Tente novamente em alguns minutos.
                   </p>
                   <button
                     onClick={onGoToDriverSignup}
@@ -1291,7 +1291,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                       ? (deliveryVehicle === 'MOTO' ? '🏍️ Motocicleta Honda CG Titan 160 (Preta)' : '🚲 Bicicleta Caloi Vulcan (Vermelha)')
                       : `${driver.vehicle.brand} ${driver.vehicle.model} • ${driver.vehicle.color}`;
                     
-                    const labelRoleText = isDelivery ? 'Entregador Credenciado' : 'Credenciado';
+                    const labelRoleText = isDelivery ? 'Entregador Verificado' : 'Verificado';
                     const priceLabel = isDelivery ? 'Preço da entrega' : 'Preço do motorista';
                     const selectButtonText = isDelivery ? 'Escolher este Entregador' : 'Escolher este Motorista';
                     const capacityLabel = isDelivery ? `Tipo: Envio por ${deliveryVehicle === 'MOTO' ? 'Moto' : 'Bike'}` : `Capacidade: ${driver.vehicle.capacity} passageiros`;

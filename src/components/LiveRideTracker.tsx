@@ -205,7 +205,7 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
       case 'PASSENGER_PICKED_UP':
         return {
           title: 'Você Embarcou!',
-          desc: 'Aguardando o início oficial da viagem pelo motorista.',
+          desc: 'Aguardando o início da viagem pelo motorista.',
           color: 'text-indigo-400 bg-indigo-950/40 border-indigo-500/20',
           step: 4
         };
