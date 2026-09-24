@@ -21,6 +21,7 @@ import {
   Check
 } from 'lucide-react';
 import { UserRole } from '../types.ts';
+import { FaqSection, FAQ_ITEMS } from './FaqSection.tsx';
 
 interface LandingPageProps {
   onSelectRole: (role: UserRole, extra?: { mode?: string }) => void;
@@ -105,25 +106,40 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
   // JSON-LD Structured Data
   const jsonLd = {
     "@context": "https://schema.org",
-    "@type": "TaxiService",
-    "name": "VaiCar São Sebastião",
-    "description": seoDescription,
-    "provider": {
-      "@type": "LocalBusiness",
-      "name": "VaiCar",
-      "address": {
-        "@type": "PostalAddress",
-        "addressLocality": "São Sebastião",
-        "addressRegion": "SP",
-        "addressCountry": "BR"
+    "@graph": [
+      {
+        "@type": "TaxiService",
+        "name": "VaiCar São Sebastião",
+        "description": seoDescription,
+        "provider": {
+          "@type": "LocalBusiness",
+          "name": "VaiCar",
+          "address": {
+            "@type": "PostalAddress",
+            "addressLocality": "São Sebastião",
+            "addressRegion": "SP",
+            "addressCountry": "BR"
+          },
+          "telephone": "+55-12-99999-9999",
+          "priceRange": "R$"
+        },
+        "areaServed": {
+          "@type": "AdministrativeArea",
+          "name": "São Sebastião, São Paulo, Brasil"
+        }
       },
-      "telephone": "+55-12-99999-9999",
-      "priceRange": "R$"
-    },
-    "areaServed": {
-      "@type": "AdministrativeArea",
-      "name": "São Sebastião, São Paulo, Brasil"
-    }
+      {
+        "@type": "FAQPage",
+        "mainEntity": FAQ_ITEMS.map((item) => ({
+          "@type": "Question",
+          "name": item.question,
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": Array.isArray(item.answer) ? item.answer.join("\n\n") : item.answer
+          }
+        }))
+      }
+    ]
   };
 
   return (
@@ -703,6 +719,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
             </div>
           </section>
 
+          {/* ======================================================
+              14. DÚVIDAS FREQUENTES (FAQ SECTION)
+          ====================================================== */}
+          <FaqSection />
+
         </div>
       ) : (
         /* ======================================================
@@ -1006,6 +1027,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
             <div className="space-y-2">
               <h4 className="font-bold text-white text-xs uppercase tracking-wider">Segurança & Legal</h4>
               <ul className="space-y-1.5 text-[11px]">
+                <li>
+                  <a
+                    href="#duvidas-frequentes"
+                    onClick={(e) => {
+                      if (currentPath !== '/') {
+                        navigateTo('/');
+                      }
+                    }}
+                    className="hover:text-emerald-400 cursor-pointer block"
+                  >
+                    Dúvidas Frequentes (FAQ)
+                  </a>
+                </li>
                 {onOpenLegal && (
                   <>
                     <li>
