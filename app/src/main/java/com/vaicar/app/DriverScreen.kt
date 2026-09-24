@@ -51,6 +51,7 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
 
     // Navigation and Profile / Verification / Map States
     var selectedTab by remember { mutableStateOf(0) }
+    var showNativeMobilityMap by remember { mutableStateOf(false) }
     var isSavingProfile by remember { mutableStateOf(false) }
     var isUploadingDoc by remember { mutableStateOf<String?>(null) }
     var mobilityData by remember { mutableStateOf<MobilityMapData?>(null) }
@@ -188,6 +189,29 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                 }
             )
         }
+    }
+
+    if (showNativeMobilityMap) {
+        DriverMobilityMapScreen(
+            driver = registeredDriver,
+            zones = zones,
+            mobilityData = mobilityData,
+            isLoading = isLoadingMobility,
+            onRefresh = {
+                isLoadingMobility = true
+                ApiService.fetchMobilityMapData(
+                    onSuccess = {
+                        mobilityData = it
+                        isLoadingMobility = false
+                    },
+                    onError = {
+                        isLoadingMobility = false
+                    }
+                )
+            },
+            onBack = { showNativeMobilityMap = false }
+        )
+        return
     }
 
     Box(
@@ -1678,9 +1702,7 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
 
                                     Button(
                                         onClick = {
-                                            val mapWebUrl = "${NetworkConfig.PRODUCTION_URL}/?tab=mapa"
-                                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(mapWebUrl))
-                                            context.startActivity(browserIntent)
+                                            showNativeMobilityMap = true
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
                                         shape = RoundedCornerShape(8.dp),
