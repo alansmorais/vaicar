@@ -2,8 +2,11 @@ package com.vaicar.app
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,11 +20,190 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+
+@Composable
+fun InteractivePassengerRequestMap(
+    passengerLocation: android.location.Location?,
+    originZone: Zone?,
+    destZone: Zone?,
+    availableDrivers: List<SearchResult>,
+    selectedDriver: SearchResult?,
+    onSelectDriver: (SearchResult) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "pMapRadar")
+    val pulseRadius by infiniteTransition.animateFloat(
+        initialValue = 10f,
+        targetValue = 28f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "pulseRadius"
+    )
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.7f,
+        targetValue = 0.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "pulseAlpha"
+    )
+
+    val pLat = passengerLocation?.latitude ?: originZone?.lat ?: -23.8078
+    val pLng = passengerLocation?.longitude ?: originZone?.lng ?: -45.4058
+    val dLat = destZone?.lat ?: (pLat - 0.03)
+    val dLng = destZone?.lng ?: (pLng + 0.04)
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF020617))
+            .border(1.dp, SurfaceSlate, RoundedCornerShape(16.dp))
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+
+            val minLat = minOf(pLat, dLat) - 0.02
+            val maxLat = maxOf(pLat, dLat) + 0.02
+            val minLng = minOf(pLng, dLng) - 0.02
+            val maxLng = maxOf(pLng, dLng) + 0.02
+
+            val latRange = (maxLat - minLat).coerceAtLeast(0.005)
+            val lngRange = (maxLng - minLng).coerceAtLeast(0.005)
+
+            fun project(lat: Double, lng: Double): Offset {
+                val x = ((lng - minLng) / lngRange * (w - 100f) + 50f).toFloat()
+                val y = ((maxLat - lat) / latRange * (h - 100f) + 50f).toFloat()
+                return Offset(x, y)
+            }
+
+            val pPos = project(pLat, pLng)
+            val dPos = project(dLat, dLng)
+
+            // Route line between pickup and destination
+            if (destZone != null) {
+                val path = Path().apply {
+                    moveTo(pPos.x, pPos.y)
+                    lineTo(dPos.x, dPos.y)
+                }
+                drawPath(
+                    path = path,
+                    color = Color(0xFF10B981).copy(alpha = 0.35f),
+                    style = Stroke(width = 8f)
+                )
+                drawPath(
+                    path = path,
+                    color = Color(0xFF10B981),
+                    style = Stroke(width = 3f)
+                )
+            }
+
+            // Driver Vehicle Markers
+            availableDrivers.forEachIndexed { idx, drv ->
+                val angle = (idx * (360.0 / availableDrivers.size.coerceAtLeast(1))) * (Math.PI / 180.0)
+                val dist = 0.006 + (idx % 3) * 0.003
+                val drvLat = pLat + dist * Math.sin(angle)
+                val drvLng = pLng + dist * Math.cos(angle)
+                val drvPos = project(drvLat, drvLng)
+                val isSel = drv.driverId == selectedDriver?.driverId
+
+                drawCircle(
+                    color = if (isSel) Color(0xFFF59E0B) else Color(0xFF38BDF8),
+                    radius = if (isSel) 14f else 10f,
+                    center = drvPos
+                )
+                drawCircle(
+                    color = Color.Black,
+                    radius = 4f,
+                    center = drvPos
+                )
+            }
+
+            // Passenger Pickup Marker (📍)
+            drawCircle(
+                color = Color(0xFF10B981).copy(alpha = pulseAlpha),
+                radius = pulseRadius,
+                center = pPos
+            )
+            drawCircle(
+                color = Color(0xFF10B981),
+                radius = 11f,
+                center = pPos
+            )
+            drawCircle(
+                color = Color.White,
+                radius = 4f,
+                center = pPos
+            )
+
+            // Destination Marker (🏁)
+            if (destZone != null) {
+                drawCircle(
+                    color = Color(0xFF06B6D4),
+                    radius = 11f,
+                    center = dPos
+                )
+                drawCircle(
+                    color = Color.White,
+                    radius = 4f,
+                    center = dPos
+                )
+            }
+        }
+
+        // Map Legend overlay
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(10.dp)
+                .background(SurfaceSlate.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(EmeraldGreen, CircleShape)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Embarque", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+
+            if (destZone != null) {
+                Spacer(modifier = Modifier.width(10.dp))
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(Color(0xFF06B6D4), CircleShape)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Destino", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+
+            if (availableDrivers.isNotEmpty()) {
+                Spacer(modifier = Modifier.width(10.dp))
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(Color(0xFF38BDF8), CircleShape)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("${availableDrivers.size} motorista(s)", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,8 +227,11 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
     var isSearching by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
 
-    var originExpanded by remember { mutableStateOf(false) }
-    var destExpanded by remember { mutableStateOf(false) }
+    var isDestinationSearchOpen by remember { mutableStateOf(false) }
+    var isPickupSearchOpen by remember { mutableStateOf(false) }
+    var destinationSearchQuery by remember { mutableStateOf("") }
+    var pickupSearchQuery by remember { mutableStateOf("") }
+    var passengerGpsLocation by remember { mutableStateOf<android.location.Location?>(null) }
 
     // Mobility Map State
     var mobilityData by remember { mutableStateOf<MobilityMapData?>(null) }

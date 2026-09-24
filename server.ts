@@ -1199,11 +1199,11 @@ app.post('/api/v1/rides', async (req, res) => {
     const passengerName = req.body.passengerName || req.body.name || 'Passageiro';
     const passengerPhone = req.body.passengerPhone || req.body.phone || '+551299999999';
     const driverId = req.body.driverId || req.body.requestedDriverId;
-    const originZoneId = req.body.originZoneId || req.body.originId;
-    const destinationZoneId = req.body.destinationZoneId || req.body.destId;
+    const originZoneId = req.body.originZoneId || req.body.originId || 'z-centro';
+    const destinationZoneId = req.body.destinationZoneId || req.body.destId || 'z-maresias';
 
-    if (!passengerName || !passengerPhone || !driverId || !originZoneId || !destinationZoneId) {
-      return res.status(400).json({ error: 'Dados incompletos para solicitação de corrida.' });
+    if (!passengerName || !passengerPhone || !driverId) {
+      return res.status(400).json({ error: 'Dados incompletos para solicitação de corrida (Nome, telefone e motorista são obrigatórios).' });
     }
 
     // Verify if passenger is blocked
@@ -1278,14 +1278,14 @@ app.post('/api/v1/rides', async (req, res) => {
       driverAvatar: driver.avatarUrl,
       originZoneId,
       originAddress: originAddressResolved,
-      originLat: originZone ? originZone.lat : -23.8078,
-      originLng: originZone ? originZone.lng : -45.4058,
+      originLat: req.body.originLat !== undefined && req.body.originLat !== null ? Number(req.body.originLat) : (originZone ? originZone.lat : -23.8078),
+      originLng: req.body.originLng !== undefined && req.body.originLng !== null ? Number(req.body.originLng) : (originZone ? originZone.lng : -45.4058),
       originLandmark: originLandmark || '',
       originMapsLink: originMapsLink || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanOriginForMaps)}`,
       destinationZoneId,
       destinationAddress: destAddressResolved,
-      destinationLat: destinationZone ? destinationZone.lat : -23.8078,
-      destinationLng: destinationZone ? destinationZone.lng : -45.4058,
+      destinationLat: req.body.destinationLat !== undefined && req.body.destinationLat !== null ? Number(req.body.destinationLat) : (destinationZone ? destinationZone.lat : -23.8078),
+      destinationLng: req.body.destinationLng !== undefined && req.body.destinationLng !== null ? Number(req.body.destinationLng) : (destinationZone ? destinationZone.lng : -45.4058),
       destinationLandmark: destinationLandmark || '',
       destinationMapsLink: destinationMapsLink || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanDestForMaps)}`,
       mapsUrl: directRouteMapsUrl,

@@ -53,6 +53,15 @@ object DriverLocationManager {
     }
 
     @SuppressLint("MissingPermission")
+    fun getLastKnownLocation(context: Context): Location? {
+        if (!hasLocationPermission(context)) return null
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+        val gps = try { lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) } catch (e: Exception) { null }
+        val net = try { lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) } catch (e: Exception) { null }
+        return gps ?: net
+    }
+
+    @SuppressLint("MissingPermission")
     fun startTracking(context: Context, driverId: String, rideId: String? = null) {
         if (!hasLocationPermission(context)) {
             Log.w(TAG, "Cannot start tracking: Location permission not granted.")

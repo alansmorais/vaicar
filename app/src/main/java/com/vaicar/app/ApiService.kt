@@ -154,22 +154,26 @@ object ApiService {
     fun createRide(
         passengerName: String,
         passengerPhone: String,
-        originId: String,
-        destId: String,
+        originId: String?,
+        destId: String?,
         passengerCount: Int,
         driverId: String,
         fare: Double,
         notes: String?,
         originAddress: String? = null,
         destAddress: String? = null,
+        originLat: Double? = null,
+        originLng: Double? = null,
+        destinationLat: Double? = null,
+        destinationLng: Double? = null,
         onSuccess: (Ride) -> Unit,
         onError: (Exception) -> Unit
     ) {
         val bodyMap = mutableMapOf<String, Any?>(
-            "passengerName" to passengerName,
-            "passengerPhone" to passengerPhone,
-            "originZoneId" to originId,
-            "destinationZoneId" to destId,
+            "passengerName" to if (passengerName.isNotBlank()) passengerName else "Passageiro",
+            "passengerPhone" to if (passengerPhone.isNotBlank()) passengerPhone else "+551299999999",
+            "originZoneId" to (originId ?: "z-centro"),
+            "destinationZoneId" to (destId ?: "z-maresias"),
             "passengerCount" to passengerCount,
             "driverId" to driverId,
             "requestedDriverId" to driverId,
@@ -183,6 +187,10 @@ object ApiService {
             bodyMap["destinationAddress"] = destAddress
             bodyMap["destAddress"] = destAddress
         }
+        if (originLat != null) bodyMap["originLat"] = originLat
+        if (originLng != null) bodyMap["originLng"] = originLng
+        if (destinationLat != null) bodyMap["destinationLat"] = destinationLat
+        if (destinationLng != null) bodyMap["destinationLng"] = destinationLng
         val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
 
         val request = Request.Builder()
