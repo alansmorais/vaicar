@@ -1552,7 +1552,7 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                         ) {
                                             Icon(Icons.Default.Lock, contentDescription = null, tint = EmeraldGreen, modifier = Modifier.size(18.dp))
                                             Text(
-                                                "Placa registrada: ${driver.vehicle?.plate ?: "—"}. A placa e documentos fiscais são bloqueados para edição comum por conformidade legal.",
+                                                "Placa registrada: ${driver.vehicle?.licensePlate ?: "—"}. A placa e documentos fiscais são bloqueados para edição comum por conformidade legal.",
                                                 color = TextSecondary,
                                                 fontSize = 11.sp
                                             )

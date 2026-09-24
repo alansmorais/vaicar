@@ -51,7 +51,9 @@ data class DriverDocument(
     val requirementId: String,
     val status: String, // PENDING, SUBMITTED, APPROVED, REJECTED
     val fileUrl: String,
-    val expiryDate: String?
+    val expiryDate: String?,
+    val rejectionReason: String? = null,
+    val requirementName: String? = null
 )
 
 data class Driver(
@@ -75,7 +77,8 @@ data class Driver(
     val documents: List<DriverDocument>,
     val ratingAverage: Double,
     val ratingCount: Int,
-    val ridesCompleted: Int
+    val ridesCompleted: Int,
+    val whatsappDirectNumber: String? = null
 )
 
 data class Ride(
