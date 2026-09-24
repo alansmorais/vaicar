@@ -1215,6 +1215,34 @@ app.post('/api/v1/rides', async (req, res) => {
       }
     }
 
+    // Verify if passenger has any unresolved pending payment (PAYMENT_PENDING or PAYMENT_CONTESTED)
+    const cleanPhone = passengerPhone.replace(/\D/g, '');
+    const completedRidesSnap = await db.collection('rides').where('status', '==', 'COMPLETED').get();
+    const pendingUnpaidRide = completedRidesSnap.docs
+      .map((d: any) => d.data() as Ride)
+      .find((r: any) => {
+        const rPhoneClean = (r.passengerPhone || '').replace(/\D/g, '');
+        const isSamePassenger =
+          (cleanPhone && rPhoneClean && (cleanPhone === rPhoneClean || cleanPhone.endsWith(rPhoneClean) || rPhoneClean.endsWith(cleanPhone))) ||
+          r.passengerPhone === passengerPhone;
+        const isUnpaid = r.paymentStatus === 'PAYMENT_PENDING' || r.paymentStatus === 'PAYMENT_CONTESTED';
+        return isSamePassenger && isUnpaid;
+      });
+
+    if (pendingUnpaidRide) {
+      const amountDue = pendingUnpaidRide.fareBrl !== undefined ? pendingUnpaidRide.fareBrl : (pendingUnpaidRide.estimatedPrice ?? 0);
+      return res.status(403).json({
+        error: `Você possui um pagamento pendente de uma corrida anterior (R$ ${amountDue.toFixed(2).replace('.', ',')}). Regularize o pagamento com o motorista ou entre em contato com o suporte para solicitar novas viagens.`,
+        code: 'PAYMENT_PENDING',
+        pendingRideId: pendingUnpaidRide.id,
+        amountDue,
+        driverName: pendingUnpaidRide.driverName,
+        driverPhone: pendingUnpaidRide.driverPhone,
+        paymentStatus: pendingUnpaidRide.paymentStatus,
+        createdAt: pendingUnpaidRide.createdAt,
+      });
+    }
+
     const driverDoc = await db.collection('drivers').doc(driverId).get();
     if (!driverDoc.exists) return res.status(404).json({ error: 'Motorista não encontrado.' });
     const driver = driverDoc.data() as Driver;
@@ -1742,6 +1770,34 @@ const handleRideStatusUpdate = async (req: express.Request, res: express.Respons
           await drvRef.update({ ridesCompleted: (d.ridesCompleted || 0) + 1 });
         }
       }
+
+      // Calculate final authoritative ride total (including waiting fees)
+      const waitCalc = calculateRideWaitingFee({ ...ride, ...updates });
+      const finalTotal = Number((waitCalc.fareBrl !== undefined ? waitCalc.fareBrl : (ride.fareBrl || ride.estimatedPrice || 0)).toFixed(2));
+      updates.fareBrl = finalTotal;
+      updates.estimatedPrice = finalTotal;
+
+      // Handle driver payment confirmation
+      const isPaymentNotReceived =
+        req.body.paymentReceived === false ||
+        req.body.paymentStatus === 'PAYMENT_PENDING' ||
+        req.body.paymentReceived === 'false';
+
+      if (isPaymentNotReceived) {
+        updates.paymentStatus = 'PAYMENT_PENDING';
+        updates.amountDue = finalTotal;
+        updates.paymentPendingReason =
+          req.body.paymentPendingReason || req.body.reason || 'Pagamento não recebido pelo motorista ao término da viagem';
+        updates.unpaidReportedAt = new Date().toISOString();
+        updates.unpaidReportedBy = targetDriverId || ride.driverId;
+      } else {
+        updates.paymentStatus = 'PAID';
+        if (req.body.paymentMethod) {
+          updates.paymentMethod = req.body.paymentMethod;
+        }
+        updates.paidAt = new Date().toISOString();
+        updates.paymentResolvedBy = 'DRIVER';
+      }
     }
     if (cancellationReason) updates.cancellationReason = cancellationReason;
 
@@ -1777,6 +1833,124 @@ const handleRideStatusUpdate = async (req: express.Request, res: express.Respons
 app.patch('/api/v1/rides/:id/status', handleRideStatusUpdate);
 app.put('/api/v1/rides/:id/status', handleRideStatusUpdate);
 app.post('/api/v1/rides/:id/status', handleRideStatusUpdate);
+
+// --- PAYMENT RESOLUTION & UNPAID RIDE ENDPOINTS ---
+
+// Get Unpaid Rides (all or filtered by passenger phone)
+app.get('/api/v1/rides/unpaid', async (req, res) => {
+  try {
+    const passengerPhone = req.query.passengerPhone as string | undefined;
+    const snap = await db.collection('rides').where('status', '==', 'COMPLETED').get();
+    let unpaid = snap.docs
+      .map((doc: any) => doc.data() as Ride)
+      .filter((r: any) => r.paymentStatus === 'PAYMENT_PENDING' || r.paymentStatus === 'PAYMENT_CONTESTED');
+
+    if (passengerPhone) {
+      const cleanTarget = passengerPhone.replace(/\D/g, '');
+      unpaid = unpaid.filter((r: any) => {
+        const clean = (r.passengerPhone || '').replace(/\D/g, '');
+        return clean === cleanTarget || (cleanTarget && clean.endsWith(cleanTarget)) || (clean && cleanTarget.endsWith(clean));
+      });
+    }
+
+    unpaid.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    res.json(unpaid);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Falha ao buscar corridas pendentes: ' + err.message });
+  }
+});
+
+// Driver or Admin confirms payment received
+app.post('/api/v1/rides/:id/confirm-payment', async (req, res) => {
+  try {
+    const rideRef = db.collection('rides').doc(req.params.id);
+    const rideDoc = await rideRef.get();
+    if (!rideDoc.exists) return res.status(404).json({ error: 'Corrida não encontrada' });
+    const ride = rideDoc.data() as Ride;
+
+    const { paymentMethod = 'PIX', driverId, notes } = req.body;
+
+    const updates: any = {
+      paymentStatus: 'PAID',
+      paymentMethod: paymentMethod || ride.paymentMethod || 'PIX',
+      paidAt: new Date().toISOString(),
+      paymentResolvedBy: driverId ? 'DRIVER' : 'ADMIN',
+      paymentResolutionNotes: notes || 'Pagamento confirmado pelo motorista',
+      updatedAt: new Date().toISOString(),
+    };
+
+    await rideRef.update(updates);
+    const updatedRide = { ...ride, ...updates };
+    broadcastLiveEvent('RIDE_UPDATED', updatedRide);
+    res.json({ success: true, ride: updatedRide });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Falha ao confirmar pagamento: ' + err.message });
+  }
+});
+
+// Passenger contests unpaid payment charge
+app.post('/api/v1/rides/:id/contest-payment', async (req, res) => {
+  try {
+    const rideRef = db.collection('rides').doc(req.params.id);
+    const rideDoc = await rideRef.get();
+    if (!rideDoc.exists) return res.status(404).json({ error: 'Corrida não encontrada' });
+    const ride = rideDoc.data() as Ride;
+
+    const { reason, proofUrl } = req.body;
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'Informe a justificativa ou detalhes do pagamento efetuado.' });
+    }
+
+    const updates: any = {
+      paymentStatus: 'PAYMENT_CONTESTED',
+      contestReason: reason.trim(),
+      contestProofUrl: proofUrl || null,
+      contestedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await rideRef.update(updates);
+    const updatedRide = { ...ride, ...updates };
+    broadcastLiveEvent('RIDE_UPDATED', updatedRide);
+    res.json({ success: true, ride: updatedRide });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Falha ao contestar pagamento: ' + err.message });
+  }
+});
+
+// Admin resolves payment dispute (PAID, WAIVED, PAYMENT_PENDING)
+app.post('/api/v1/rides/:id/resolve-payment', async (req, res) => {
+  try {
+    const rideRef = db.collection('rides').doc(req.params.id);
+    const rideDoc = await rideRef.get();
+    if (!rideDoc.exists) return res.status(404).json({ error: 'Corrida não encontrada' });
+    const ride = rideDoc.data() as Ride;
+
+    const { resolution, notes, adminEmail } = req.body;
+    if (!['PAID', 'WAIVED', 'PAYMENT_PENDING'].includes(resolution)) {
+      return res.status(400).json({ error: 'Resolução inválida. Permitido: PAID, WAIVED ou PAYMENT_PENDING.' });
+    }
+
+    const updates: any = {
+      paymentStatus: resolution,
+      paymentResolutionNotes: notes || '',
+      paymentResolvedAt: new Date().toISOString(),
+      paymentResolvedBy: `ADMIN (${adminEmail || 'admin'})`,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (resolution === 'PAID') {
+      updates.paidAt = new Date().toISOString();
+    }
+
+    await rideRef.update(updates);
+    const updatedRide = { ...ride, ...updates };
+    broadcastLiveEvent('RIDE_UPDATED', updatedRide);
+    res.json({ success: true, ride: updatedRide });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Falha ao resolver pagamento: ' + err.message });
+  }
+});
 
 // --- RIDE RECEIPT ENDPOINTS (COMPROVANTE DA CORRIDA) ---
 

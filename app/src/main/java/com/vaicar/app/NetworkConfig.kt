@@ -104,6 +104,13 @@ data class Ride(
     val fareBrl: Double = 0.0,
     val estimatedPrice: Double = 0.0,
     val status: String = "REQUESTED", // REQUESTED, ACCEPTED, EN_ROUTE, ARRIVED, IN_PROGRESS, COMPLETED, CANCELLED_BY_PASSENGER, CANCELLED_BY_DRIVER
+    val paymentMethod: String? = "PIX",
+    val paymentStatus: String? = null, // PAID, PAYMENT_PENDING, PAYMENT_CONTESTED, WAIVED, RESOLVED
+    val paymentPendingReason: String? = null,
+    val amountDue: Double? = null,
+    val paidAt: String? = null,
+    val contestReason: String? = null,
+    val paymentResolutionNotes: String? = null,
     val createdAt: String? = null,
     val notes: String? = null,
     val arrivedAt: String? = null,

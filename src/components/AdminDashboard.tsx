@@ -77,6 +77,7 @@ import {
   fetchPassengers,
   togglePassengerBlock,
   updatePassengerProfile,
+  resolveRidePayment,
 } from '../lib/api.ts';
 import { DynamicPricingSettings } from '../types.ts';
 
@@ -187,6 +188,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [emailSaveMsg, setEmailSaveMsg] = useState<string>('');
   const [emailSaveError, setEmailSaveError] = useState<string>('');
   const [isSavingEmail, setIsSavingEmail] = useState<boolean>(false);
+
+  // Ride Payment Dispute & Debt Resolution state
+  const [ridePaymentFilter, setRidePaymentFilter] = useState<'ALL' | 'UNPAID' | 'CONTESTED'>('ALL');
+  const [resolvingRide, setResolvingRide] = useState<Ride | null>(null);
+  const [resolvingAction, setResolvingAction] = useState<'PAID' | 'WAIVED' | 'PAYMENT_PENDING'>('PAID');
+  const [resolutionNotes, setResolutionNotes] = useState<string>('');
+  const [isResolvingPayment, setIsResolvingPayment] = useState<boolean>(false);
   const [copiedScript, setCopiedScript] = useState<boolean>(false);
 
   // Test Email State
@@ -1429,12 +1437,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* ========================================================================= */}
       {tab === 'RIDES' && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 className="font-bold text-white text-lg flex items-center gap-2">
-              <Car className="w-5 h-5 text-emerald-400" />
-              Monitoramento Operacional de Corridas
-            </h3>
-            <span className="text-xs text-slate-400">Total: {rides.length}</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+            <div>
+              <h3 className="font-bold text-white text-lg flex items-center gap-2">
+                <Car className="w-5 h-5 text-emerald-400" />
+                Monitoramento Operacional & Financeiro de Corridas
+              </h3>
+              <p className="text-xs text-slate-400">
+                Auditoria de trajetos, controle de recebimento direto e resolução de pendências financeiras.
+              </p>
+            </div>
+            
+            {/* Filter Buttons */}
+            <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+              <button
+                type="button"
+                onClick={() => setRidePaymentFilter('ALL')}
+                className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  ridePaymentFilter === 'ALL'
+                    ? 'bg-emerald-500 text-slate-950 font-black'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Todas ({rides.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setRidePaymentFilter('UNPAID')}
+                className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  ridePaymentFilter === 'UNPAID'
+                    ? 'bg-rose-500 text-white font-black'
+                    : 'text-rose-400 hover:text-rose-300'
+                }`}
+              >
+                Débitos Pendentes ({rides.filter(r => r.paymentStatus === 'PAYMENT_PENDING').length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setRidePaymentFilter('CONTESTED')}
+                className={`px-3 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  ridePaymentFilter === 'CONTESTED'
+                    ? 'bg-amber-500 text-slate-950 font-black'
+                    : 'text-amber-400 hover:text-amber-300'
+                }`}
+              >
+                Contestações ({rides.filter(r => r.paymentStatus === 'PAYMENT_CONTESTED').length})
+              </button>
+            </div>
           </div>
 
           {rides.length === 0 ? (
@@ -1446,13 +1495,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           ) : (
             <div className="space-y-3">
-              {rides.map((r) => (
+              {rides
+                .filter((r) => {
+                  if (ridePaymentFilter === 'UNPAID') return r.paymentStatus === 'PAYMENT_PENDING';
+                  if (ridePaymentFilter === 'CONTESTED') return r.paymentStatus === 'PAYMENT_CONTESTED';
+                  return true;
+                })
+                .map((r) => (
                 <div
                   key={r.id}
-                  className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs"
+                  className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs"
                 >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
+                  <div className="space-y-1.5 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-white">#{r.id}</span>
                       <span className="text-emerald-400 font-semibold">{r.driverName}</span>
                       <span className="text-slate-500">atendendo</span>
@@ -1460,31 +1515,105 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-300 font-bold">
                         {r.status}
                       </span>
+                      {r.paymentStatus === 'PAYMENT_PENDING' && (
+                        <span className="bg-rose-950 text-rose-300 border border-rose-500/40 text-[10px] font-black px-2 py-0.5 rounded-full">
+                          ⚠️ DÉBITO PENDENTE
+                        </span>
+                      )}
+                      {r.paymentStatus === 'PAYMENT_CONTESTED' && (
+                        <span className="bg-amber-950 text-amber-300 border border-amber-500/40 text-[10px] font-black px-2 py-0.5 rounded-full">
+                          ⏳ CONTESTAÇÃO ABERTA
+                        </span>
+                      )}
+                      {r.paymentStatus === 'WAIVED' && (
+                        <span className="bg-purple-950 text-purple-300 border border-purple-500/40 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          DÉBITO ABONADO / PERDOADO
+                        </span>
+                      )}
+                      {(r.paymentStatus === 'PAID' || r.paymentStatus === 'CONFIRMED_BY_DRIVER') && (
+                        <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          PAGO
+                        </span>
+                      )}
                     </div>
                     <p className="text-slate-400">
                       Rota: {r.originAddress} ➔ {r.destinationAddress}
                     </p>
                     <p className="text-[11px] text-slate-500">
-                      Distância: {r.estimatedDistanceKm} km • Criada em: {new Date(r.createdAt).toLocaleString('pt-BR')}
+                      Distância: {r.estimatedDistanceKm} km • Criada em: {new Date(r.createdAt).toLocaleString('pt-BR')} • Telefone Passageiro: {r.passengerPhone || 'N/D'}
                     </p>
+
+                    {r.paymentPendingReason && (
+                      <p className="text-[11px] text-rose-400 bg-rose-950/30 border border-rose-500/20 p-2 rounded-lg">
+                        <strong>Motivo informado pelo motorista:</strong> {r.paymentPendingReason}
+                      </p>
+                    )}
+
+                    {r.contestReason && (
+                      <p className="text-[11px] text-amber-300 bg-amber-950/30 border border-amber-500/20 p-2 rounded-lg">
+                        <strong>Justificativa enviada pelo passageiro:</strong> {r.contestReason}
+                      </p>
+                    )}
+
+                    {r.paymentResolutionNotes && (
+                      <p className="text-[10px] text-slate-400">
+                        Auditoria: {r.paymentResolutionNotes} ({r.paymentResolvedBy || 'Admin'})
+                      </p>
+                    )}
                   </div>
 
-                  <div className="text-right space-y-1">
-                    <span className="text-base font-black text-emerald-400 block">
-                      R$ {r.estimatedPrice.toFixed(2)}
-                    </span>
-                    <span className="text-[11px] text-slate-400 block">
-                      Forma: {r.paymentMethod} • Status: {r.paymentStatus}
-                    </span>
-                    {r.status === 'COMPLETED' && (
-                      <button
-                        onClick={() => setSelectedReceiptRideId(r.id)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-[10px] font-bold text-emerald-300 transition-all cursor-pointer"
-                      >
-                        <FileText className="w-3 h-3 text-emerald-400" />
-                        <span>Comprovante PDF</span>
-                      </button>
-                    )}
+                  <div className="flex flex-row md:flex-col items-center md:items-end justify-between md:justify-center gap-2 shrink-0">
+                    <div className="text-right">
+                      <span className="text-base font-black text-emerald-400 block">
+                        R$ {(r.fareBrl !== undefined ? r.fareBrl : r.estimatedPrice).toFixed(2)}
+                      </span>
+                      <span className="text-[11px] text-slate-400 block">
+                        Forma: {r.paymentMethod}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                      {r.status === 'COMPLETED' && (
+                        <button
+                          onClick={() => setSelectedReceiptRideId(r.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-[10px] font-bold text-emerald-300 transition-all cursor-pointer"
+                        >
+                          <FileText className="w-3 h-3 text-emerald-400" />
+                          <span>PDF</span>
+                        </button>
+                      )}
+
+                      {/* Admin Resolution Buttons */}
+                      {(r.paymentStatus === 'PAYMENT_PENDING' || r.paymentStatus === 'PAYMENT_CONTESTED') && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setResolvingRide(r);
+                              setResolvingAction('PAID');
+                              setResolutionNotes('Pagamento confirmado e regularizado via suporte');
+                            }}
+                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] font-black px-2.5 py-1 rounded-lg transition-all cursor-pointer"
+                            title="Desbloquear passageiro e registrar como Pago"
+                          >
+                            ✔ Baixar (Pago)
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setResolvingRide(r);
+                              setResolvingAction('WAIVED');
+                              setResolutionNotes('Débito abonado/perdoado por acordo administrativo');
+                            }}
+                            className="bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg transition-all cursor-pointer"
+                            title="Abonar débito e liberar passageiro"
+                          >
+                            🤝 Abonar
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -2702,6 +2831,140 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           rideId={selectedReceiptRideId}
           onClose={() => setSelectedReceiptRideId(null)}
         />
+      )}
+
+      {/* Admin Payment Dispute / Debt Resolution Modal */}
+      {resolvingRide && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl relative my-6">
+            <div className="text-center space-y-1">
+              <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/80 border border-emerald-500/30 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                Auditoria Financeira
+              </span>
+              <h3 className="text-lg font-black text-white mt-1">Resolução de Pendência de Pagamento</h3>
+              <p className="text-xs text-slate-400">
+                Corrida #{resolvingRide.id} • Passageiro: <strong className="text-white">{resolvingRide.passengerName}</strong>
+              </p>
+            </div>
+
+            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Motorista:</span>
+                <span className="text-white font-bold">{resolvingRide.driverName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Telefone Passageiro:</span>
+                <span className="text-emerald-400">{resolvingRide.passengerPhone}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Valor da Corrida:</span>
+                <span className="text-base font-black text-emerald-400">
+                  R$ {(resolvingRide.fareBrl !== undefined ? resolvingRide.fareBrl : resolvingRide.estimatedPrice).toFixed(2)}
+                </span>
+              </div>
+              {resolvingRide.paymentPendingReason && (
+                <p className="text-[11px] text-rose-400 pt-1">
+                  <strong>Relato do Motorista:</strong> {resolvingRide.paymentPendingReason}
+                </p>
+              )}
+              {resolvingRide.contestReason && (
+                <p className="text-[11px] text-amber-300 pt-1">
+                  <strong>Contestação do Passageiro:</strong> {resolvingRide.contestReason}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-300 block">Tipo de Resolução:</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setResolvingAction('PAID')}
+                    className={`p-2.5 rounded-xl border font-bold text-center transition-all cursor-pointer ${
+                      resolvingAction === 'PAID'
+                        ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                        : 'bg-slate-950 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    Marcar Pago (PAID)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setResolvingAction('WAIVED')}
+                    className={`p-2.5 rounded-xl border font-bold text-center transition-all cursor-pointer ${
+                      resolvingAction === 'WAIVED'
+                        ? 'bg-purple-600 text-white border-purple-400'
+                        : 'bg-slate-950 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    Abonar (WAIVED)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setResolvingAction('PAYMENT_PENDING')}
+                    className={`p-2.5 rounded-xl border font-bold text-center transition-all cursor-pointer ${
+                      resolvingAction === 'PAYMENT_PENDING'
+                        ? 'bg-rose-500 text-white border-rose-400'
+                        : 'bg-slate-950 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    Reabrir Débito
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300 block">Observação / Justificativa da Moderação:</label>
+                <textarea
+                  rows={2}
+                  value={resolutionNotes}
+                  onChange={(e) => setResolutionNotes(e.target.value)}
+                  placeholder="Ex: Comprovante Pix verificado no extrato / Acordo firmado entre as partes..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <p className="text-[10px] text-slate-400">
+                {resolvingAction === 'PAID' || resolvingAction === 'WAIVED'
+                  ? '✔ O passageiro será desbloqueado imediatamente para realizar novas chamadas.'
+                  : '⚠️ O passageiro permanecerá bloqueado para novas corridas até quitar a pendência.'}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setResolvingRide(null)}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-xs cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    setIsResolvingPayment(true);
+                    await resolveRidePayment(resolvingRide.id, resolvingAction, resolutionNotes.trim());
+                    alert('Pendência resolvida com sucesso!');
+                    setResolvingRide(null);
+                    onRefreshAll();
+                  } catch (err: any) {
+                    alert(err.message || 'Erro ao resolver pendência');
+                  } finally {
+                    setIsResolvingPayment(false);
+                  }
+                }}
+                disabled={isResolvingPayment}
+                className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-2.5 rounded-xl text-xs cursor-pointer shadow-md"
+              >
+                {isResolvingPayment ? 'Salvando...' : 'Confirmar Resolução ✔'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

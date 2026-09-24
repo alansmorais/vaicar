@@ -274,12 +274,20 @@ object ApiService {
         status: String,
         driverId: String? = null,
         cancellationReason: String? = null,
+        paymentReceived: Boolean? = null,
+        paymentStatus: String? = null,
+        paymentMethod: String? = null,
+        paymentPendingReason: String? = null,
         onSuccess: (Ride) -> Unit,
         onError: (Exception) -> Unit
     ) {
         val bodyMap = mutableMapOf<String, Any>("status" to status)
         if (!driverId.isNullOrEmpty()) bodyMap["driverId"] = driverId
         if (!cancellationReason.isNullOrEmpty()) bodyMap["cancellationReason"] = cancellationReason
+        if (paymentReceived != null) bodyMap["paymentReceived"] = paymentReceived
+        if (!paymentStatus.isNullOrEmpty()) bodyMap["paymentStatus"] = paymentStatus
+        if (!paymentMethod.isNullOrEmpty()) bodyMap["paymentMethod"] = paymentMethod
+        if (!paymentPendingReason.isNullOrEmpty()) bodyMap["paymentPendingReason"] = paymentPendingReason
         val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
 
         val request = Request.Builder()
@@ -298,6 +306,123 @@ object ApiService {
                     if (response.isSuccessful) {
                         val ride = gson.fromJson(bodyString, Ride::class.java)
                         mainHandler.post { onSuccess(ride) }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+                }
+            }
+        })
+    }
+
+    fun confirmRidePayment(
+        rideId: String,
+        paymentMethod: String = "PIX",
+        driverId: String? = null,
+        notes: String? = null,
+        onSuccess: (Ride) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val bodyMap = mutableMapOf<String, Any>("paymentMethod" to paymentMethod)
+        if (!driverId.isNullOrEmpty()) bodyMap["driverId"] = driverId
+        if (!notes.isNullOrEmpty()) bodyMap["notes"] = notes
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/rides/$rideId/confirm-payment")
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
+                        val rJson = gson.toJson(map["ride"])
+                        val ride = gson.fromJson(rJson, Ride::class.java)
+                        mainHandler.post { onSuccess(ride) }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+                }
+            }
+        })
+    }
+
+    fun contestRidePayment(
+        rideId: String,
+        reason: String,
+        passengerPhone: String? = null,
+        onSuccess: (Ride) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val bodyMap = mutableMapOf<String, Any>("reason" to reason)
+        if (!passengerPhone.isNullOrEmpty()) bodyMap["passengerPhone"] = passengerPhone
+        val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
+
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/rides/$rideId/contest-payment")
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val map = gson.fromJson<Map<String, Any>>(bodyString, object : TypeToken<Map<String, Any>>() {}.type)
+                        val rJson = gson.toJson(map["ride"])
+                        val ride = gson.fromJson(rJson, Ride::class.java)
+                        mainHandler.post { onSuccess(ride) }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+                }
+            }
+        })
+    }
+
+    fun fetchUnpaidRides(
+        passengerPhone: String? = null,
+        onSuccess: (List<Ride>) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val url = if (!passengerPhone.isNullOrEmpty()) {
+            "${NetworkConfig.apiBaseUrl}/rides/unpaid?passengerPhone=${java.net.URLEncoder.encode(passengerPhone, "UTF-8")}"
+        } else {
+            "${NetworkConfig.apiBaseUrl}/rides/unpaid"
+        }
+        val request = Request.Builder().url(url).get().build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        val type = object : TypeToken<List<Ride>>() {}.type
+                        val list: List<Ride> = gson.fromJson(bodyString, type)
+                        mainHandler.post { onSuccess(list) }
                     } else {
                         val errMsg = parseHttpError(response.code, bodyString)
                         mainHandler.post { onError(Exception(errMsg)) }

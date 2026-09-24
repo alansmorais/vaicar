@@ -14,6 +14,7 @@ import {
   Car,
   Phone,
   AlertTriangle,
+  AlertCircle,
   History,
   Star,
   User,
@@ -30,6 +31,7 @@ import {
   LogOut,
   Navigation,
   XCircle,
+  X,
   Package,
   FileText,
   Download,
@@ -47,6 +49,8 @@ import {
   fetchPassengerRides,
   fetchPassengerReviews,
   getWhatsAppContact,
+  fetchUnpaidRides,
+  contestRidePayment,
 } from '../lib/api.ts';
 import { LiveRideTracker } from './LiveRideTracker.tsx';
 import { ReportModal } from './ReportModal.tsx';
@@ -211,6 +215,24 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [reportTargetName, setReportTargetName] = useState('');
   const [reportDescription, setReportDescription] = useState('');
   const [reportSuccessMsg, setReportSuccessMsg] = useState(false);
+
+  // Unpaid Ride & Payment Pending states
+  const [unpaidRides, setUnpaidRides] = useState<Ride[]>([]);
+  const [showUnpaidModal, setShowUnpaidModal] = useState<boolean>(false);
+  const [unpaidContestText, setUnpaidContestText] = useState<string>('');
+  const [isSubmittingUnpaidContest, setIsSubmittingUnpaidContest] = useState<boolean>(false);
+  const [unpaidContestSuccess, setUnpaidContestSuccess] = useState<string>('');
+
+  // Sync unpaid rides for this passenger
+  useEffect(() => {
+    if (passengerPhone) {
+      fetchUnpaidRides(passengerPhone)
+        .then((list) => {
+          setUnpaidRides(list || []);
+        })
+        .catch(() => {});
+    }
+  }, [passengerPhone, activeRide?.paymentStatus]);
 
   // Auto-sync active ride from props or from rides list
   useEffect(() => {
@@ -449,7 +471,16 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
       broadcastLocalRideCreated(newRide);
       onRefreshRides();
     } catch (err: any) {
-      alert(err.message || 'Erro ao solicitar corrida');
+      if (err.message && (err.message.includes('pagamento pendente') || err.message.includes('PAYMENT_PENDING') || err.message.includes('pendente de uma corrida'))) {
+        fetchUnpaidRides(passengerPhone).then((list) => {
+          setUnpaidRides(list || []);
+          setShowUnpaidModal(true);
+        }).catch(() => {
+          setShowUnpaidModal(true);
+        });
+      } else {
+        alert(err.message || 'Erro ao solicitar corrida');
+      }
     } finally {
       setIsSubmittingRide(false);
     }
@@ -802,6 +833,32 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
           )}
         </div>
       </div>
+
+      {/* Unpaid Pending Payment Banner */}
+      {unpaidRides.length > 0 && (
+        <div className="bg-rose-950/80 border border-rose-500/50 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg shadow-rose-950/40 animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <div>
+              <span className="text-xs font-black text-white block">
+                Você possui um pagamento pendente de corrida anterior
+              </span>
+              <span className="text-[11px] text-rose-300">
+                Valor devido: <strong>R$ {(unpaidRides[0].fareBrl !== undefined ? unpaidRides[0].fareBrl : unpaidRides[0].estimatedPrice).toFixed(2).replace('.', ',')}</strong> ({unpaidRides[0].driverName || 'Motorista'}) • {unpaidRides[0].paymentStatus === 'PAYMENT_CONTESTED' ? 'Contestação sob análise' : 'Regularize ou conteste para solicitar novas viagens'}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowUnpaidModal(true)}
+            className="bg-rose-500 hover:bg-rose-400 text-white font-black text-xs px-4 py-2 rounded-xl transition-all cursor-pointer shrink-0 shadow text-center"
+          >
+            Ver Detalhes / Contestar
+          </button>
+        </div>
+      )}
 
       {/* Passenger Navigation Tabs */}
       <div className="flex items-center gap-1 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800 overflow-x-auto shadow-xl scrollbar-none">
@@ -1574,7 +1631,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
             zones={zones}
             selectedOriginId={originZoneId}
             selectedDestId={destinationZoneId}
-            onSelectRoute={(origId, destId) => {
+            onSelectRoute={(origId: string, destId: string) => {
               setOriginZoneId(origId);
               setDestinationZoneId(destId);
               setActiveTab('SOLICITAR');
@@ -2314,6 +2371,131 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
           rideId={selectedReceiptRideId}
           onClose={() => setSelectedReceiptRideId(null)}
         />
+      )}
+
+      {/* Unpaid Pending Payment Modal */}
+      {showUnpaidModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-rose-500/40 rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl relative my-6">
+            <button
+              onClick={() => setShowUnpaidModal(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <span className="text-[10px] font-black text-rose-400 bg-rose-950/80 border border-rose-500/30 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                Bloqueio Temporário por Débito
+              </span>
+              <h3 className="text-xl font-black text-white mt-1">Pagamento Pendente</h3>
+              <p className="text-xs text-slate-400">
+                Existe uma corrida anterior que não teve o pagamento confirmado pelo motorista.
+              </p>
+            </div>
+
+            {unpaidRides.length > 0 ? (
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-2 text-xs">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="text-slate-400">Motorista:</span>
+                  <strong className="text-white">{unpaidRides[0].driverName || 'Motorista Parceiro'}</strong>
+                </div>
+                {unpaidRides[0].driverPhone && (
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <span className="text-slate-400">Contato do Motorista:</span>
+                    <a
+                      href={`https://wa.me/${unpaidRides[0].driverPhone.replace(/\D/g, '')}?text=${encodeURIComponent('Olá! Gostaria de acertar o pagamento da corrida no VaiCar.')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-emerald-400 hover:underline font-bold"
+                    >
+                      {unpaidRides[0].driverPhone} (WhatsApp ↗)
+                    </a>
+                  </div>
+                )}
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="text-slate-400">Trajeto:</span>
+                  <span className="text-slate-300 text-right">{unpaidRides[0].originAddress} ➔ {unpaidRides[0].destinationAddress}</span>
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-slate-300 font-bold">Valor da Corrida:</span>
+                  <span className="text-lg font-black text-rose-400">
+                    R$ {(unpaidRides[0].fareBrl !== undefined ? unpaidRides[0].fareBrl : unpaidRides[0].estimatedPrice).toFixed(2).replace('.', ',')}
+                  </span>
+                </div>
+                {unpaidRides[0].paymentPendingReason && (
+                  <p className="text-[11px] text-rose-400/90 pt-1">
+                    Motivo registrado: {unpaidRides[0].paymentPendingReason}
+                  </p>
+                )}
+                {unpaidRides[0].paymentStatus === 'PAYMENT_CONTESTED' && (
+                  <div className="bg-amber-950/60 border border-amber-500/40 p-2.5 rounded-xl text-[11px] text-amber-300 mt-2">
+                    ⏳ <strong>Sua contestação já foi enviada:</strong> "{unpaidRides[0].contestReason}"
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 text-xs text-center text-slate-400">
+                Você possui uma restrição financeira pendente no sistema. Regularize com o motorista ou fale com a administração.
+              </div>
+            )}
+
+            {/* Contest Form */}
+            {unpaidRides.length > 0 && unpaidRides[0].paymentStatus !== 'PAYMENT_CONTESTED' && (
+              <div className="space-y-2 text-xs">
+                <label className="block font-bold text-slate-300">
+                  Já pagou esta corrida? Envie sua justificativa/comprovante:
+                </label>
+                <textarea
+                  value={unpaidContestText}
+                  onChange={(e) => setUnpaidContestText(e.target.value)}
+                  placeholder="Ex: Realizei o Pix de R$ 35,00 às 15:40 / Paguei em dinheiro trocado no desembarque..."
+                  rows={3}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!unpaidContestText.trim()) return alert('Por favor, informe os detalhes de quando e como pagou.');
+                    try {
+                      setIsSubmittingUnpaidContest(true);
+                      await contestRidePayment(unpaidRides[0].id, unpaidContestText.trim(), undefined, passengerPhone);
+                      setUnpaidContestSuccess('Contestação enviada com sucesso para a administração!');
+                      fetchUnpaidRides(passengerPhone).then(setUnpaidRides).catch(() => {});
+                    } catch (err: any) {
+                      alert(err.message || 'Erro ao enviar contestação');
+                    } finally {
+                      setIsSubmittingUnpaidContest(false);
+                    }
+                  }}
+                  disabled={isSubmittingUnpaidContest}
+                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow"
+                >
+                  {isSubmittingUnpaidContest ? 'Enviando...' : 'Enviar Contestação para Análise'}
+                </button>
+              </div>
+            )}
+
+            {unpaidContestSuccess && (
+              <div className="bg-emerald-950/60 border border-emerald-500/40 rounded-xl p-3 text-xs text-emerald-300">
+                {unpaidContestSuccess}
+              </div>
+            )}
+
+            <div className="pt-1 text-center">
+              <button
+                type="button"
+                onClick={() => setShowUnpaidModal(false)}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

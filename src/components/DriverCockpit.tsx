@@ -41,6 +41,7 @@ import {
   getWhatsAppContact,
   updateDriverPaymentSettings,
   updateRidePaymentStatus,
+  confirmRidePayment,
   fetchFareSettings,
   createZone,
 } from '../lib/api.ts';
@@ -154,6 +155,14 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
   const [hasNotifPermission, setHasNotifPermission] = useState(
     typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
   );
+
+  // Payment confirmation modal states for active ride completion
+  const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
+  const [paymentChoice, setPaymentChoice] = useState<'RECEIVED' | 'NOT_RECEIVED'>('RECEIVED');
+  const [paymentMethodChoice, setPaymentMethodChoice] = useState<PaymentMethod>('PIX');
+  const [paymentPendingReasonText, setPaymentPendingReasonText] = useState<string>('');
+  const [quickConfirmRide, setQuickConfirmRide] = useState<Ride | null>(null);
+  const [quickConfirmMethod, setQuickConfirmMethod] = useState<PaymentMethod>('PIX');
 
   // Synthesized Web Audio chime (pleasant 4-tone bell)
   const playRideChime = () => {
@@ -470,8 +479,63 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     }
   };
 
+  const handleOpenPaymentModal = () => {
+    if (!activeRide) return;
+    setPaymentChoice('RECEIVED');
+    setPaymentMethodChoice((activeRide.paymentMethod as PaymentMethod) || 'PIX');
+    setPaymentPendingReasonText('');
+    setShowPaymentModal(true);
+  };
+
+  const handleFinishRideWithPayment = async () => {
+    if (!activeRide) return;
+    try {
+      setIsUpdating(true);
+      const isReceived = paymentChoice === 'RECEIVED';
+      const updated = await updateRideStatus(
+        activeRide.id,
+        'COMPLETED',
+        undefined,
+        {
+          paymentReceived: isReceived,
+          paymentStatus: isReceived ? 'PAID' : 'PAYMENT_PENDING',
+          paymentMethod: isReceived ? paymentMethodChoice : undefined,
+          paymentPendingReason: !isReceived ? (paymentPendingReasonText.trim() || 'Pagamento não recebido pelo motorista ao término da viagem') : undefined,
+          driverId: driver.id,
+        }
+      );
+      broadcastLocalRideUpdate(updated);
+      setShowPaymentModal(false);
+      await onRefreshRides();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao finalizar corrida');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleQuickConfirmPayment = async (rideId: string, method: PaymentMethod) => {
+    try {
+      setIsUpdating(true);
+      const res = await confirmRidePayment(rideId, method, driver.id);
+      if (res && res.ride) {
+        broadcastLocalRideUpdate(res.ride);
+      }
+      setQuickConfirmRide(null);
+      await onRefreshRides();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao confirmar recebimento');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const handleAdvanceActiveRide = async (nextStatus: any) => {
     if (!activeRide) return;
+    if (nextStatus === 'COMPLETED') {
+      handleOpenPaymentModal();
+      return;
+    }
     try {
       setIsUpdating(true);
       const updated = await updateRideStatus(activeRide.id, nextStatus);
@@ -1191,11 +1255,11 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                   )}
                   {activeRide.status === 'IN_PROGRESS' && (
                     <button
-                      onClick={() => handleAdvanceActiveRide('COMPLETED')}
+                      onClick={handleOpenPaymentModal}
                       disabled={isUpdating}
                       className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm py-3.5 rounded-xl cursor-pointer shadow-lg"
                     >
-                      FINALIZAR CORRIDA E CONFIRMAR RECEBIMENTO ✔
+                      FINALIZAR CORRIDA E CONFIRMAR PAGAMENTO ✔
                     </button>
                   )}
 
@@ -1226,31 +1290,69 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                 {driverRides.map((ride) => (
                   <div
                     key={ride.id}
-                    className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-4 text-xs"
+                    className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs"
                   >
                     <div>
-                      <span className="font-bold text-white text-sm">{ride.passengerName}</span>
-                      <p className="text-slate-400 mt-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-white text-sm">{ride.passengerName}</span>
+                        {ride.paymentStatus === 'PAYMENT_PENDING' && (
+                          <span className="bg-rose-950/90 text-rose-300 border border-rose-500/40 text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">
+                            PAGAMENTO PENDENTE
+                          </span>
+                        )}
+                        {ride.paymentStatus === 'PAYMENT_CONTESTED' && (
+                          <span className="bg-amber-950/90 text-amber-300 border border-amber-500/40 text-[10px] font-black px-2 py-0.5 rounded-full">
+                            CONTESTADO PELO PASSAGEIRO
+                          </span>
+                        )}
+                        {(ride.paymentStatus === 'PAID' || (!ride.paymentStatus && ride.status === 'COMPLETED')) && (
+                          <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            PAGO • {ride.paymentMethod || 'DIRETO'}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-slate-400 mt-1">
                         {ride.originAddress} ➔ {ride.destinationAddress}
                       </p>
-                      <span className="text-[10px] text-slate-500">{ride.createdAt.split('T')[0]}</span>
+                      <div className="flex items-center gap-3 text-[10px] text-slate-500 mt-1">
+                        <span>{ride.createdAt.split('T')[0]}</span>
+                        <span>•</span>
+                        <span>#{ride.id}</span>
+                        {ride.paymentPendingReason && (
+                          <span className="text-rose-400">Motivo: {ride.paymentPendingReason}</span>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="text-right">
-                      <span className="text-base font-extrabold text-emerald-400">
-                        R$ {ride.estimatedPrice}
-                      </span>
-                      <span
-                        className={`block text-[10px] font-bold ${
-                          ride.status === 'COMPLETED'
-                            ? 'text-emerald-400'
-                            : ride.status.startsWith('CANCELLED')
-                            ? 'text-rose-400'
-                            : 'text-amber-400'
-                        }`}
-                      >
-                        {ride.status}
-                      </span>
+                    <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-2">
+                      <div className="text-right">
+                        <span className="text-base font-extrabold text-emerald-400">
+                          R$ {(ride.fareBrl !== undefined ? ride.fareBrl : ride.estimatedPrice).toFixed(2)}
+                        </span>
+                        <span
+                          className={`block text-[10px] font-bold ${
+                            ride.status === 'COMPLETED'
+                              ? 'text-emerald-400'
+                              : ride.status.startsWith('CANCELLED')
+                              ? 'text-rose-400'
+                              : 'text-amber-400'
+                          }`}
+                        >
+                          {ride.status}
+                        </span>
+                      </div>
+
+                      {(ride.paymentStatus === 'PAYMENT_PENDING' || ride.paymentStatus === 'PAYMENT_CONTESTED') && (
+                        <button
+                          onClick={() => {
+                            setQuickConfirmRide(ride);
+                            setQuickConfirmMethod((ride.paymentMethod as PaymentMethod) || 'PIX');
+                          }}
+                          className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-black px-3 py-1.5 rounded-lg transition-all cursor-pointer shadow"
+                        >
+                          ✔ Confirmar que Recebi
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1908,6 +2010,257 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
           onClose={() => setIsSafetyModalOpen(false)}
           initialTab="seguranca"
         />
+      )}
+
+      {/* Driver Finish Ride Payment Confirmation Modal */}
+      {showPaymentModal && activeRide && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl relative my-6">
+            <div className="text-center space-y-1">
+              <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/80 border border-emerald-500/30 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                Encerramento de Viagem
+              </span>
+              <h3 className="text-xl font-black text-white mt-1">Pagamento da Corrida</h3>
+              <p className="text-xs text-slate-400">
+                Passageiro(a): <strong className="text-white">{activeRide.passengerName}</strong>
+              </p>
+            </div>
+
+            {/* Total Fare Display */}
+            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 text-center space-y-1">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Valor Total a Receber
+              </span>
+              <div className="text-3xl font-black text-emerald-400">
+                R$ {(activeRide.fareBrl !== undefined ? activeRide.fareBrl : activeRide.estimatedPrice).toFixed(2).replace('.', ',')}
+              </div>
+              <p className="text-[10px] text-slate-500">
+                {activeRide.originAddress} ➔ {activeRide.destinationAddress}
+              </p>
+            </div>
+
+            {/* Question */}
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-slate-200 text-center">
+                Você recebeu este pagamento do passageiro?
+              </label>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setPaymentChoice('RECEIVED')}
+                  className={`p-3 rounded-xl border text-xs font-black flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                    paymentChoice === 'RECEIVED'
+                      ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-lg shadow-emerald-500/20'
+                      : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <CheckCircle className="w-5 h-5" />
+                  <span>SIM, RECEBI</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPaymentChoice('NOT_RECEIVED')}
+                  className={`p-3 rounded-xl border text-xs font-black flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                    paymentChoice === 'NOT_RECEIVED'
+                      ? 'bg-rose-500 text-white border-rose-400 shadow-lg shadow-rose-500/20'
+                      : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <AlertCircle className="w-5 h-5" />
+                  <span>NÃO RECEBI</span>
+                </button>
+              </div>
+            </div>
+
+            {/* If Received -> Select Method */}
+            {paymentChoice === 'RECEIVED' && (
+              <div className="space-y-2 bg-slate-950/60 border border-slate-800 p-3.5 rounded-2xl">
+                <span className="block text-[11px] font-bold text-slate-300">
+                  Forma em que o passageiro pagou:
+                </span>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethodChoice('PIX')}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                      paymentMethodChoice === 'PIX'
+                        ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Zap className="w-4 h-4 text-emerald-400" />
+                    <span>Pix</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethodChoice('CASH')}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                      paymentMethodChoice === 'CASH'
+                        ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Banknote className="w-4 h-4 text-emerald-400" />
+                    <span>Dinheiro</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethodChoice('CARD_CREDIT')}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                      paymentMethodChoice === 'CARD_CREDIT' || paymentMethodChoice === 'CARD_DEBIT'
+                        ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <CreditCard className="w-4 h-4 text-emerald-400" />
+                    <span>Maquininha</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* If NOT Received -> Optional Reason */}
+            {paymentChoice === 'NOT_RECEIVED' && (
+              <div className="space-y-2 bg-rose-950/30 border border-rose-500/30 p-3.5 rounded-2xl">
+                <span className="block text-[11px] font-bold text-rose-300">
+                  Motivo do não recebimento (opcional):
+                </span>
+                <input
+                  type="text"
+                  value={paymentPendingReasonText}
+                  onChange={(e) => setPaymentPendingReasonText(e.target.value)}
+                  placeholder="Ex: Passageiro desceu sem pagar / prometeu transferir depois"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-400"
+                />
+                <p className="text-[10px] text-slate-400">
+                  ⚠️ Ao registrar como não recebido, a corrida será finalizada e o passageiro ficará temporariamente bloqueado para solicitar novas viagens até regularizar a pendência.
+                </p>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowPaymentModal(false)}
+                disabled={isUpdating}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold py-3 rounded-xl transition-colors cursor-pointer"
+              >
+                Voltar
+              </button>
+
+              <button
+                type="button"
+                onClick={handleFinishRideWithPayment}
+                disabled={isUpdating}
+                className={`flex-1 text-xs font-black py-3 rounded-xl transition-all cursor-pointer shadow-lg ${
+                  paymentChoice === 'RECEIVED'
+                    ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20'
+                    : 'bg-rose-500 hover:bg-rose-400 text-white shadow-rose-500/20'
+                }`}
+              >
+                {isUpdating
+                  ? 'Processando...'
+                  : paymentChoice === 'RECEIVED'
+                  ? 'Confirmar e Finalizar ✔'
+                  : 'Registrar Débito e Finalizar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Driver Quick Confirm Payment for Previously Pending Ride */}
+      {quickConfirmRide && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl relative my-6">
+            <div className="text-center space-y-1">
+              <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/80 border border-emerald-500/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                Baixa de Débito
+              </span>
+              <h3 className="text-lg font-black text-white mt-1">Confirmar Recebimento</h3>
+              <p className="text-xs text-slate-400">
+                Passageiro: <strong className="text-white">{quickConfirmRide.passengerName}</strong>
+              </p>
+              <div className="text-2xl font-black text-emerald-400 pt-1">
+                R$ {(quickConfirmRide.fareBrl !== undefined ? quickConfirmRide.fareBrl : quickConfirmRide.estimatedPrice).toFixed(2).replace('.', ',')}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-[11px] font-bold text-slate-300">
+                Como você recebeu o pagamento?
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setQuickConfirmMethod('PIX')}
+                  className={`p-2 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 cursor-pointer ${
+                    quickConfirmMethod === 'PIX'
+                      ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
+                      : 'bg-slate-950 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  <Zap className="w-4 h-4 text-emerald-400" />
+                  <span>Pix</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setQuickConfirmMethod('CASH')}
+                  className={`p-2 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 cursor-pointer ${
+                    quickConfirmMethod === 'CASH'
+                      ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
+                      : 'bg-slate-950 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  <Banknote className="w-4 h-4 text-emerald-400" />
+                  <span>Dinheiro</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setQuickConfirmMethod('CARD_CREDIT')}
+                  className={`p-2 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 cursor-pointer ${
+                    quickConfirmMethod === 'CARD_CREDIT' || quickConfirmMethod === 'CARD_DEBIT'
+                      ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
+                      : 'bg-slate-950 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  <CreditCard className="w-4 h-4 text-emerald-400" />
+                  <span>Cartão</span>
+                </button>
+              </div>
+            </div>
+
+            <p className="text-[10px] text-slate-400 text-center">
+              Ao confirmar, a dívida será encerrada e o passageiro será desbloqueado imediatamente.
+            </p>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setQuickConfirmRide(null)}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold py-2.5 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleQuickConfirmPayment(quickConfirmRide.id, quickConfirmMethod)}
+                disabled={isUpdating}
+                className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black py-2.5 rounded-xl cursor-pointer"
+              >
+                {isUpdating ? 'Salvando...' : 'Confirmar Baixa ✔'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

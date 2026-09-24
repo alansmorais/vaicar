@@ -214,17 +214,70 @@ export async function updateRideStatus(
   id: string,
   status: string,
   cancellationReason?: string,
+  extra?: {
+    paymentReceived?: boolean;
+    paymentStatus?: string;
+    paymentMethod?: string;
+    paymentPendingReason?: string;
+    driverId?: string;
+  },
 ): Promise<Ride> {
   const res = await fetch(`/api/v1/rides/${id}/status`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status, cancellationReason }),
+    body: JSON.stringify({ status, cancellationReason, ...extra }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Falha ao atualizar status da corrida');
   }
   return res.json();
+}
+
+export async function confirmRidePayment(
+  rideId: string,
+  paymentMethod: string = 'PIX',
+  driverId?: string,
+  notes?: string,
+): Promise<{ success: boolean; ride: Ride }> {
+  return safeFetchJson<{ success: boolean; ride: Ride }>(`/api/v1/rides/${rideId}/confirm-payment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paymentMethod, driverId, notes }),
+  }, 'Falha ao confirmar recebimento da corrida');
+}
+
+export async function contestRidePayment(
+  rideId: string,
+  reason: string,
+  proofUrl?: string,
+  passengerPhone?: string,
+): Promise<{ success: boolean; ride: Ride }> {
+  return safeFetchJson<{ success: boolean; ride: Ride }>(`/api/v1/rides/${rideId}/contest-payment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason, proofUrl, passengerPhone }),
+  }, 'Falha ao enviar contestação de pagamento');
+}
+
+export async function resolveRidePayment(
+  rideId: string,
+  resolution: 'PAID' | 'WAIVED' | 'PAYMENT_PENDING',
+  notes?: string,
+  adminEmail?: string,
+): Promise<{ success: boolean; ride: Ride }> {
+  return safeFetchJson<{ success: boolean; ride: Ride }>(`/api/v1/rides/${rideId}/resolve-payment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resolution, notes, adminEmail }),
+  }, 'Falha ao resolver pendência financeira');
+}
+
+export async function fetchUnpaidRides(passengerPhone?: string): Promise<Ride[]> {
+  const url = passengerPhone
+    ? `/api/v1/rides/unpaid?passengerPhone=${encodeURIComponent(passengerPhone)}`
+    : '/api/v1/rides/unpaid';
+  return safeFetchJson<Ride[]>(url, undefined, 'Falha ao buscar corridas pendentes');
 }
 
 export async function cleanupRides(): Promise<{ success: boolean; deleted: number }> {

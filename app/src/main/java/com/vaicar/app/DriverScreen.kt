@@ -65,6 +65,16 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
     var profileVehicleColor by remember { mutableStateOf("") }
     var profileWhatsappDirect by remember { mutableStateOf("") }
 
+    // Payment Confirmation States
+    var completingRide by remember { mutableStateOf<Ride?>(null) }
+    var completingPaymentReceived by remember { mutableStateOf(true) }
+    var completingPaymentMethod by remember { mutableStateOf("PIX") }
+    var completingReasonText by remember { mutableStateOf("") }
+    var isSubmittingPayment by remember { mutableStateOf(false) }
+
+    var quickConfirmRide by remember { mutableStateOf<Ride?>(null) }
+    var quickConfirmMethod by remember { mutableStateOf("PIX") }
+
     fun refreshState() {
         ApiService.fetchDrivers(
             onSuccess = { drivers ->
@@ -1175,24 +1185,16 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                         } else if (ride.status == "IN_PROGRESS") {
                                             Button(
                                                 onClick = {
-                                                    ApiService.updateRideStatus(
-                                                        rideId = ride.id,
-                                                        status = "COMPLETED",
-                                                        driverId = registeredDriver?.id,
-                                                        onSuccess = {
-                                                            refreshState()
-                                                            message = "Corrida finalizada com sucesso! Parabéns!"
-                                                        },
-                                                        onError = { err ->
-                                                            message = err.message ?: "Erro ao finalizar corrida."
-                                                        }
-                                                    )
+                                                    completingRide = ride
+                                                    completingPaymentReceived = true
+                                                    completingPaymentMethod = ride.paymentMethod ?: "PIX"
+                                                    completingReasonText = ""
                                                 },
                                                 colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
                                                 shape = RoundedCornerShape(8.dp),
                                                 modifier = Modifier.weight(1.5f)
                                             ) {
-                                                Text("Finalizar Corrida", color = Color.Black, fontWeight = FontWeight.Bold)
+                                                Text("Finalizar e Confirmar Pagamento ✔", color = Color.Black, fontWeight = FontWeight.Bold)
                                             }
 
                                             Button(
@@ -1771,6 +1773,268 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                     }
                 }
             }
+        }
+
+        // =========================================================================
+        // DRIVER PAYMENT CONFIRMATION DIALOG (ON RIDE COMPLETION)
+        // =========================================================================
+        completingRide?.let { ride ->
+            val ridePrice = if (ride.fareBrl > 0) ride.fareBrl else ride.estimatedPrice
+            AlertDialog(
+                onDismissRequest = {
+                    if (!isSubmittingPayment) completingRide = null
+                },
+                containerColor = SurfaceSlate,
+                title = {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Pagamento da corrida",
+                            color = EmeraldGreen,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 18.sp
+                        )
+                        Text(
+                            text = "Valor: R$ ${"%.2f".format(ridePrice)}",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Você recebeu este pagamento do passageiro ${ride.passengerName}?",
+                            color = Color.White,
+                            fontSize = 14.sp
+                        )
+
+                        // Choice Buttons: RECEBIDO vs NÃO RECEBIDO
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { completingPaymentReceived = true },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (completingPaymentReceived) EmeraldGreen else Color(0xFF1E293B)
+                                ),
+                                border = if (!completingPaymentReceived) BorderStroke(1.dp, Color(0xFF334155)) else null,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    "PAGAMENTO RECEBIDO",
+                                    color = if (completingPaymentReceived) Color.Black else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Button(
+                                onClick = { completingPaymentReceived = false },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (!completingPaymentReceived) AccentRed else Color(0xFF1E293B)
+                                ),
+                                border = if (completingPaymentReceived) BorderStroke(1.dp, Color(0xFF334155)) else null,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    "NÃO RECEBIDO",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        if (completingPaymentReceived) {
+                            Text(
+                                text = "Selecione o meio de pagamento utilizado:",
+                                color = TextSecondary,
+                                fontSize = 12.sp
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val methods = listOf("PIX" to "Pix", "CASH" to "Dinheiro", "CARD_TERMINAL" to "Maquininha")
+                                methods.forEach { (code, label) ->
+                                    val isSel = completingPaymentMethod == code
+                                    Button(
+                                        onClick = { completingPaymentMethod = code },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isSel) Color(0xFF065F46) else Color(0xFF0F172A)
+                                        ),
+                                        border = BorderStroke(1.dp, if (isSel) EmeraldGreen else Color(0xFF334155)),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            label,
+                                            color = if (isSel) EmeraldGreen else TextSecondary,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF450A0A)),
+                                border = BorderStroke(1.dp, AccentRed),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = "A corrida será registrada com status de débito pendente (PAYMENT_PENDING). O passageiro ficará bloqueado para novas corridas até a quitação.",
+                                        color = Color(0xFFFECACA),
+                                        fontSize = 11.sp
+                                    )
+                                    OutlinedTextField(
+                                        value = completingReasonText,
+                                        onValueChange = { completingReasonText = it },
+                                        placeholder = { Text("Motivo / observação (opcional)", color = TextSecondary, fontSize = 12.sp) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = AccentRed,
+                                            unfocusedBorderColor = Color(0xFF7F1D1D),
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            isSubmittingPayment = true
+                            val finalMethod = if (completingPaymentReceived) completingPaymentMethod else null
+                            val finalPendingReason = if (!completingPaymentReceived) {
+                                if (completingReasonText.isNotBlank()) completingReasonText.trim() else "Pagamento não recebido pelo motorista ao término da corrida"
+                            } else null
+
+                            ApiService.updateRideStatus(
+                                rideId = ride.id,
+                                status = "COMPLETED",
+                                driverId = registeredDriver?.id,
+                                paymentReceived = completingPaymentReceived,
+                                paymentStatus = if (completingPaymentReceived) "PAID" else "PAYMENT_PENDING",
+                                paymentMethod = finalMethod,
+                                paymentPendingReason = finalPendingReason,
+                                onSuccess = {
+                                    isSubmittingPayment = false
+                                    completingRide = null
+                                    refreshState()
+                                    message = if (completingPaymentReceived) {
+                                        "Corrida finalizada e pagamento confirmado com sucesso! Parabéns!"
+                                    } else {
+                                        "Corrida finalizada. Débito pendente registrado no sistema."
+                                    }
+                                },
+                                onError = { err ->
+                                    isSubmittingPayment = false
+                                    message = err.message ?: "Erro ao processar finalização da corrida."
+                                }
+                            )
+                        },
+                        enabled = !isSubmittingPayment,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (completingPaymentReceived) EmeraldGreen else AccentRed
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        if (isSubmittingPayment) {
+                            CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(16.dp))
+                        } else {
+                            Text(
+                                text = if (completingPaymentReceived) "Confirmar e Finalizar ✔" else "Registrar Débito Pendente ⚠️",
+                                color = if (completingPaymentReceived) Color.Black else Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { completingRide = null },
+                        enabled = !isSubmittingPayment
+                    ) {
+                        Text("Voltar", color = TextSecondary)
+                    }
+                }
+            )
+        }
+
+        // =========================================================================
+        // QUICK CONFIRM DIALOG FOR PREVIOUS UNPAID RIDES
+        // =========================================================================
+        quickConfirmRide?.let { ride ->
+            AlertDialog(
+                onDismissRequest = { quickConfirmRide = null },
+                containerColor = SurfaceSlate,
+                title = {
+                    Text("Confirmar Recebimento de Débito", color = EmeraldGreen, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Passageiro: ${ride.passengerName}", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("Valor: R$ ${"%.2f".format(if (ride.fareBrl > 0) ride.fareBrl else ride.estimatedPrice)}", color = EmeraldGreen, fontWeight = FontWeight.Bold)
+                        Text("Selecione como recebeu este valor:", color = TextSecondary, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                            val methods = listOf("PIX" to "Pix", "CASH" to "Dinheiro", "CARD_TERMINAL" to "Cartão")
+                            methods.forEach { (code, label) ->
+                                val isSel = quickConfirmMethod == code
+                                Button(
+                                    onClick = { quickConfirmMethod = code },
+                                    colors = ButtonDefaults.buttonColors(containerColor = if (isSel) EmeraldGreen else Color(0xFF0F172A)),
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(label, color = if (isSel) Color.Black else Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            ApiService.confirmRidePayment(
+                                rideId = ride.id,
+                                paymentMethod = quickConfirmMethod,
+                                driverId = registeredDriver?.id,
+                                onSuccess = {
+                                    quickConfirmRide = null
+                                    refreshState()
+                                    message = "Pagamento baixado com sucesso! O passageiro foi desbloqueado."
+                                },
+                                onError = { err ->
+                                    message = err.message ?: "Erro ao confirmar pagamento."
+                                }
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldGreen),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Confirmar Baixa", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { quickConfirmRide = null }) {
+                        Text("Cancelar", color = TextSecondary)
+                    }
+                }
+            )
         }
 
         if (message.isNotEmpty()) {

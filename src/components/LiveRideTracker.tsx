@@ -12,9 +12,13 @@ import {
   ChevronRight,
   Info,
   XCircle,
-  RotateCcw
+  RotateCcw,
+  AlertCircle,
+  Banknote,
+  Send
 } from 'lucide-react';
 import { Ride } from '../types.ts';
+import { contestRidePayment } from '../lib/api.ts';
 
 interface LiveRideTrackerProps {
   ride: Ride;
@@ -25,6 +29,10 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
   const [progress, setProgress] = useState(0.1);
   const [simulatedEtaMin, setSimulatedEtaMin] = useState(ride.estimatedDurationMin);
   const [simulatedDistanceKm, setSimulatedDistanceKm] = useState(ride.estimatedDistanceKm);
+  const [isContesting, setIsContesting] = useState(false);
+  const [contestReason, setContestReason] = useState('');
+  const [isSubmittingContest, setIsSubmittingContest] = useState(false);
+  const [contestSuccessMsg, setContestSuccessMsg] = useState('');
   const animationRef = useRef<number | null>(null);
 
   const driverFirstName = ride.driverName?.split(' ')[0] || 'Motorista';
@@ -543,6 +551,114 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
             </div>
           )}
         </div>
+
+        {/* Payment Confirmation & Unpaid Control for Completed Ride */}
+        {ride.status === 'COMPLETED' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <Banknote className="w-4 h-4 text-emerald-400" />
+                Status do Pagamento da Corrida
+              </span>
+              <span className="text-sm font-black text-emerald-400">
+                R$ {(ride.fareBrl !== undefined ? ride.fareBrl : ride.estimatedPrice).toFixed(2).replace('.', ',')}
+              </span>
+            </div>
+
+            {ride.paymentStatus === 'PAID' || ride.paymentStatus === 'CONFIRMED_BY_DRIVER' ? (
+              <div className="bg-emerald-950/50 border border-emerald-500/40 rounded-xl p-3 flex items-center gap-2.5 text-xs text-emerald-300">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <div>
+                  <strong className="block font-bold text-emerald-200">Pagamento Confirmado pelo Motorista</strong>
+                  <span className="text-[11px] text-emerald-400/80">Recebido via {ride.paymentMethod || 'Direto'} • Nenhuma pendência em aberto</span>
+                </div>
+              </div>
+            ) : ride.paymentStatus === 'PAYMENT_PENDING' ? (
+              <div className="space-y-3">
+                <div className="bg-rose-950/50 border border-rose-500/40 rounded-xl p-3.5 space-y-2 text-xs">
+                  <div className="flex items-center gap-2 text-rose-300 font-bold">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>Pagamento Não Confirmado pelo Motorista</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    O motorista marcou que este pagamento ainda está pendente. Enquanto houver pendência financeira, novas corridas não poderão ser solicitadas.
+                  </p>
+                  {ride.paymentPendingReason && (
+                    <p className="text-[11px] text-rose-300 font-medium">
+                      Motivo informado: {ride.paymentPendingReason}
+                    </p>
+                  )}
+                </div>
+
+                {!isContesting && !contestSuccessMsg && (
+                  <button
+                    type="button"
+                    onClick={() => setIsContesting(true)}
+                    className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 hover:text-amber-200 font-bold text-xs py-2.5 rounded-xl transition-all cursor-pointer text-center"
+                  >
+                    💬 Já paguei / Contestar Cobrança com a Moderação
+                  </button>
+                )}
+
+                {isContesting && (
+                  <div className="bg-slate-950 border border-slate-700 p-3.5 rounded-xl space-y-2.5 text-xs">
+                    <span className="font-bold text-white block">Contestação de Pagamento:</span>
+                    <textarea
+                      value={contestReason}
+                      onChange={(e) => setContestReason(e.target.value)}
+                      placeholder="Descreva como e quando você realizou o pagamento (ex: Pix enviado às 14:30 / Dinheiro entregue em mãos)..."
+                      rows={3}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400"
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsContesting(false)}
+                        disabled={isSubmittingContest}
+                        className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold py-2 rounded-lg cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!contestReason.trim()) return alert('Informe o motivo da contestação.');
+                          try {
+                            setIsSubmittingContest(true);
+                            await contestRidePayment(ride.id, contestReason.trim(), undefined, ride.passengerPhone);
+                            setContestSuccessMsg('Contestação enviada com sucesso! A administração analisará seu caso.');
+                            setIsContesting(false);
+                          } catch (err: any) {
+                            alert(err.message || 'Erro ao enviar contestação');
+                          } finally {
+                            setIsSubmittingContest(false);
+                          }
+                        }}
+                        disabled={isSubmittingContest}
+                        className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black py-2 rounded-lg cursor-pointer"
+                      >
+                        {isSubmittingContest ? 'Enviando...' : 'Enviar Contestação'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {contestSuccessMsg && (
+                  <div className="bg-amber-950/60 border border-amber-500/40 rounded-xl p-3 text-xs text-amber-300">
+                    {contestSuccessMsg}
+                  </div>
+                )}
+              </div>
+            ) : ride.paymentStatus === 'PAYMENT_CONTESTED' ? (
+              <div className="bg-amber-950/50 border border-amber-500/40 rounded-xl p-3 text-xs space-y-1">
+                <span className="font-bold text-amber-300 block">⏳ Pagamento em Análise / Contestado</span>
+                <p className="text-[11px] text-slate-300">
+                  Sua contestação foi registrada e está sob auditoria da administração. Motivo: "{ride.contestReason || 'Em análise'}"
+                </p>
+              </div>
+            ) : null}
+          </div>
+        )}
 
         {/* Safety & Identification Guidance */}
         <div className="bg-slate-950 p-3 rounded-xl border border-slate-900/80 flex items-center gap-2.5 text-[10px] text-slate-400">
