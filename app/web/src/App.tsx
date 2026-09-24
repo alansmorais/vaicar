@@ -195,30 +195,35 @@ export default function App() {
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
-      {role && (
-        <Header
-          currentRole={role}
-          onSelectRole={(r) => handleSelectRole(r)}
-          onLogout={() => handleSelectRole(null)}
-          passengerName={localStorage.getItem('vaicar_passenger_name') || ''}
-          passengerAvatar={localStorage.getItem('vaicar_passenger_avatar') || ''}
-          activeDriverId={currentDriverId}
-          onSelectDriverId={(id) => {
-            if (id === 'new') {
-              handleSelectRole('DRIVER');
-              setDriverSubView('ONBOARDING');
-            } else {
-              setCurrentDriverId(id);
-            }
-          }}
-          availableDrivers={drivers.map((d) => ({
-            id: d.id,
-            name: d.name,
-            regulatoryStatus: d.regulatoryStatus,
-          }))}
-          onOpenLegal={handleOpenLegal}
-        />
-      )}
+      <Header
+        currentRole={role}
+        onSelectRole={(r, extra) => {
+          if (extra?.mode) {
+            localStorage.setItem('vaicar_passenger_mode', extra.mode);
+          } else {
+            localStorage.removeItem('vaicar_passenger_mode');
+          }
+          handleSelectRole(r);
+        }}
+        onLogout={() => handleSelectRole(null)}
+        passengerName={localStorage.getItem('vaicar_passenger_name') || ''}
+        passengerAvatar={localStorage.getItem('vaicar_passenger_avatar') || ''}
+        activeDriverId={currentDriverId}
+        onSelectDriverId={(id) => {
+          if (id === 'new') {
+            handleSelectRole('DRIVER');
+            setDriverSubView('ONBOARDING');
+          } else {
+            setCurrentDriverId(id);
+          }
+        }}
+        availableDrivers={drivers.map((d) => ({
+          id: d.id,
+          name: d.name,
+          regulatoryStatus: d.regulatoryStatus,
+        }))}
+        onOpenLegal={handleOpenLegal}
+      />
 
       {/* Main Content Area */}
       <main className="flex-1 pb-16">
@@ -238,7 +243,7 @@ export default function App() {
             </div>
           </div>
         ) : !role ? (
-          <RoleSelector onSelect={(r) => handleSelectRole(r)} />
+          <RoleSelector onSelect={(r) => handleSelectRole(r)} onOpenLegal={handleOpenLegal} />
         ) : (
           <>
             {/* 1. PASSENGER VIEW */}

@@ -1,17 +1,33 @@
-import React from 'react';
-import { Home, Car, Shield, User, Compass, LogOut, CheckCircle2, Code2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { 
+  Car, 
+  Bike, 
+  ShieldCheck, 
+  User, 
+  Compass, 
+  LogOut, 
+  Menu, 
+  X, 
+  ChevronRight, 
+  Sparkles,
+  Shield,
+  Code2,
+  HelpCircle,
+  LogIn,
+  UserPlus
+} from 'lucide-react';
 import { UserRole } from '../types.ts';
 
 interface HeaderProps {
   currentRole: UserRole | null;
-  onSelectRole: (role: UserRole | null) => void;
+  onSelectRole: (role: UserRole | null, extra?: { mode?: string }) => void;
   onLogout?: () => void;
   passengerName?: string;
   passengerAvatar?: string;
-  activeDriverId: string;
-  onSelectDriverId: (id: string) => void;
-  availableDrivers: { id: string; name: string; regulatoryStatus: string }[];
-  onOpenLegal: (tab: 'termos' | 'privacidade' | 'regulacao' | 'seguranca') => void;
+  activeDriverId?: string;
+  onSelectDriverId?: (id: string) => void;
+  availableDrivers?: { id: string; name: string; regulatoryStatus: string }[];
+  onOpenLegal?: (tab: 'termos' | 'privacidade' | 'regulacao' | 'seguranca') => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -22,210 +38,392 @@ export const Header: React.FC<HeaderProps> = ({
   passengerAvatar,
   activeDriverId,
   onSelectDriverId,
-  availableDrivers,
+  availableDrivers = [],
   onOpenLegal,
 }) => {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState<'LOGIN' | 'REGISTER' | null>(null);
+
+  const scrollToSection = (sectionId: string) => {
+    setMobileMenuOpen(false);
+    if (typeof window !== 'undefined') {
+      if (window.location.pathname !== '/') {
+        window.history.pushState({}, '', '/');
+        window.dispatchEvent(new PopStateEvent('popstate'));
+        setTimeout(() => {
+          const el = document.getElementById(sectionId);
+          if (el) el.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+      } else {
+        const el = document.getElementById(sectionId);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth' });
+        } else if (sectionId === 'inicio') {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }
+    }
+  };
+
+  const handleAuthAction = (role: UserRole, mode?: string) => {
+    setAuthModalOpen(null);
+    setMobileMenuOpen(false);
+    onSelectRole(role, mode ? { mode } : undefined);
+  };
+
   return (
-    <header className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-white">
-      {/* Top Notification / Regulatory Banner */}
-      <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-700 px-2 sm:px-3 py-1 text-xs font-medium text-emerald-50 flex items-center justify-between gap-1.5 overflow-hidden">
-        <div className="flex items-center gap-1.5 shrink-0">
-          <span className="bg-emerald-950/70 px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase border border-emerald-400/30">
-            São Sebastião • SP
-          </span>
-          <button
-            onClick={() => onOpenLegal('seguranca')}
-            className="underline hover:text-white cursor-pointer text-[11px] truncate font-semibold"
-          >
-            🛡️ Regras de Segurança
-          </button>
-          <span className="text-white/40 hidden min-[400px]:inline">•</span>
-          <button
-            onClick={() => onOpenLegal('regulacao')}
-            className="underline hover:text-white cursor-pointer text-[11px] truncate max-w-[120px] sm:max-w-none hidden min-[400px]:inline"
-          >
-            Requisitos e Legislação
-          </button>
+    <>
+      <header className="sticky top-0 z-40 w-full bg-slate-950/95 backdrop-blur-md border-b border-slate-800/80 text-white">
+        {/* Top Mini Strip for City & Trust Context */}
+        <div className="bg-slate-900 border-b border-slate-800/60 px-4 py-1 text-[11px] text-slate-400">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="font-semibold text-slate-300">São Sebastião • SP</span>
+              <span className="text-slate-600 hidden sm:inline">|</span>
+              <span className="hidden sm:inline text-slate-400">Plataforma local de intermediação de corridas e entregas</span>
+            </div>
+
+            <div className="flex items-center gap-3 text-[11px]">
+              {onOpenLegal && (
+                <>
+                  <button
+                    onClick={() => onOpenLegal('seguranca')}
+                    className="hover:text-emerald-400 transition-colors cursor-pointer"
+                  >
+                    Segurança
+                  </button>
+                  <span className="text-slate-700">•</span>
+                  <button
+                    onClick={() => onOpenLegal('termos')}
+                    className="hover:text-emerald-400 transition-colors cursor-pointer hidden sm:inline"
+                  >
+                    Termos
+                  </button>
+                </>
+              )}
+              {currentRole && onLogout && (
+                <button
+                  onClick={onLogout}
+                  className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 font-bold bg-slate-800/60 hover:bg-slate-800 px-2 py-0.5 rounded transition-all cursor-pointer"
+                >
+                  <LogOut className="w-3 h-3" />
+                  <span>Sair do Painel</span>
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
-        {onLogout && (
-          <button
-            onClick={onLogout}
-            className="flex items-center gap-1 text-[11px] font-bold bg-slate-950/40 hover:bg-slate-950/70 px-2 py-0.5 rounded border border-white/20 hover:text-white cursor-pointer transition-colors"
-            title="Sair ou trocar de perfil"
-          >
-            <LogOut className="w-3 h-3" />
-            <span className="hidden sm:inline">Página Inicial / Sair</span>
-          </button>
-        )}
-      </div>
-
-      <div className="max-w-7xl mx-auto px-2 sm:px-6 h-16 flex items-center justify-between gap-1 sm:gap-4 overflow-hidden">
-        {/* Logo & City Identity */}
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={() => onSelectRole(null)}
-            className="flex items-center gap-1.5 sm:gap-2.5 cursor-pointer group text-left bg-transparent border-0 p-0"
-            title="Ir para a Página Inicial"
-          >
-            <img
-              src="https://raw.githubusercontent.com/alansmorais/vaicar/refs/heads/main/images/vaicar_logo.png"
-              alt="VaiCar Logo"
-              className="w-8 h-8 sm:w-10 sm:h-10 rounded-full object-cover border-2 border-emerald-500/80 shadow-lg group-hover:scale-105 transition-transform shrink-0"
-              referrerPolicy="no-referrer"
-            />
-            <div>
-              <div className="flex items-center gap-1">
-                <span className="font-extrabold text-base sm:text-xl tracking-tight text-white">
+        {/* Main Navigation Bar */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+          {/* Zone 1: Brand Wordmark */}
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={() => {
+                if (currentRole) onSelectRole(null);
+                scrollToSection('inicio');
+              }}
+              className="flex items-center gap-2.5 text-left group bg-transparent border-0 p-0 cursor-pointer"
+              title="VaiCar São Sebastião - Início"
+            >
+              <img
+                src="https://raw.githubusercontent.com/alansmorais/vaicar/refs/heads/main/images/vaicar_logo.png"
+                alt="Logo VaiCar"
+                className="w-9 h-9 rounded-full object-cover border-2 border-emerald-500/80 shadow-md group-hover:scale-105 transition-transform shrink-0"
+                referrerPolicy="no-referrer"
+              />
+              <div>
+                <span className="font-black text-xl tracking-tight text-white group-hover:text-emerald-400 transition-colors">
                   Vai<span className="text-emerald-400">Car</span>
                 </span>
-                <span className="text-[9px] sm:text-[10px] bg-slate-800 text-emerald-400 border border-emerald-500/30 px-1 py-0.2 rounded font-bold">
-                  MVP
-                </span>
+                <span className="text-[10px] text-slate-400 block -mt-1 font-medium">São Sebastião</span>
               </div>
-              <p className="text-[10px] sm:text-[11px] text-slate-400 leading-none hidden min-[480px]:block">
-                São Sebastião • Litoral Norte
-              </p>
-            </div>
-          </button>
-        </div>
+            </button>
+          </div>
 
-        {/* Right side controls: Profile Badge + Global Role Switcher */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          {/* Passenger Profile Badge (When logged in as Passenger) */}
-          {currentRole === 'PASSENGER' && (
-            <div className="hidden min-[500px]:flex items-center gap-2 bg-slate-800/80 border border-slate-700/60 py-1 px-2.5 rounded-xl">
-              {passengerAvatar ? (
-                <img
-                  src={passengerAvatar}
-                  alt={passengerName || 'Passageiro'}
-                  className="w-7 h-7 rounded-lg object-cover border border-emerald-500/50"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold text-xs">
-                  <User className="w-4 h-4" />
-                </div>
-              )}
-              <div className="text-left">
-                <p className="text-xs font-bold text-white truncate max-w-[100px] sm:max-w-[140px]">
+          {/* Zone 2: Desktop Navigation Links (Landing Page Mode) */}
+          <nav className="hidden lg:flex items-center gap-6 text-sm font-medium text-slate-300" aria-label="Navegação principal">
+            <button
+              onClick={() => scrollToSection('inicio')}
+              className="hover:text-white transition-colors cursor-pointer py-1"
+            >
+              Início
+            </button>
+            <button
+              onClick={() => scrollToSection('corridas')}
+              className="hover:text-white transition-colors cursor-pointer py-1"
+            >
+              Corridas
+            </button>
+            <button
+              onClick={() => scrollToSection('entregas')}
+              className="hover:text-white transition-colors cursor-pointer py-1"
+            >
+              Entregas
+            </button>
+            <button
+              onClick={() => scrollToSection('motoristas')}
+              className="hover:text-white transition-colors cursor-pointer py-1"
+            >
+              Motoristas
+            </button>
+            <button
+              onClick={() => scrollToSection('seguranca')}
+              className="hover:text-white transition-colors cursor-pointer py-1"
+            >
+              Segurança
+            </button>
+            <button
+              onClick={() => scrollToSection('como-funciona')}
+              className="hover:text-white transition-colors cursor-pointer py-1"
+            >
+              Como funciona
+            </button>
+          </nav>
+
+          {/* Zone 3: Actions / Role Status */}
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            {/* If Logged In as Passenger or Driver */}
+            {currentRole === 'PASSENGER' && (
+              <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl">
+                {passengerAvatar ? (
+                  <img
+                    src={passengerAvatar}
+                    alt={passengerName || 'Passageiro'}
+                    className="w-6 h-6 rounded-lg object-cover border border-emerald-500/40"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs">
+                    <User className="w-3.5 h-3.5" />
+                  </div>
+                )}
+                <span className="text-xs font-bold text-white max-w-[120px] truncate hidden sm:inline">
                   {passengerName || 'Passageiro'}
-                </p>
-                <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-semibold">
-                  <CheckCircle2 className="w-2.5 h-2.5" />
-                  <span>Conectado</span>
-                </div>
+                </span>
+                <span className="text-[10px] text-emerald-400 font-semibold">Online</span>
               </div>
+            )}
+
+            {currentRole === 'DRIVER' && availableDrivers.length > 0 && onSelectDriverId && (
+              <div className="hidden sm:flex items-center gap-2 bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-800 text-xs">
+                <span className="text-slate-400">Conta:</span>
+                <select
+                  value={activeDriverId}
+                  onChange={(e) => onSelectDriverId(e.target.value)}
+                  aria-label="Selecionar conta de motorista"
+                  className="bg-slate-950 text-white rounded px-2 py-0.5 border border-slate-700 text-xs outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  {availableDrivers.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name} {d.regulatoryStatus === 'APPROVED' ? '🟢' : '🟡'}
+                    </option>
+                  ))}
+                  <option value="new">+ Cadastrar Novo</option>
+                </select>
+              </div>
+            )}
+
+            {/* If no role is active (Public Landing Mode) */}
+            {!currentRole && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setAuthModalOpen('LOGIN')}
+                  className="px-3.5 py-2 text-xs sm:text-sm font-semibold text-slate-200 hover:text-white bg-slate-900/80 hover:bg-slate-900 border border-slate-800 rounded-xl transition-all cursor-pointer whitespace-nowrap"
+                >
+                  Entrar
+                </button>
+                <button
+                  onClick={() => setAuthModalOpen('REGISTER')}
+                  className="px-4 py-2 text-xs sm:text-sm font-bold text-slate-950 bg-emerald-500 hover:bg-emerald-400 rounded-xl shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/20 transition-all cursor-pointer whitespace-nowrap"
+                >
+                  Cadastrar
+                </button>
+              </div>
+            )}
+
+            {/* Quick Demo Access Pills (Admin / Dev) */}
+            <div className="hidden xl:flex items-center gap-1 border-l border-slate-800 pl-2">
+              <button
+                onClick={() => onSelectRole('ADMIN')}
+                className={`p-1.5 rounded-lg text-[11px] font-medium transition-colors ${
+                  currentRole === 'ADMIN' ? 'bg-emerald-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'
+                }`}
+                title="Painel Administrativo"
+              >
+                <Shield className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => onSelectRole('DEV')}
+                className={`p-1.5 rounded-lg text-[11px] font-medium transition-colors ${
+                  currentRole === 'DEV' ? 'bg-amber-400 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'
+                }`}
+                title="Auditoria e Logs Técnicos"
+              >
+                <Code2 className="w-3.5 h-3.5" />
+              </button>
             </div>
-          )}
 
-          {/* Role Switcher Pills - ALWAYS VISIBLE */}
-          <div className="flex items-center bg-slate-800/90 p-0.5 sm:p-1 rounded-xl border border-slate-700/60 shadow-inner shrink-0">
+            {/* Mobile Burger Menu Button */}
             <button
-              id="role-home-btn"
-              onClick={() => onSelectRole(null)}
-              className={`flex items-center gap-1 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
-                currentRole === null
-                  ? 'bg-emerald-500 text-slate-950 shadow-md font-bold'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-              }`}
-              title="Página Inicial / Apresentação"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="lg:hidden p-2 text-slate-300 hover:text-white bg-slate-900 border border-slate-800 rounded-xl transition-colors cursor-pointer"
+              aria-label={mobileMenuOpen ? 'Fechar menu' : 'Abrir menu de navegação'}
             >
-              <Home className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
-              <span className="hidden min-[480px]:inline">Início</span>
-            </button>
-
-            <button
-              id="role-passenger-btn"
-              onClick={() => onSelectRole('PASSENGER')}
-              className={`flex items-center gap-1 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
-                currentRole === 'PASSENGER'
-                  ? 'bg-emerald-500 text-slate-950 shadow-md font-bold'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-              }`}
-            >
-              <Compass className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
-              <span className="hidden min-[380px]:inline">Passageiro</span>
-            </button>
-
-            <button
-              id="role-driver-btn"
-              onClick={() => onSelectRole('DRIVER')}
-              className={`flex items-center gap-1 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
-                currentRole === 'DRIVER'
-                  ? 'bg-emerald-500 text-slate-950 shadow-md font-bold'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-              }`}
-            >
-              <User className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
-              <span className="hidden min-[380px]:inline">Motorista</span>
-            </button>
-
-            <button
-              id="role-admin-btn"
-              onClick={() => onSelectRole('ADMIN')}
-              className={`flex items-center gap-1 px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
-                currentRole === 'ADMIN'
-                  ? 'bg-emerald-500 text-slate-950 shadow-md font-bold'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-              }`}
-            >
-              <Shield className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
-              <span>Admin</span>
-            </button>
-
-            <button
-              id="role-dev-btn"
-              onClick={() => onSelectRole('DEV')}
-              className={`flex items-center gap-1 px-1.5 py-1 sm:px-2.5 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
-                currentRole === 'DEV'
-                  ? 'bg-amber-400 text-slate-950 shadow-md font-bold'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-              }`}
-              title="Painel de Auditoria e Testes do Desenvolvedor"
-            >
-              <Code2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
-              <span className="hidden sm:inline">Dev</span>
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
           </div>
         </div>
 
-        {/* Driver Quick Selector when in Driver Role */}
-        {currentRole === 'DRIVER' && availableDrivers.length > 0 && (
-          <div className="hidden md:flex items-center gap-2 bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-700 text-xs">
-            <span className="text-slate-400">Conta:</span>
-            <select
-              value={activeDriverId}
-              onChange={(e) => onSelectDriverId(e.target.value)}
-              className="bg-slate-900 text-white rounded px-2 py-1 border border-slate-700 text-xs outline-none focus:border-emerald-500 cursor-pointer"
-            >
-              {availableDrivers.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name} {d.regulatoryStatus === 'APPROVED' ? '🟢 Aprovado' : '🟡 ' + d.regulatoryStatus}
-                </option>
-              ))}
-              <option value="new">+ Cadastrar Novo Motorista</option>
-            </select>
+        {/* Mobile Navigation Drawer */}
+        {mobileMenuOpen && (
+          <div className="lg:hidden bg-slate-950 border-b border-slate-800 px-4 py-6 space-y-4 animate-fade-in shadow-2xl">
+            <div className="grid grid-cols-2 gap-2 text-sm font-medium">
+              <button
+                onClick={() => scrollToSection('inicio')}
+                className="p-3 bg-slate-900/90 rounded-xl text-left text-slate-200 hover:text-emerald-400 border border-slate-800"
+              >
+                Início
+              </button>
+              <button
+                onClick={() => scrollToSection('corridas')}
+                className="p-3 bg-slate-900/90 rounded-xl text-left text-slate-200 hover:text-emerald-400 border border-slate-800"
+              >
+                Corridas
+              </button>
+              <button
+                onClick={() => scrollToSection('entregas')}
+                className="p-3 bg-slate-900/90 rounded-xl text-left text-slate-200 hover:text-emerald-400 border border-slate-800"
+              >
+                Entregas
+              </button>
+              <button
+                onClick={() => scrollToSection('motoristas')}
+                className="p-3 bg-slate-900/90 rounded-xl text-left text-slate-200 hover:text-emerald-400 border border-slate-800"
+              >
+                Motoristas
+              </button>
+              <button
+                onClick={() => scrollToSection('seguranca')}
+                className="p-3 bg-slate-900/90 rounded-xl text-left text-slate-200 hover:text-emerald-400 border border-slate-800"
+              >
+                Segurança
+              </button>
+              <button
+                onClick={() => scrollToSection('como-funciona')}
+                className="p-3 bg-slate-900/90 rounded-xl text-left text-slate-200 hover:text-emerald-400 border border-slate-800"
+              >
+                Como funciona
+              </button>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800/80 space-y-2">
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setAuthModalOpen('LOGIN');
+                }}
+                className="w-full py-3 bg-slate-900 text-white font-bold rounded-xl border border-slate-700 text-sm flex items-center justify-center gap-2"
+              >
+                <LogIn className="w-4 h-4 text-emerald-400" />
+                <span>Entrar no VaiCar</span>
+              </button>
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setAuthModalOpen('REGISTER');
+                }}
+                className="w-full py-3 bg-emerald-500 text-slate-950 font-black rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/10"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Cadastre-se Grátis</span>
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-slate-400 pt-2 px-1">
+              <button onClick={() => onSelectRole('ADMIN')} className="hover:text-emerald-400">
+                Painel Admin
+              </button>
+              <span>•</span>
+              <button onClick={() => onSelectRole('DEV')} className="hover:text-amber-400">
+                Painel Dev
+              </button>
+              <span>•</span>
+              {onOpenLegal && (
+                <button onClick={() => onOpenLegal('seguranca')} className="hover:text-white">
+                  Regras de Segurança
+                </button>
+              )}
+            </div>
           </div>
         )}
+      </header>
 
-        {/* Legal & Info Links */}
-        <div className="hidden lg:flex items-center gap-3 text-xs text-slate-400">
-          <button
-            onClick={() => onOpenLegal('termos')}
-            className="hover:text-emerald-400 transition-colors cursor-pointer"
-          >
-            Termos
-          </button>
-          <span>•</span>
-          <button
-            onClick={() => onOpenLegal('privacidade')}
-            className="hover:text-emerald-400 transition-colors cursor-pointer"
-          >
-            Privacidade LGPD
-          </button>
+      {/* Auth / Role Switch Quick Modal */}
+      {authModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-6 shadow-2xl relative animate-scale-up">
+            <button
+              onClick={() => setAuthModalOpen(null)}
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white bg-slate-950 rounded-full border border-slate-800 cursor-pointer"
+              aria-label="Fechar janela"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="space-y-2 text-center">
+              <div className="inline-flex p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl mb-1">
+                {authModalOpen === 'LOGIN' ? <LogIn className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
+              </div>
+              <h3 className="text-xl font-black text-white">
+                {authModalOpen === 'LOGIN' ? 'Como deseja acessar o VaiCar?' : 'Cadastre-se no VaiCar'}
+              </h3>
+              <p className="text-xs text-slate-400 max-w-xs mx-auto">
+                Escolha o seu perfil para acessar a plataforma em São Sebastião.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => handleAuthAction('PASSENGER', 'ride')}
+                className="w-full p-4 bg-slate-950 hover:bg-slate-850 border border-slate-800 hover:border-emerald-500/50 rounded-2xl text-left flex items-center justify-between group cursor-pointer transition-all"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:bg-emerald-500/20">
+                    <Compass className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-white text-sm">Passageiro / Envio</h4>
+                    <p className="text-[11px] text-slate-400">Pedir corridas ou solicitar entregas locais</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 group-hover:translate-x-0.5 transition-all" />
+              </button>
+
+              <button
+                onClick={() => handleAuthAction('DRIVER')}
+                className="w-full p-4 bg-slate-950 hover:bg-slate-850 border border-slate-800 hover:border-emerald-500/50 rounded-2xl text-left flex items-center justify-between group cursor-pointer transition-all"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:bg-emerald-500/20">
+                    <Car className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-white text-sm">Motorista / Entregador</h4>
+                    <p className="text-[11px] text-slate-400">Trabalhar com 10% por serviço ou plano mensal</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 group-hover:translate-x-0.5 transition-all" />
+              </button>
+            </div>
+
+            <p className="text-[10px] text-center text-slate-500">
+              Ambiente seguro em conformidade com as regras da plataforma VaiCar.
+            </p>
+          </div>
         </div>
-      </div>
-    </header>
+      )}
+    </>
   );
 };

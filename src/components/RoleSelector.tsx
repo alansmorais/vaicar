@@ -4,9 +4,10 @@ import { LandingPage } from './LandingPage.tsx';
 
 interface RoleSelectorProps {
   onSelect: (role: UserRole) => void;
+  onOpenLegal?: (tab: 'termos' | 'privacidade' | 'regulacao' | 'seguranca') => void;
 }
 
-export const RoleSelector: React.FC<RoleSelectorProps> = ({ onSelect }) => {
+export const RoleSelector: React.FC<RoleSelectorProps> = ({ onSelect, onOpenLegal }) => {
   const handleSelect = (role: UserRole, extra?: { mode?: string }) => {
     if (extra?.mode) {
       localStorage.setItem('vaicar_passenger_mode', extra.mode);
@@ -16,5 +17,5 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({ onSelect }) => {
     onSelect(role);
   };
 
-  return <LandingPage onSelectRole={handleSelect} />;
+  return <LandingPage onSelectRole={handleSelect} onOpenLegal={onOpenLegal} />;
 };
