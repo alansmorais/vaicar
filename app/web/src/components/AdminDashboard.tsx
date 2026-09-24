@@ -15,6 +15,7 @@ import {
   Search,
   Lock,
   Eye,
+  EyeOff,
   Trash2,
   Send,
   CreditCard,
@@ -115,7 +116,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return localStorage.getItem('vaicar_admin_auth') === 'true';
   });
   const [adminPin, setAdminPin] = useState('');
+  const [showAdminPin, setShowAdminPin] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [resetSuccessMsg, setResetSuccessMsg] = useState('');
 
   // Password change states (Mandatory on first access or on demand)
   const [isMandatoryFirstChange, setIsMandatoryFirstChange] = useState<boolean>(false);
@@ -480,7 +483,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setIsMandatoryFirstChange(false);
       setIsAuthenticated(true);
       localStorage.setItem('vaicar_admin_auth', 'true');
-      alert('✅ Nova senha de Administrador salva com sucesso! Guarde-a em local seguro.');
     } else {
       setPwdChangeSuccess('✅ Senha alterada com sucesso!');
       setTimeout(() => {
@@ -754,19 +756,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </p>
           </div>
 
+          {resetSuccessMsg && (
+            <div className="p-3 bg-emerald-950/70 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+              <Check className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span>{resetSuccessMsg}</span>
+            </div>
+          )}
+
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-300">Senha / PIN de Acesso</label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-300">Senha / PIN de Acesso</label>
+                <button
+                  type="button"
+                  onClick={() => setShowAdminPin(!showAdminPin)}
+                  className="text-[11px] text-slate-400 hover:text-emerald-400 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  {showAdminPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  <span>{showAdminPin ? 'Ocultar' : 'Visualizar'}</span>
+                </button>
+              </div>
               <div className="relative">
                 <input
-                  type="password"
+                  type={showAdminPin ? "text" : "password"}
                   value={adminPin}
                   onChange={(e) => setAdminPin(e.target.value)}
-                  placeholder="Digite sua senha de administrador"
+                  placeholder="Digite sua senha (padrão: Admin1989)"
                   required
-                  className="w-full bg-slate-950 text-white font-mono text-sm px-4 py-3 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-950 text-white font-mono text-sm px-4 py-3 pr-10 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
                 />
-                <Lock className="w-4 h-4 text-slate-500 absolute right-3.5 top-3.5" />
+                <Lock className="w-4 h-4 text-slate-500 absolute right-3.5 top-3.5 pointer-events-none" />
               </div>
             </div>
 
@@ -792,15 +811,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <button
               type="button"
               onClick={() => {
-                if (window.confirm('Deseja realmente redefinir todas as senhas personalizadas de administrador e desenvolvedor para os valores padrões de fábrica?')) {
-                  resetAllPasswords();
-                  alert('Senhas redefinidas com sucesso! Use as chaves de fábrica para o primeiro login.');
-                  window.location.reload();
-                }
+                resetAllPasswords();
+                setAdminPin('Admin1989');
+                setAuthError('');
+                setResetSuccessMsg('✅ Senhas redefinidas com sucesso! O campo foi preenchido com Admin1989. Clique em "Acessar Painel".');
               }}
-              className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
+              className="text-xs text-amber-400 hover:text-amber-300 underline font-semibold cursor-pointer py-1"
             >
-              Redefinir Todas as Senhas da Plataforma
+              🔄 Redefinir Todas as Senhas para Padrão de Fábrica (Admin1989 / Dev1989)
             </button>
           </div>
         </div>

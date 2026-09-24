@@ -13,6 +13,9 @@ import {
   Cpu,
   Lock,
   KeyRound,
+  Eye,
+  EyeOff,
+  Check,
 } from 'lucide-react';
 import { Driver, Ride, PlatformMetrics, SubscriptionPlan } from '../types.ts';
 import {
@@ -41,7 +44,9 @@ export const DevDashboard: React.FC<DevDashboardProps> = ({
     return localStorage.getItem('vaicar_dev_auth') === 'true';
   });
   const [devPin, setDevPin] = useState('');
+  const [showDevPin, setShowDevPin] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [resetSuccessMsg, setResetSuccessMsg] = useState('');
 
   // Password change states (Mandatory on first access or on demand)
   const [isMandatoryFirstChange, setIsMandatoryFirstChange] = useState<boolean>(false);
@@ -101,7 +106,6 @@ export const DevDashboard: React.FC<DevDashboardProps> = ({
       setIsMandatoryFirstChange(false);
       setIsAuthenticated(true);
       localStorage.setItem('vaicar_dev_auth', 'true');
-      alert('✅ Nova senha de Desenvolvedor salva com sucesso!');
     } else {
       setPwdChangeSuccess('✅ Senha alterada com sucesso!');
       setTimeout(() => {
@@ -222,19 +226,36 @@ export const DevDashboard: React.FC<DevDashboardProps> = ({
             </p>
           </div>
 
+          {resetSuccessMsg && (
+            <div className="p-3 bg-emerald-950/70 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+              <Check className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span>{resetSuccessMsg}</span>
+            </div>
+          )}
+
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-300">Senha / PIN do Desenvolvedor</label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-300">Senha / PIN do Desenvolvedor</label>
+                <button
+                  type="button"
+                  onClick={() => setShowDevPin(!showDevPin)}
+                  className="text-[11px] text-slate-400 hover:text-amber-400 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  {showDevPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  <span>{showDevPin ? 'Ocultar' : 'Visualizar'}</span>
+                </button>
+              </div>
               <div className="relative">
                 <input
-                  type="password"
+                  type={showDevPin ? "text" : "password"}
                   value={devPin}
                   onChange={(e) => setDevPin(e.target.value)}
-                  placeholder="Digite sua senha de desenvolvedor"
+                  placeholder="Digite sua senha (padrão: Dev1989)"
                   required
-                  className="w-full bg-slate-950 text-white font-mono text-sm px-4 py-3 rounded-xl border border-slate-700 outline-none focus:border-amber-500"
+                  className="w-full bg-slate-950 text-white font-mono text-sm px-4 py-3 pr-10 rounded-xl border border-slate-700 outline-none focus:border-amber-500"
                 />
-                <Lock className="w-4 h-4 text-slate-500 absolute right-3.5 top-3.5" />
+                <Lock className="w-4 h-4 text-slate-500 absolute right-3.5 top-3.5 pointer-events-none" />
               </div>
             </div>
 
@@ -260,15 +281,14 @@ export const DevDashboard: React.FC<DevDashboardProps> = ({
             <button
               type="button"
               onClick={() => {
-                if (window.confirm('Deseja realmente redefinir todas as senhas personalizadas de administrador e desenvolvedor para os valores padrões de fábrica?')) {
-                  resetAllPasswords();
-                  alert('Senhas redefinidas com sucesso! Use as chaves de fábrica para o primeiro login.');
-                  window.location.reload();
-                }
+                resetAllPasswords();
+                setDevPin('Dev1989');
+                setAuthError('');
+                setResetSuccessMsg('✅ Senhas redefinidas com sucesso! O campo foi preenchido com Dev1989. Clique em "Acessar Console Dev".');
               }}
-              className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
+              className="text-xs text-amber-400 hover:text-amber-300 underline font-semibold cursor-pointer py-1"
             >
-              Redefinir Todas as Senhas da Plataforma
+              🔄 Redefinir Todas as Senhas para Padrão de Fábrica (Dev1989 / Admin1989)
             </button>
           </div>
         </div>
