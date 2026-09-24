@@ -29,10 +29,19 @@ import {
   Navigation,
   Sparkles,
   Package,
+  FileText,
+  Download,
+  Compass,
+  User,
+  CheckCircle2,
+  X,
+  Loader2,
 } from 'lucide-react';
 import { Driver, Zone, Ride, RegulatoryRequirement, PaymentMethod, PlatformFareSettings } from '../types.ts';
 import { realtimeSync, broadcastLocalRideUpdate } from '../lib/realtimeSync.ts';
 import { LegalModal } from './LegalModal.tsx';
+import { RideReceiptModal } from './RideReceiptModal.tsx';
+import { VaiCarMobilityMap } from './VaiCarMobilityMap.tsx';
 import {
   updateDriverAvailability,
   updateDriverPricing,
@@ -43,6 +52,7 @@ import {
   updateRidePaymentStatus,
   fetchFareSettings,
   createZone,
+  updateDriverProfile,
 } from '../lib/api.ts';
 
 export function parseDeliveryDetails(originLandmark?: string) {
@@ -102,9 +112,95 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     );
   }
 
-  const [activeTab, setActiveTab] = useState<'PANEL' | 'PRICING' | 'PAYMENTS' | 'ZONES' | 'DOCS'>('PANEL');
+  const [activeTab, setActiveTab] = useState<'PANEL' | 'MAPA' | 'PRICING' | 'PAYMENTS' | 'ZONES' | 'DOCS' | 'PERFIL'>('PANEL');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isSafetyModalOpen, setIsSafetyModalOpen] = useState(false);
+  const [selectedReceiptRideId, setSelectedReceiptRideId] = useState<string | null>(null);
+
+  // Driver Profile editing state
+  const [profileName, setProfileName] = useState(driver.name || '');
+  const [profilePhone, setProfilePhone] = useState(driver.phone || '');
+  const [profileEmail, setProfileEmail] = useState(driver.email || '');
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState(driver.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150');
+  const [vehicleBrand, setVehicleBrand] = useState(driver.vehicle?.brand || '');
+  const [vehicleModel, setVehicleModel] = useState(driver.vehicle?.model || '');
+  const [vehicleYear, setVehicleYear] = useState(driver.vehicle?.year || 2022);
+  const [vehicleColor, setVehicleColor] = useState(driver.vehicle?.color || '');
+  const [vehiclePlate, setVehiclePlate] = useState(driver.vehicle?.licensePlate || '');
+  const [vehicleCategory, setVehicleCategory] = useState(driver.vehicle?.category || 'SEDAN');
+  const [profileSaveSuccess, setProfileSaveSuccess] = useState<string | null>(null);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  const handleDriverAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxDim = 320;
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            }
+          } else {
+            if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.85);
+            setProfileAvatarUrl(compressed);
+          } else {
+            setProfileAvatarUrl(event.target?.result as string);
+          }
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSaveDriverProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingProfile(true);
+    setProfileSaveSuccess(null);
+    try {
+      const res = await updateDriverProfile(driver.id, {
+        name: profileName,
+        phone: profilePhone,
+        email: profileEmail,
+        avatarUrl: profileAvatarUrl,
+        vehicle: {
+          ...driver.vehicle,
+          brand: vehicleBrand,
+          model: vehicleModel,
+          year: Number(vehicleYear),
+          color: vehicleColor,
+          licensePlate: vehiclePlate.toUpperCase(),
+          category: vehicleCategory as any,
+        },
+      });
+      if (res.driver) {
+        onRefreshDriver(res.driver);
+      }
+      setProfileSaveSuccess('Perfil do motorista atualizado com sucesso!');
+      setTimeout(() => setProfileSaveSuccess(null), 4000);
+    } catch (err: any) {
+      alert(err.message || 'Erro ao salvar perfil');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   // Payment settings state
   const [pixKey, setPixKey] = useState(driver.pixKey || driver.phone || '');
@@ -700,6 +796,18 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('MAPA')}
+          className={`px-4 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === 'MAPA'
+              ? 'bg-emerald-500 text-slate-950 shadow'
+              : 'text-slate-400 hover:text-white bg-slate-900'
+          }`}
+        >
+          <Compass className="w-3.5 h-3.5" />
+          <span>Mapa de Demanda</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('PRICING')}
           className={`px-4 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap ${
             activeTab === 'PRICING'
@@ -742,6 +850,18 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
           }`}
         >
           Documentos & Requisitos
+        </button>
+
+        <button
+          onClick={() => setActiveTab('PERFIL')}
+          className={`px-4 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === 'PERFIL'
+              ? 'bg-emerald-500 text-slate-950 shadow'
+              : 'text-slate-400 hover:text-white bg-slate-900'
+          }`}
+        >
+          <User className="w-3.5 h-3.5" />
+          <span>Meu Perfil</span>
         </button>
 
         <button
@@ -1236,8 +1356,8 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                       <span className="text-[10px] text-slate-500">{ride.createdAt.split('T')[0]}</span>
                     </div>
 
-                    <div className="text-right">
-                      <span className="text-base font-extrabold text-emerald-400">
+                    <div className="text-right space-y-1">
+                      <span className="text-base font-extrabold text-emerald-400 block">
                         R$ {ride.estimatedPrice}
                       </span>
                       <span
@@ -1251,6 +1371,16 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                       >
                         {ride.status}
                       </span>
+                      {ride.status === 'COMPLETED' && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedReceiptRideId(ride.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-[10px] font-bold text-emerald-300 transition-all cursor-pointer"
+                        >
+                          <FileText className="w-3 h-3 text-emerald-400" />
+                          <span>Comprovante PDF</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1901,12 +2031,248 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
         </div>
       )}
 
+      {/* TAB: MOBILITY & DEMAND MAP */}
+      {activeTab === 'MAPA' && (
+        <div className="space-y-4">
+          <VaiCarMobilityMap
+            mode="DRIVER"
+            zones={allZones}
+          />
+        </div>
+      )}
+
+      {/* TAB: DRIVER PROFILE MANAGEMENT */}
+      {activeTab === 'PERFIL' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+            <div>
+              <h2 className="text-xl font-black text-white flex items-center gap-2">
+                <User className="w-5 h-5 text-emerald-400" />
+                <span>Perfil do Motorista Parceiro</span>
+              </h2>
+              <p className="text-xs text-slate-400">
+                Gerencie seus dados pessoais, foto de perfil, informações do veículo e preferências de contato.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider border ${
+                driver.regulatoryStatus === 'APPROVED'
+                  ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+                  : 'bg-amber-950/80 border-amber-500/40 text-amber-300'
+              }`}>
+                {driver.regulatoryStatus === 'APPROVED' ? 'Cadastro Aprovado' : 'Documentação em Análise'}
+              </span>
+            </div>
+          </div>
+
+          <form onSubmit={handleSaveDriverProfile} className="space-y-6 max-w-2xl">
+            {/* Foto de Perfil */}
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+              <label className="text-xs font-bold text-slate-300 block">Foto de Perfil do Motorista *</label>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                <img
+                  src={profileAvatarUrl}
+                  alt={profileName}
+                  className="w-16 h-16 rounded-2xl object-cover border-2 border-slate-700 shadow-md"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="space-y-1.5">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleDriverAvatarChange}
+                    className="hidden"
+                    id="driver-avatar-upload"
+                  />
+                  <label
+                    htmlFor="driver-avatar-upload"
+                    className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3.5 py-2 rounded-lg cursor-pointer transition-all border border-slate-700"
+                  >
+                    Alterar Foto de Perfil
+                  </label>
+                  <p className="text-[10px] text-slate-400">Sua foto é exibida aos passageiros durante a solicitação e viagem.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Dados Pessoais */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Dados Pessoais & Contato</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-300">Nome Completo</label>
+                  <input
+                    type="text"
+                    value={profileName}
+                    onChange={(e) => setProfileName(e.target.value)}
+                    required
+                    className="w-full bg-slate-950 text-white text-xs px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-300">WhatsApp / Telefone</label>
+                  <input
+                    type="text"
+                    value={profilePhone}
+                    onChange={(e) => setProfilePhone(e.target.value)}
+                    required
+                    className="w-full bg-slate-950 text-white text-xs px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="space-y-1 sm:col-span-2">
+                  <label className="text-xs font-bold text-slate-300">E-mail Cadastrado</label>
+                  <input
+                    type="email"
+                    value={profileEmail}
+                    onChange={(e) => setProfileEmail(e.target.value)}
+                    className="w-full bg-slate-950 text-white text-xs px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Dados do Veículo */}
+            <div className="space-y-3 border-t border-slate-800 pt-4">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Dados do Veículo</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-300">Marca</label>
+                  <input
+                    type="text"
+                    value={vehicleBrand}
+                    onChange={(e) => setVehicleBrand(e.target.value)}
+                    placeholder="Ex: Chevrolet"
+                    required
+                    className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-300">Modelo</label>
+                  <input
+                    type="text"
+                    value={vehicleModel}
+                    onChange={(e) => setVehicleModel(e.target.value)}
+                    placeholder="Ex: Onix Plus"
+                    required
+                    className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-300">Ano</label>
+                  <input
+                    type="number"
+                    value={vehicleYear}
+                    onChange={(e) => setVehicleYear(Number(e.target.value))}
+                    min={2010}
+                    max={2027}
+                    required
+                    className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-300">Cor do Veículo</label>
+                  <input
+                    type="text"
+                    value={vehicleColor}
+                    onChange={(e) => setVehicleColor(e.target.value)}
+                    placeholder="Ex: Prata"
+                    required
+                    className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-300">Placa</label>
+                  <input
+                    type="text"
+                    value={vehiclePlate}
+                    onChange={(e) => setVehiclePlate(e.target.value.toUpperCase())}
+                    placeholder="Ex: BRA2E19"
+                    required
+                    className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-xl border border-slate-700 outline-none focus:border-emerald-500 font-mono uppercase"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-300">Categoria</label>
+                  <select
+                    value={vehicleCategory}
+                    onChange={(e) => setVehicleCategory(e.target.value as any)}
+                    className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+                  >
+                    <option value="HATCH">Hatch Econômico</option>
+                    <option value="SEDAN">Sedan Conforto</option>
+                    <option value="SUV">SUV Espaçoso</option>
+                    <option value="MINIVAN">Minivan 7 Lugares</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {profileSaveSuccess && (
+              <div className="p-3.5 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-xs font-bold text-emerald-300 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{profileSaveSuccess}</span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="submit"
+                disabled={isSavingProfile}
+                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs px-6 py-3 rounded-xl transition-all shadow-md cursor-pointer disabled:opacity-50 flex items-center gap-2"
+              >
+                {isSavingProfile ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Salvando Alterações...</span>
+                  </>
+                ) : (
+                  <span>Salvar Dados do Perfil</span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setProfileName(driver.name || '');
+                  setProfilePhone(driver.phone || '');
+                  setProfileEmail(driver.email || '');
+                  setProfileAvatarUrl(driver.avatarUrl || '');
+                  setVehicleBrand(driver.vehicle?.brand || '');
+                  setVehicleModel(driver.vehicle?.model || '');
+                  setVehicleYear(driver.vehicle?.year || 2022);
+                  setVehicleColor(driver.vehicle?.color || '');
+                  setVehiclePlate(driver.vehicle?.licensePlate || '');
+                }}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold px-4 py-3 rounded-xl transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* Driver Safety and Terms Modal */}
       {isSafetyModalOpen && (
         <LegalModal
           isOpen={isSafetyModalOpen}
           onClose={() => setIsSafetyModalOpen(false)}
           initialTab="seguranca"
+        />
+      )}
+
+      {/* Ride Receipt Modal (Comprovante da Corrida) */}
+      {selectedReceiptRideId && (
+        <RideReceiptModal
+          rideId={selectedReceiptRideId}
+          onClose={() => setSelectedReceiptRideId(null)}
         />
       )}
     </div>

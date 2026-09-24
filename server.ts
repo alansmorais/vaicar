@@ -39,7 +39,9 @@ import {
   Passenger,
   PlatformFareSettings,
   DynamicPricingSettings,
+  RideReceipt,
 } from './app/web/src/types.ts';
+import { generateRideReceiptPdf } from './app/web/src/lib/receiptGenerator.ts';
 
 async function createMailer(cleanPass: string, user: string, port = 587, secure = false) {
   return nodemailer.createTransport({
@@ -155,16 +157,25 @@ async function sendSystemMail(mailOptions: any) {
   // METHOD 1: Google Apps Script Webhook (Highly recommended, 100% reliable HTTPS)
   if (appsScriptUrl && appsScriptUrl.trim().startsWith('http')) {
     try {
+      const webhookBody: any = {
+        to: mailOptions.to,
+        subject: mailOptions.subject,
+        html: mailOptions.html,
+        text: mailOptions.text,
+      };
+      if (Array.isArray(mailOptions.attachments) && mailOptions.attachments.length > 0) {
+        webhookBody.attachments = mailOptions.attachments.map((att: any) => ({
+          filename: att.filename,
+          contentType: att.contentType || 'application/pdf',
+          contentBase64: Buffer.isBuffer(att.content) ? att.content.toString('base64') : (typeof att.content === 'string' ? att.content : ''),
+        }));
+      }
+
       console.log('[MAIL] Sending via Google Apps Script Webhook:', appsScriptUrl);
       const webhookRes = await fetch(appsScriptUrl.trim(), {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          to: mailOptions.to,
-          subject: mailOptions.subject,
-          html: mailOptions.html,
-          text: mailOptions.text,
-        }),
+        body: JSON.stringify(webhookBody),
         redirect: 'manual',
       });
 
@@ -1415,6 +1426,177 @@ app.get('/api/v1/rides/:id', async (req, res) => {
   });
 });
 
+// Helper to generate and store authoritative PDF ride receipt and dispatch email
+async function processCompletedRideReceipt(
+  ride: any,
+  isManualResend: boolean = false,
+  overrideEmail?: string
+): Promise<{ receipt: RideReceipt; pdfBuffer: Buffer; alreadyExisted: boolean }> {
+  const receiptId = `rec-${ride.id}`;
+  const receiptDocRef = db.collection('receipts').doc(receiptId);
+  const existingReceiptDoc = await receiptDocRef.get();
+
+  if (existingReceiptDoc.exists && !isManualResend && !overrideEmail) {
+    const existingData = existingReceiptDoc.data() as RideReceipt;
+    let existingBuffer: Buffer;
+    if (existingData.pdfBase64) {
+      existingBuffer = Buffer.from(existingData.pdfBase64, 'base64');
+    } else {
+      existingBuffer = await generateRideReceiptPdf(existingData);
+      await receiptDocRef.update({ pdfBase64: existingBuffer.toString('base64') }).catch(() => {});
+    }
+    return { receipt: existingData, pdfBuffer: existingBuffer, alreadyExisted: true };
+  }
+
+  const waitCalc = calculateRideWaitingFee(ride);
+  const fare = Number((ride.fareBrl !== undefined ? ride.fareBrl : (ride.estimatedPrice ?? 0)).toFixed(2));
+  const waitingMinutes = waitCalc.waitingMinutes || 0;
+  const waitingFee = waitCalc.waitingFee || 0;
+  const baseFare = Number(Math.max(0, fare - waitingFee).toFixed(2));
+  const finalTotal = fare;
+
+  // Resolve passenger email
+  let passengerEmail = (overrideEmail || ride.passengerEmail || '').trim().toLowerCase();
+  if (!passengerEmail && ride.passengerPhone) {
+    try {
+      const pSnap = await db.collection('passengers').where('phone', '==', ride.passengerPhone.trim()).get();
+      if (!pSnap.empty) {
+        passengerEmail = (pSnap.docs[0].data()?.email || '').trim().toLowerCase();
+      }
+    } catch (e) {
+      console.warn('[RECEIPT] Error looking up passenger email:', e);
+    }
+  }
+
+  // Resolve zones names
+  const zones = await getZones();
+  const originZone = zones.find((z) => z.id === ride.originZoneId);
+  const destZone = zones.find((z) => z.id === ride.destinationZoneId);
+
+  // Driver details
+  let driverLicensePlate = ride.driverLicensePlate || '';
+  if (!driverLicensePlate && ride.driverId) {
+    try {
+      const dDoc = await db.collection('drivers').doc(ride.driverId).get();
+      if (dDoc.exists) {
+        const dData = dDoc.data() as Driver;
+        driverLicensePlate = dData.vehicle?.licensePlate || '';
+      }
+    } catch (e) {}
+  }
+
+  const receiptCode = `RCP-${ride.id.replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase()}`;
+  const completedAt = ride.completedAt || new Date().toISOString();
+  const startedAt = ride.timeline?.find((t: any) => t.status === 'IN_PROGRESS')?.timestamp || ride.createdAt || completedAt;
+
+  const receiptData: RideReceipt = {
+    id: receiptId,
+    receiptCode,
+    rideId: ride.id,
+    passengerName: ride.passengerName || 'Passageiro(a)',
+    passengerPhone: ride.passengerPhone || '',
+    passengerEmail: passengerEmail || undefined,
+    driverName: ride.driverName || 'Motorista Parceiro(a)',
+    driverPhone: ride.driverPhone || '',
+    driverVehicle: ride.driverVehicle || 'Veículo Cadastrado',
+    driverLicensePlate: driverLicensePlate || undefined,
+    originAddress: ride.originAddress || originZone?.name || 'Origem',
+    originZoneName: originZone?.name,
+    destinationAddress: ride.destinationAddress || destZone?.name || 'Destino',
+    destinationZoneName: destZone?.name,
+    tripStartTime: startedAt,
+    tripEndTime: completedAt,
+    durationMinutes: ride.estimatedDurationMin || 15,
+    distanceKm: ride.estimatedDistanceKm || 5.0,
+    baseFare: baseFare > 0 ? baseFare : fare,
+    dynamicMultiplier: ride.dynamicMultiplier || 1.0,
+    waitingMinutes,
+    waitingFee,
+    finalTotal,
+    paymentMethod: ride.paymentMethod || 'PIX',
+    paymentStatus: ride.paymentStatus || 'CONFIRMED_BY_DRIVER',
+    createdAt: completedAt,
+  };
+
+  const pdfBuffer = await generateRideReceiptPdf(receiptData);
+  receiptData.pdfBase64 = pdfBuffer.toString('base64');
+
+  if (passengerEmail) {
+    try {
+      const senderUser =
+        process.env.SMTP_USER ||
+        process.env.EMAIL_USER ||
+        process.env.GMAIL_USER ||
+        'vaicar@alansmsolutions.com';
+      await sendSystemMail({
+        from: `"VaiCar São Sebastião" <${senderUser}>`,
+        to: passengerEmail,
+        subject: `🧾 Comprovante da Corrida #${receiptCode} - VaiCar São Sebastião`,
+        text: `Olá ${receiptData.passengerName}!\n\nSegue em anexo o Comprovante da sua Corrida realizada com o VaiCar em São Sebastião.\n\nCódigo do Comprovante: ${receiptCode}\nTotal: R$ ${finalTotal.toFixed(2).replace('.', ',')}\nOrigem: ${receiptData.originAddress}\nDestino: ${receiptData.destinationAddress}\n\nObrigado por utilizar o VaiCar!`,
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #020617; color: #f8fafc; padding: 28px; border-radius: 16px; max-width: 540px; margin: 0 auto; border: 1px solid #1e293b;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h1 style="color: #10b981; font-size: 26px; margin: 0; font-weight: 900; letter-spacing: -0.5px;">VaiCar</h1>
+              <p style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Transporte Municipal de São Sebastião • Comprovante de Viagem</p>
+            </div>
+            <div style="background-color: #0f172a; padding: 20px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 20px;">
+              <div style="margin-bottom: 12px; border-bottom: 1px solid #1e293b; padding-bottom: 8px;">
+                <span style="color: #94a3b8; font-size: 13px;">Comprovante: </span>
+                <strong style="color: #10b981; font-size: 14px;">#${receiptCode}</strong>
+              </div>
+              <div style="margin-bottom: 8px;">
+                <span style="color: #94a3b8; font-size: 12px;">Passageiro(a): </span>
+                <strong style="color: #f1f5f9; font-size: 13px;">${receiptData.passengerName}</strong>
+              </div>
+              <div style="margin-bottom: 8px;">
+                <span style="color: #94a3b8; font-size: 12px;">Motorista: </span>
+                <strong style="color: #f1f5f9; font-size: 13px;">${receiptData.driverName}</strong>
+              </div>
+              <div style="margin-bottom: 8px;">
+                <span style="color: #94a3b8; font-size: 12px;">Origem: </span>
+                <span style="color: #cbd5e1; font-size: 12px;">${receiptData.originAddress}</span>
+              </div>
+              <div style="margin-bottom: 12px;">
+                <span style="color: #94a3b8; font-size: 12px;">Destino: </span>
+                <span style="color: #cbd5e1; font-size: 12px;">${receiptData.destinationAddress}</span>
+              </div>
+              <div style="background-color: #022c22; padding: 14px; border-radius: 8px; text-align: center; border: 1px solid #059669;">
+                <span style="color: #a7f3d0; font-size: 12px; font-weight: 600; text-transform: uppercase;">Valor Total da Corrida</span>
+                <div style="font-size: 28px; font-weight: 900; color: #34d399; margin-top: 4px;">
+                  R$ ${finalTotal.toFixed(2).replace('.', ',')}
+                </div>
+              </div>
+            </div>
+            <p style="color: #94a3b8; font-size: 12px; text-align: center; margin: 0;">
+              O arquivo em formato PDF com o comprovante detalhado está anexado a este e-mail.
+            </p>
+          </div>
+        `,
+        attachments: [
+          {
+            filename: `comprovante-corrida-${receiptCode}.pdf`,
+            content: pdfBuffer,
+            contentType: 'application/pdf',
+          },
+        ],
+      });
+      receiptData.emailDispatchedAt = new Date().toISOString();
+      receiptData.emailRecipient = passengerEmail;
+      console.log(`[RECEIPT] PDF receipt dispatched to ${passengerEmail}`);
+    } catch (mailErr: any) {
+      console.warn('[RECEIPT] Email dispatch failed:', mailErr?.message || mailErr);
+    }
+  }
+
+  await receiptDocRef.set(receiptData);
+  await db.collection('rides').doc(ride.id).update({
+    receiptId: receiptId,
+    receiptGeneratedAt: completedAt,
+  }).catch(() => {});
+
+  return { receipt: receiptData, pdfBuffer, alreadyExisted: false };
+}
+
 // Update Ride Status (State Machine with Race Condition Prevention)
 const handleRideStatusUpdate = async (req: express.Request, res: express.Response) => {
   try {
@@ -1540,6 +1722,18 @@ const handleRideStatusUpdate = async (req: express.Request, res: express.Respons
       requestedDriverId: updates.requestedDriverId || ride.requestedDriverId || ride.driverId,
       matchedDriverId: updates.matchedDriverId || ride.matchedDriverId || ride.driverId,
     };
+
+    // Automatic Ride Receipt (Comprovante da Corrida) generation on COMPLETED status
+    if (status === 'COMPLETED') {
+      try {
+        const receiptResult = await processCompletedRideReceipt(updatedRide);
+        updatedRide.receiptId = receiptResult.receipt.id;
+        updatedRide.receiptGeneratedAt = receiptResult.receipt.createdAt;
+      } catch (receiptErr: any) {
+        console.error('[RECEIPT] Error generating receipt for completed ride:', receiptErr);
+      }
+    }
+
     broadcastLiveEvent('RIDE_UPDATED', updatedRide);
     res.json(updatedRide);
   } catch (err: any) {
@@ -1551,6 +1745,281 @@ const handleRideStatusUpdate = async (req: express.Request, res: express.Respons
 app.patch('/api/v1/rides/:id/status', handleRideStatusUpdate);
 app.put('/api/v1/rides/:id/status', handleRideStatusUpdate);
 app.post('/api/v1/rides/:id/status', handleRideStatusUpdate);
+
+// --- RIDE RECEIPT ENDPOINTS (COMPROVANTE DA CORRIDA) ---
+
+// Get Receipt JSON for a Ride
+app.get('/api/v1/rides/:id/receipt', async (req, res) => {
+  try {
+    const rideId = req.params.id;
+    const receiptId = `rec-${rideId}`;
+    const rSnap = await db.collection('receipts').doc(receiptId).get();
+
+    if (rSnap.exists) {
+      return res.json(rSnap.data());
+    }
+
+    // If not found in receipts collection, check if ride exists and is completed
+    const rideDoc = await db.collection('rides').doc(rideId).get();
+    if (!rideDoc.exists) {
+      return res.status(404).json({ error: 'Corrida não encontrada' });
+    }
+
+    const ride = rideDoc.data() as Ride;
+    if (ride.status !== 'COMPLETED') {
+      return res.status(400).json({ error: 'Comprovante disponível apenas para corridas finalizadas (COMPLETED)' });
+    }
+
+    const receiptResult = await processCompletedRideReceipt(ride);
+    res.json(receiptResult.receipt);
+  } catch (err: any) {
+    console.error('[RECEIPT API ERROR]', err);
+    res.status(500).json({ error: 'Falha ao recuperar comprovante: ' + err.message });
+  }
+});
+
+// Download / View Receipt PDF for a Ride
+app.get(['/api/v1/rides/:id/receipt/pdf', '/api/v1/receipts/:id/pdf', '/api/v1/receipts/:id'], async (req, res) => {
+  try {
+    const rawId = req.params.id;
+    const receiptId = rawId.startsWith('rec-') ? rawId : `rec-${rawId}`;
+    const rSnap = await db.collection('receipts').doc(receiptId).get();
+
+    let receipt: RideReceipt | null = null;
+    let pdfBuffer: Buffer | null = null;
+
+    if (rSnap.exists) {
+      receipt = rSnap.data() as RideReceipt;
+      if (receipt.pdfBase64) {
+        pdfBuffer = Buffer.from(receipt.pdfBase64, 'base64');
+      } else {
+        pdfBuffer = await generateRideReceiptPdf(receipt);
+        await db.collection('receipts').doc(receiptId).update({ pdfBase64: pdfBuffer.toString('base64') }).catch(() => {});
+      }
+    } else {
+      // Check if rawId corresponds to a rideId
+      const rideId = rawId.replace(/^rec-/, '');
+      const rideDoc = await db.collection('rides').doc(rideId).get();
+      if (!rideDoc.exists) {
+        return res.status(404).json({ error: 'Comprovante não encontrado' });
+      }
+      const ride = rideDoc.data() as Ride;
+      const result = await processCompletedRideReceipt(ride);
+      receipt = result.receipt;
+      pdfBuffer = result.pdfBuffer;
+    }
+
+    if (!pdfBuffer || !receipt) {
+      return res.status(500).json({ error: 'Falha ao renderizar PDF do comprovante' });
+    }
+
+    // Check if client expects JSON or PDF binary
+    const acceptHeader = req.headers['accept'] || '';
+    if (req.path.endsWith('/pdf') || acceptHeader.includes('application/pdf')) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="comprovante-vaicar-${receipt.receiptCode}.pdf"`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+      return res.send(pdfBuffer);
+    }
+
+    res.json(receipt);
+  } catch (err: any) {
+    console.error('[RECEIPT PDF API ERROR]', err);
+    res.status(500).json({ error: 'Erro ao gerar PDF do comprovante: ' + err.message });
+  }
+});
+
+// Resend Receipt to Email
+app.post('/api/v1/rides/:id/resend-receipt', async (req, res) => {
+  try {
+    const rideId = req.params.id;
+    const { email } = req.body;
+    const rideDoc = await db.collection('rides').doc(rideId).get();
+    if (!rideDoc.exists) {
+      return res.status(404).json({ error: 'Corrida não encontrada' });
+    }
+    const ride = rideDoc.data() as Ride;
+    if (ride.status !== 'COMPLETED') {
+      return res.status(400).json({ error: 'Comprovante só pode ser emitido para corridas finalizadas' });
+    }
+
+    const result = await processCompletedRideReceipt(ride, true, email);
+    res.json({
+      success: true,
+      message: `Comprovante ${result.receipt.receiptCode} reenviado com sucesso!`,
+      receipt: result.receipt,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Falha ao reenviar comprovante: ' + err.message });
+  }
+});
+
+// List Receipts (Admin / Audit)
+app.get('/api/v1/receipts', async (req, res) => {
+  try {
+    const snap = await db.collection('receipts').get();
+    const receipts = snap.docs.map((doc: any) => {
+      const data = doc.data();
+      // Omit bulky base64 in list view
+      const { pdfBase64, ...rest } = data;
+      return rest;
+    });
+    res.json(receipts);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Falha ao listar comprovantes' });
+  }
+});
+
+// --- DRIVER PROFILE MANAGEMENT ---
+app.patch('/api/v1/drivers/:id', async (req, res) => {
+  try {
+    const driverId = req.params.id;
+    const docRef = db.collection('drivers').doc(driverId);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Motorista não encontrado' });
+    }
+    const existing = doc.data() as Driver;
+
+    const {
+      name,
+      phone,
+      email,
+      avatarUrl,
+      whatsappDirectNumber,
+      vehicle,
+      operatingZones,
+      pixKey,
+      pixKeyType,
+      acceptsCardMachine,
+      acceptedPaymentMethods,
+      customZones,
+    } = req.body;
+
+    const updates: any = {};
+    if (name !== undefined) updates.name = name.trim();
+    if (phone !== undefined) updates.phone = phone.trim();
+    if (email !== undefined) updates.email = email.trim().toLowerCase();
+    if (avatarUrl !== undefined) updates.avatarUrl = avatarUrl;
+    if (whatsappDirectNumber !== undefined) updates.whatsappDirectNumber = whatsappDirectNumber.trim();
+    if (operatingZones !== undefined && Array.isArray(operatingZones)) updates.operatingZones = operatingZones;
+    if (customZones !== undefined && Array.isArray(customZones)) updates.customZones = customZones;
+    if (pixKey !== undefined) updates.pixKey = pixKey.trim();
+    if (pixKeyType !== undefined) updates.pixKeyType = pixKeyType;
+    if (acceptsCardMachine !== undefined) updates.acceptsCardMachine = Boolean(acceptsCardMachine);
+    if (Array.isArray(acceptedPaymentMethods)) updates.acceptedPaymentMethods = acceptedPaymentMethods;
+
+    if (vehicle && typeof vehicle === 'object') {
+      updates.vehicle = {
+        ...existing.vehicle,
+        ...vehicle,
+        driverId: existing.id,
+        // Regulatory status of vehicle cannot be bypassed
+        isApproved: existing.vehicle?.isApproved ?? false,
+      };
+    }
+
+    await docRef.update(updates);
+    const updated = { ...existing, ...updates };
+    broadcastLiveEvent('DRIVER_UPDATED', updated);
+    res.json({ success: true, driver: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Falha ao atualizar perfil do motorista: ' + err.message });
+  }
+});
+
+// --- REAL-TIME MOBILITY MAP AGGREGATE ENDPOINT ---
+app.get('/api/v1/mobility/map-data', async (req, res) => {
+  try {
+    const [zones, drivers, rides, config] = await Promise.all([
+      getZones(),
+      getDrivers(),
+      getRides(),
+      ensureConfig(),
+    ]);
+
+    const activeZones = zones.filter((z) => z.isActive);
+
+    // Online approved drivers with zone coverage
+    const onlineDrivers = drivers
+      .filter((d) => d.isOnline && d.regulatoryStatus === 'APPROVED')
+      .map((d) => {
+        const assignedZone = activeZones.find((z) => d.operatingZones?.includes(z.id)) || activeZones[0];
+        return {
+          id: d.id,
+          name: d.name,
+          avatarUrl: d.avatarUrl,
+          phone: d.phone,
+          vehicle: d.vehicle,
+          ratingAverage: d.ratingAverage,
+          ratingCount: d.ratingCount,
+          operatingZones: d.operatingZones || [],
+          currentLat: d.currentLat || assignedZone?.lat || -23.8078,
+          currentLng: d.currentLng || assignedZone?.lng || -45.4058,
+          zoneName: assignedZone?.name || 'São Sebastião',
+        };
+      });
+
+    // Active in-flight rides
+    const activeRides = rides
+      .filter((r) => !['COMPLETED', 'CANCELLED', 'CANCELLED_BY_PASSENGER', 'CANCELLED_BY_DRIVER', 'EXPIRED', 'REJECTED'].includes(r.status))
+      .map((r) => ({
+        id: r.id,
+        status: r.status,
+        passengerName: r.passengerName,
+        driverName: r.driverName,
+        originAddress: r.originAddress,
+        originLat: r.originLat || -23.8078,
+        originLng: r.originLng || -45.4058,
+        destinationAddress: r.destinationAddress,
+        destinationLat: r.destinationLat || -23.8078,
+        destinationLng: r.destinationLng || -45.4058,
+        fareBrl: r.fareBrl || r.estimatedPrice || 0,
+        estimatedDurationMin: r.estimatedDurationMin || 15,
+        estimatedDistanceKm: r.estimatedDistanceKm || 5,
+        dynamicMultiplier: r.dynamicMultiplier || 1.0,
+      }));
+
+    // Demand calculation per zone
+    const zoneDemand = await Promise.all(
+      activeZones.map(async (zone) => {
+        const dynamic = await calculateCurrentDynamicMultiplier(zone.id);
+        const onlineCount = drivers.filter(
+          (d) => d.isOnline && d.regulatoryStatus === 'APPROVED' && (d.operatingZones.includes(zone.id) || d.operatingZones.includes('ALL'))
+        ).length;
+        const activeRequestsCount = rides.filter(
+          (r) => ['REQUESTED', 'ACCEPTED', 'DRIVER_ARRIVING'].includes(r.status) && r.originZoneId === zone.id
+        ).length;
+
+        return {
+          zoneId: zone.id,
+          zoneName: zone.name,
+          lat: zone.lat,
+          lng: zone.lng,
+          distanceFromCenterKm: zone.distanceFromCenterKm,
+          onlineDrivers: onlineCount,
+          activeRequests: activeRequestsCount,
+          multiplier: dynamic.multiplier,
+          isSurgeActive: dynamic.isActive,
+          estimatedPickupMin: Math.max(3, Math.round((zone.distanceFromCenterKm || 0) * 0.8) + (onlineCount > 0 ? 3 : 12)),
+        };
+      })
+    );
+
+    res.json({
+      zones: activeZones,
+      onlineDrivers,
+      activeRides,
+      zoneDemand,
+      dynamicPricingSettings: config.dynamicPricingSettings,
+      fareSettings: config.platformFareSettings,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error('[MOBILITY MAP ERROR]', err);
+    res.status(500).json({ error: 'Falha ao gerar dados do mapa: ' + err.message });
+  }
+});
 
 // Delete or Cleanup Rides
 app.post('/api/v1/rides/cleanup', async (req, res) => {

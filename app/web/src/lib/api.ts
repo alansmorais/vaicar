@@ -606,12 +606,40 @@ export async function togglePassengerBlock(id: string, isBlocked: boolean): Prom
   }, 'Falha ao alterar status do passageiro');
 }
 
-export async function updatePassengerProfile(id: string, data: { name?: string; email?: string; phone?: string }): Promise<any> {
-  return safeFetchJson<any>(`/api/v1/admin/passengers/${id}`, {
+export async function updatePassengerProfile(id: string, data: { name?: string; email?: string; phone?: string; avatarUrl?: string }): Promise<any> {
+  return safeFetchJson<any>(`/api/v1/passengers/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
-  }, 'Falha ao editar passageiro');
+  }, 'Falha ao salvar dados do passageiro');
 }
+
+// --- RIDE RECEIPTS (COMPROVANTE DA CORRIDA) ---
+export async function fetchRideReceipt(rideId: string): Promise<RideReceipt> {
+  return safeFetchJson<RideReceipt>(`/api/v1/rides/${rideId}/receipt`, undefined, 'Falha ao buscar comprovante da corrida');
+}
+
+export async function resendRideReceipt(rideId: string, email?: string): Promise<{ success: boolean; message: string; receipt?: RideReceipt }> {
+  return safeFetchJson<{ success: boolean; message: string; receipt?: RideReceipt }>(`/api/v1/rides/${rideId}/resend-receipt`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  }, 'Falha ao reenviar comprovante');
+}
+
+// --- DRIVER PROFILE ---
+export async function updateDriverProfile(driverId: string, updates: Partial<Driver>): Promise<{ success: boolean; driver: Driver }> {
+  return safeFetchJson<{ success: boolean; driver: Driver }>(`/api/v1/drivers/${driverId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  }, 'Falha ao atualizar dados do motorista');
+}
+
+// --- REAL-TIME MOBILITY MAP ---
+export async function fetchMobilityMapData(): Promise<MobilityMapData> {
+  return safeFetchJson<MobilityMapData>('/api/v1/mobility/map-data', undefined, 'Falha ao carregar mapa de mobilidade');
+}
+
 
 

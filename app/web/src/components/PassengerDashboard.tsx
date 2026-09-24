@@ -31,6 +31,9 @@ import {
   Navigation,
   XCircle,
   Package,
+  FileText,
+  Download,
+  Compass,
 } from 'lucide-react';
 import { Zone, Ride, Driver, PaymentMethod, SearchDriversResponse } from '../types.ts';
 import {
@@ -47,6 +50,8 @@ import {
 } from '../lib/api.ts';
 import { LiveRideTracker } from './LiveRideTracker.tsx';
 import { ReportModal } from './ReportModal.tsx';
+import { RideReceiptModal } from './RideReceiptModal.tsx';
+import { VaiCarMobilityMap } from './VaiCarMobilityMap.tsx';
 import { realtimeSync, broadcastLocalRideCreated, broadcastLocalRideUpdate } from '../lib/realtimeSync.ts';
 
 export function parseDeliveryDetails(originLandmark?: string) {
@@ -92,8 +97,9 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   onOpenLegal,
   onLogout,
 }) => {
-  const [activeTab, setActiveTab] = useState<'SOLICITAR' | 'ATUAL' | 'HISTORICO' | 'AVALIACOES' | 'PERFIL' | 'AJUDA'>('SOLICITAR');
+  const [activeTab, setActiveTab] = useState<'SOLICITAR' | 'MAPA' | 'ATUAL' | 'HISTORICO' | 'AVALIACOES' | 'PERFIL' | 'AJUDA'>('SOLICITAR');
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [selectedReceiptRideId, setSelectedReceiptRideId] = useState<string | null>(null);
 
   // Service Type: Passenger Ride vs Item Delivery
   const [serviceType, setServiceType] = useState<'RIDE' | 'DELIVERY'>(() => {
@@ -809,6 +815,18 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         >
           <Search className="w-4 h-4" />
           <span>Solicitar Corrida</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('MAPA')}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'MAPA'
+              ? 'bg-emerald-500 text-slate-950 shadow-md'
+              : 'text-slate-300 hover:text-white hover:bg-slate-800'
+          }`}
+        >
+          <Compass className="w-4 h-4" />
+          <span>Mapa da Cidade</span>
         </button>
 
         <button
@@ -1547,6 +1565,25 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
       )}
 
       {/* ========================================================================= */}
+      {/* ABA: MAPA DE MOBILIDADE */}
+      {/* ========================================================================= */}
+      {activeTab === 'MAPA' && (
+        <div className="space-y-4">
+          <VaiCarMobilityMap
+            mode="PASSENGER"
+            zones={zones}
+            selectedOriginId={originZoneId}
+            selectedDestId={destinationZoneId}
+            onSelectRoute={(origId, destId) => {
+              setOriginZoneId(origId);
+              setDestinationZoneId(destId);
+              setActiveTab('SOLICITAR');
+            }}
+          />
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* ABA 2: CORRIDA ATUAL */}
       {/* ========================================================================= */}
       {activeTab === 'ATUAL' && (
@@ -1977,13 +2014,23 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                     </p>
                   </div>
 
-                  <div className="text-right">
+                  <div className="text-right space-y-1.5">
                     <span className="text-base font-black text-emerald-400 block">
                       R$ {ride.estimatedPrice.toFixed(2)}
                     </span>
-                    <span className="text-[11px] text-slate-400">
+                    <span className="text-[11px] text-slate-400 block">
                       {ride.paymentStatus === 'PAID' || ride.paymentStatus === 'CONFIRMED_BY_DRIVER' ? '🟢 Pago' : '🟡 Pendente'}
                     </span>
+                    {ride.status === 'COMPLETED' && (
+                      <button
+                        onClick={() => setSelectedReceiptRideId(ride.id)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-[10px] font-bold text-emerald-300 transition-all cursor-pointer shadow-sm"
+                        title="Ver Comprovante da Corrida (PDF)"
+                      >
+                        <FileText className="w-3 h-3 text-emerald-400" />
+                        <span>Comprovante PDF</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -2228,6 +2275,14 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         <ReportModal
           ride={activeRide}
           onClose={() => setIsReportModalOpen(false)}
+        />
+      )}
+
+      {/* Ride Receipt Modal (Comprovante da Corrida) */}
+      {selectedReceiptRideId && (
+        <RideReceiptModal
+          rideId={selectedReceiptRideId}
+          onClose={() => setSelectedReceiptRideId(null)}
         />
       )}
     </div>

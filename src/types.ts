@@ -217,6 +217,38 @@ export interface PlatformCost {
   date: string;
 }
 
+export interface RideReceipt {
+  id: string;
+  receiptCode: string;
+  rideId: string;
+  passengerName: string;
+  passengerPhone: string;
+  passengerEmail?: string;
+  driverName: string;
+  driverPhone: string;
+  driverVehicle: string;
+  driverLicensePlate?: string;
+  originAddress: string;
+  originZoneName?: string;
+  destinationAddress: string;
+  destinationZoneName?: string;
+  tripStartTime?: string;
+  tripEndTime?: string;
+  durationMinutes: number;
+  distanceKm: number;
+  baseFare: number;
+  dynamicMultiplier?: number;
+  waitingMinutes?: number;
+  waitingFee?: number;
+  finalTotal: number;
+  paymentMethod: PaymentMethod | string;
+  paymentStatus?: string;
+  createdAt: string;
+  pdfBase64?: string;
+  emailDispatchedAt?: string;
+  emailRecipient?: string;
+}
+
 export interface DynamicPricingSettings {
   isEnabled: boolean;
   minMultiplier: number; // ex: 0.8
@@ -231,6 +263,7 @@ export interface Ride {
   id: string;
   passengerName: string;
   passengerPhone: string;
+  passengerEmail?: string;
   passengerId?: string;
   passengerAvatarUrl?: string;
   driverId: string;
@@ -242,6 +275,8 @@ export interface Ride {
   driverVehicle: string;
   driverAvatar: string;
   driverLicensePlate?: string;
+  receiptId?: string;
+  receiptGeneratedAt?: string;
   originZoneId: string;
   originAddress: string;
   originLat?: number;
@@ -429,5 +464,59 @@ export interface SearchDriversResponse {
     isOnline: boolean;
     pricingType: string;
   }[];
+}
+
+export interface MobilityMapData {
+  zones: Zone[];
+  onlineDrivers: {
+    id: string;
+    name: string;
+    avatarUrl: string;
+    phone: string;
+    vehicle?: {
+      brand: string;
+      model: string;
+      color: string;
+      licensePlate?: string;
+      category?: string;
+    };
+    ratingAverage: number;
+    ratingCount: number;
+    operatingZones: string[];
+    currentLat: number;
+    currentLng: number;
+    zoneName: string;
+  }[];
+  activeRides: {
+    id: string;
+    status: string;
+    passengerName: string;
+    driverName: string;
+    originAddress: string;
+    originLat: number;
+    originLng: number;
+    destinationAddress: string;
+    destinationLat: number;
+    destinationLng: number;
+    fareBrl: number;
+    estimatedDurationMin: number;
+    estimatedDistanceKm: number;
+    dynamicMultiplier?: number;
+  }[];
+  zoneDemand: {
+    zoneId: string;
+    zoneName: string;
+    lat?: number;
+    lng?: number;
+    distanceFromCenterKm?: number;
+    onlineDrivers: number;
+    activeRequests: number;
+    multiplier: number;
+    isSurgeActive: boolean;
+    estimatedPickupMin: number;
+  }[];
+  dynamicPricingSettings?: DynamicPricingSettings;
+  fareSettings?: PlatformFareSettings;
+  timestamp: string;
 }
 

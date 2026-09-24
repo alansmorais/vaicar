@@ -30,7 +30,10 @@ import {
   Copy,
   Check,
   ExternalLink,
+  Compass,
 } from 'lucide-react';
+import { RideReceiptModal } from './RideReceiptModal.tsx';
+import { VaiCarMobilityMap } from './VaiCarMobilityMap.tsx';
 import {
   verifyAdminPassword,
   setAdminPassword,
@@ -122,7 +125,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pwdChangeSuccess, setPwdChangeSuccess] = useState('');
 
   // Dashboard Tabs
-  const [tab, setTab] = useState<'METRICS' | 'DRIVERS' | 'PASSENGERS' | 'RIDES' | 'FINANCES' | 'FARES' | 'DINAMICA' | 'ZONES' | 'REPORTS'>('METRICS');
+  const [tab, setTab] = useState<'METRICS' | 'MAPA' | 'DRIVERS' | 'PASSENGERS' | 'RIDES' | 'FINANCES' | 'FARES' | 'DINAMICA' | 'ZONES' | 'REPORTS'>('METRICS');
+  const [selectedReceiptRideId, setSelectedReceiptRideId] = useState<string | null>(null);
 
   // Dynamic Pricing State
   const [dynamicSettings, setDynamicSettings] = useState<DynamicPricingSettings>({
@@ -960,6 +964,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => setTab('MAPA')}
+          className={`px-4 py-2 rounded-xl font-bold cursor-pointer transition-all whitespace-nowrap flex items-center gap-1.5 ${
+            tab === 'MAPA' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white bg-slate-900'
+          }`}
+        >
+          <Compass className="w-3.5 h-3.5" />
+          <span>Mapa de Operações</span>
+        </button>
+
+        <button
           onClick={() => setTab('DRIVERS')}
           className={`px-4 py-2 rounded-xl font-bold cursor-pointer transition-all whitespace-nowrap ${
             tab === 'DRIVERS' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white bg-slate-900'
@@ -1034,6 +1048,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           Denúncias ({reports.filter((r) => r.status === 'OPEN').length})
         </button>
       </div>
+
+      {/* ========================================================================= */}
+      {/* TAB: MOBILITY & DEMAND MAP (ADMIN OPERATIONS MAP) */}
+      {/* ========================================================================= */}
+      {tab === 'MAPA' && (
+        <div className="space-y-4">
+          <VaiCarMobilityMap
+            mode="ADMIN"
+            zones={zones}
+          />
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* TAB 1: METRICS */}
@@ -1444,13 +1470,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </p>
                   </div>
 
-                  <div className="text-right">
+                  <div className="text-right space-y-1">
                     <span className="text-base font-black text-emerald-400 block">
                       R$ {r.estimatedPrice.toFixed(2)}
                     </span>
-                    <span className="text-[11px] text-slate-400">
+                    <span className="text-[11px] text-slate-400 block">
                       Forma: {r.paymentMethod} • Status: {r.paymentStatus}
                     </span>
+                    {r.status === 'COMPLETED' && (
+                      <button
+                        onClick={() => setSelectedReceiptRideId(r.id)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-[10px] font-bold text-emerald-300 transition-all cursor-pointer"
+                      >
+                        <FileText className="w-3 h-3 text-emerald-400" />
+                        <span>Comprovante PDF</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -2660,6 +2695,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* Ride Receipt Modal for Admin Inspection */}
+      {selectedReceiptRideId && (
+        <RideReceiptModal
+          rideId={selectedReceiptRideId}
+          onClose={() => setSelectedReceiptRideId(null)}
+        />
       )}
     </div>
   );
