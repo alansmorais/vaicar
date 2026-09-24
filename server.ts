@@ -665,7 +665,8 @@ async function calculateDriverFare(driver: Driver, originZoneId: string, destZon
   const fareSettings = config.platformFareSettings;
   const dynamic = await calculateCurrentDynamicMultiplier(originZoneId);
 
-  const fixedRoute = driver.pricing.fixedRoutes.find(
+  const fixedRoutes = driver.pricing?.fixedRoutes || [];
+  const fixedRoute = fixedRoutes.find(
     (r) =>
       (r.originZoneId === originZoneId && r.destinationZoneId === destZoneId) ||
       (r.originZoneId === destZoneId && r.destinationZoneId === originZoneId),
@@ -681,11 +682,11 @@ async function calculateDriverFare(driver: Driver, originZoneId: string, destZon
 
   const distanceKm = await calculateDistanceKm(originZoneId, destZoneId);
   const minBase = fareSettings.isEnforced
-    ? Math.max(driver.pricing.minimumFare || 20.0, fareSettings.minBaseFare)
-    : (driver.pricing.minimumFare || 20.0);
+    ? Math.max(driver.pricing?.minimumFare || 20.0, fareSettings.minBaseFare)
+    : (driver.pricing?.minimumFare || 20.0);
   const rateKm = fareSettings.isEnforced
-    ? Math.max(driver.pricing.ratePerKm || 3.5, fareSettings.minRatePerKm)
-    : (driver.pricing.ratePerKm || 3.5);
+    ? Math.max(driver.pricing?.ratePerKm || 3.5, fareSettings.minRatePerKm)
+    : (driver.pricing?.ratePerKm || 3.5);
 
   let fare = minBase + distanceKm * rateKm;
   fare = fare * dynamic.multiplier;

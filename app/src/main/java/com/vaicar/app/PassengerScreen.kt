@@ -1,19 +1,14 @@
 package com.vaicar.app
 
 import android.Manifest
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Address
 import android.location.Geocoder
 import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
-import android.os.Bundle
-import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -26,6 +21,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,12 +50,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.*
 
 // ==============================================================================
-// GEOGRAPHICAL & REVERSE GEOCODING HELPERS
+// GEOGRAPHICAL & REVERSE GEOCODING HELPERS (REAL INFRASTRUCTURE)
 // ==============================================================================
 
 fun calculateDistanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
@@ -70,7 +65,7 @@ fun calculateDistanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double):
             cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
             sin(dLon / 2) * sin(dLon / 2)
     val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-    return r * c * 1.25 // 1.25 road winding factor for coastal highway SP-055
+    return r * c * 1.25 // 1.25 winding factor for coastal highway SP-055
 }
 
 fun findClosestZone(lat: Double, lng: Double, zones: List<Zone>): Zone? {
@@ -137,7 +132,7 @@ suspend fun geocodePlaceQuery(context: Context, query: String, zones: List<Zone>
         results.add(
             PlaceSearchResult(
                 title = z.name,
-                subtitle = "Praia / Região de São Sebastião • SP",
+                subtitle = "Região / Bairro de São Sebastião • SP",
                 lat = z.lat,
                 lng = z.lng,
                 zone = z,
@@ -190,7 +185,7 @@ data class PlaceSearchResult(
 )
 
 // ==============================================================================
-// NATIVE MAP-FIRST COMPOSABLE
+// NATIVE MAP-FIRST COMPOSABLE (JETPACK COMPOSE)
 // ==============================================================================
 
 @Composable
@@ -203,18 +198,16 @@ fun NativeInteractivePassengerMap(
     destLng: Double?,
     pickupAddress: String,
     destAddress: String?,
-    availableDrivers: List<SearchResult>,
-    selectedDriver: SearchResult?,
+    zones: List<Zone>,
     activeRide: Ride?,
     liveDriverLocation: DriverLocation?,
-    isMovablePickupMode: Boolean,
+    isSelectingDestination: Boolean,
     onMapCenterChanged: (Double, Double) -> Unit,
-    onSelectDriver: (SearchResult) -> Unit,
     onCenterOnGps: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     // Map Zoom scale (pixels per geographic degree)
-    var zoomScale by remember { mutableStateOf(42000f) }
+    var zoomScale by remember { mutableStateOf(44000f) }
     var currentCenterLat by remember(centerLat) { mutableStateOf(centerLat) }
     var currentCenterLng by remember(centerLng) { mutableStateOf(centerLng) }
 
@@ -222,7 +215,7 @@ fun NativeInteractivePassengerMap(
     val infiniteTransition = rememberInfiniteTransition(label = "mapPulse")
     val pulseRadius by infiniteTransition.animateFloat(
         initialValue = 12f,
-        targetValue = 32f,
+        targetValue = 34f,
         animationSpec = infiniteRepeatable(
             animation = tween(1500, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
@@ -254,7 +247,6 @@ fun NativeInteractivePassengerMap(
                         }
                     ) { change, dragAmount ->
                         change.consume()
-                        // Screen offset to coordinate delta
                         val latCos = cos(Math.toRadians(currentCenterLat)).coerceAtLeast(0.1)
                         val deltaLat = (dragAmount.y / zoomScale).toDouble()
                         val deltaLng = -(dragAmount.x / (zoomScale * latCos)).toDouble()
@@ -275,7 +267,7 @@ fun NativeInteractivePassengerMap(
                 return Offset(x, y)
             }
 
-            // 1. Draw Ocean Background & Coastline (Canal de São Sebastião)
+            // 1. Ocean Background (Canal de São Sebastião)
             drawRect(color = Color(0xFF090D16))
             val oceanPath = Path().apply {
                 val p1 = projectToScreen(-23.65, -45.35)
@@ -288,13 +280,13 @@ fun NativeInteractivePassengerMap(
                 lineTo(p3.x, p3.y)
                 lineTo(p4.x, p4.y)
                 lineTo(p5.x, p5.y)
-                lineTo(width + 200f, height + 200f)
-                lineTo(width + 200f, -200f)
+                lineTo(width + 250f, height + 250f)
+                lineTo(width + 250f, -250f)
                 close()
             }
             drawPath(path = oceanPath, color = Color(0xFF031A30))
 
-            // 2. Draw SP-055 Main Highway Route corridor (Rodovia Rio-Santos)
+            // 2. Real SP-055 Highway corridor
             val highwayWaypoints = listOf(
                 Pair(-23.715, -45.435), // Canto do Mar
                 Pair(-23.722, -45.429), // Enseada
@@ -322,30 +314,34 @@ fun NativeInteractivePassengerMap(
                 val pos = projectToScreen(pt.first, pt.second)
                 if (i == 0) highwayPath.moveTo(pos.x, pos.y) else highwayPath.lineTo(pos.x, pos.y)
             }
-            // Highway outline and center
             drawPath(highwayPath, color = Color(0xFF1E293B), style = Stroke(width = 12f))
             drawPath(highwayPath, color = Color(0xFF334155), style = Stroke(width = 6f))
 
-            // 3. Draw Active Route Line between Pickup and Destination
+            // 3. Official Municipal Zones as subtle landmarks
+            zones.forEach { z ->
+                val pos = projectToScreen(z.lat, z.lng)
+                if (pos.x in -50f..(width + 50f) && pos.y in -50f..(height + 50f)) {
+                    drawCircle(color = Color(0xFF334155), radius = 4f, center = pos)
+                }
+            }
+
+            // 4. Draw Active Route Line between Pickup and Destination
             if (destLat != null && destLng != null) {
                 val pPos = projectToScreen(pickupLat, pickupLng)
                 val dPos = projectToScreen(destLat, destLng)
 
                 val routePath = Path().apply {
                     moveTo(pPos.x, pPos.y)
-                    // Bezier bend for aesthetic realism
                     val midX = (pPos.x + dPos.x) / 2f
-                    val midY = (pPos.y + dPos.y) / 2f - 20f
+                    val midY = (pPos.y + dPos.y) / 2f - 25f
                     quadraticBezierTo(midX, midY, dPos.x, dPos.y)
                 }
 
-                // Glowing outer stroke
                 drawPath(
                     path = routePath,
                     color = Color(0xFF10B981).copy(alpha = 0.35f),
                     style = Stroke(width = 16f, cap = StrokeCap.Round)
                 )
-                // Solid center route line
                 drawPath(
                     path = routePath,
                     color = Color(0xFF10B981),
@@ -353,65 +349,38 @@ fun NativeInteractivePassengerMap(
                 )
             }
 
-            // 4. Draw Available Driver Markers (🚗)
-            availableDrivers.forEach { drv ->
-                val drvLat = -23.8078 // Will position near Centro or zone
-                val drvLng = -45.4058
-                val drvPos = projectToScreen(drvLat, drvLng)
-                val isSelected = drv.driverId == selectedDriver?.driverId
-
-                // Car glow badge
-                drawCircle(
-                    color = if (isSelected) Color(0xFFF59E0B) else Color(0xFF38BDF8),
-                    radius = if (isSelected) 18f else 14f,
-                    center = drvPos
-                )
-                drawCircle(
-                    color = Color(0xFF0F172A),
-                    radius = if (isSelected) 14f else 10f,
-                    center = drvPos
-                )
-                drawCircle(
-                    color = if (isSelected) Color(0xFFF59E0B) else Color(0xFF38BDF8),
-                    radius = 5f,
-                    center = drvPos
-                )
-            }
-
-            // 5. Draw Destination Pin (🏁)
+            // 5. Draw Destination Pin (🏁) when chosen
             if (destLat != null && destLng != null) {
                 val dPos = projectToScreen(destLat, destLng)
-                // Destination Outer Ring
-                drawCircle(color = Color(0xFF06B6D4).copy(alpha = 0.25f), radius = 24f, center = dPos)
+                drawCircle(color = Color(0xFF06B6D4).copy(alpha = 0.25f), radius = 26f, center = dPos)
                 drawCircle(color = Color(0xFF06B6D4), radius = 14f, center = dPos)
                 drawCircle(color = Color.White, radius = 5f, center = dPos)
             }
 
-            // 6. Draw Pickup Pin (📍) - If not in movable center mode
-            if (!isMovablePickupMode) {
+            // 6. Draw Pickup Marker (📍) when destination is active (fixed position)
+            if (destLat != null && destLng != null) {
                 val pPos = projectToScreen(pickupLat, pickupLng)
-                // Radar Pulse Ripple
                 drawCircle(color = Color(0xFF10B981).copy(alpha = pulseAlpha), radius = pulseRadius, center = pPos)
                 drawCircle(color = Color(0xFF10B981), radius = 14f, center = pPos)
                 drawCircle(color = Color.White, radius = 5f, center = pPos)
             }
 
-            // 7. Draw Active Ride Real Driver Marker if Ride is In Progress
+            // 7. Draw Real Driver Marker when ride is accepted and active
             if (activeRide != null && liveDriverLocation != null) {
                 val livePos = projectToScreen(liveDriverLocation.lat, liveDriverLocation.lng)
-                drawCircle(color = Color(0xFFF59E0B).copy(alpha = 0.3f), radius = 28f, center = livePos)
+                drawCircle(color = Color(0xFFF59E0B).copy(alpha = 0.35f), radius = 30f, center = livePos)
                 drawCircle(color = Color(0xFFF59E0B), radius = 16f, center = livePos)
-                drawCircle(color = Color.Black, radius = 8f, center = livePos)
+                drawCircle(color = Color(0xFF0F172A), radius = 10f, center = livePos)
                 drawCircle(color = Color.White, radius = 4f, center = livePos)
             }
         }
 
-        // Movable Pin in Center Overlay (when user is moving map to select pickup)
-        if (isMovablePickupMode) {
+        // Centered Pickup Pin Overlay (Active when user is adjusting pickup location)
+        if (destLat == null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(bottom = 80.dp), // Adjust for visual center pin tip
+                    .padding(bottom = 70.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -429,21 +398,21 @@ fun NativeInteractivePassengerMap(
                             color = Color(0xFF10B981),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         )
                     }
                     Icon(
                         imageVector = Icons.Default.LocationOn,
-                        contentDescription = "Pino Central",
+                        contentDescription = "Ponto de Embarque Central",
                         tint = Color(0xFF10B981),
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(44.dp)
                             .shadow(8.dp, CircleShape)
                     )
                     Box(
                         modifier = Modifier
                             .size(10.dp, 4.dp)
-                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
                     )
                 }
             }
@@ -464,7 +433,7 @@ fun NativeInteractivePassengerMap(
             ) {
                 Icon(
                     imageVector = Icons.Default.MyLocation,
-                    contentDescription = "Minha Localização",
+                    contentDescription = "Usar minha localização",
                     tint = Color(0xFF10B981),
                     modifier = Modifier.size(24.dp)
                 )
@@ -476,47 +445,16 @@ fun NativeInteractivePassengerMap(
                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF1E293B)),
                 modifier = Modifier.size(42.dp)
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Zoom In", tint = Color.White)
+                Icon(Icons.Default.Add, contentDescription = "Aumentar zoom", tint = Color.White)
             }
 
             // Zoom Out (-)
             FilledIconButton(
-                onClick = { zoomScale = (zoomScale * 0.74f).coerceAtLeast(12000f) },
+                onClick = { zoomScale = (zoomScale * 0.74f).coerceAtLeast(14000f) },
                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF1E293B)),
                 modifier = Modifier.size(42.dp)
             ) {
-                Icon(Icons.Default.Remove, contentDescription = "Zoom Out", tint = Color.White)
-            }
-        }
-
-        // Movable Mode Indicator Banner
-        if (isMovablePickupMode) {
-            Surface(
-                color = Color(0xFF0F172A).copy(alpha = 0.95f),
-                shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 16.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                ) {
-                    Icon(
-                        Icons.Default.PanTool,
-                        contentDescription = null,
-                        tint = Color(0xFF10B981),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Arraste o mapa para definir o ponto de embarque",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
+                Icon(Icons.Default.Remove, contentDescription = "Diminuir zoom", tint = Color.White)
             }
         }
     }
@@ -532,7 +470,13 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var selectedTab by remember { mutableStateOf(0) } // 0: Viagem, 1: Mapa, 2: Perfil
+    var selectedTab by remember { mutableStateOf(0) } // 0: Viagem, 1: Praias & Zonas, 2: Perfil
+
+    // Progressive Ride Booking Steps:
+    // 1: PICKUP_SEARCH (Map centered on pickup pin, [Para onde vamos?])
+    // 2: ROUTE_SUMMARY (Pickup + Destination displayed, Distance, Time, Fare, [Continuar])
+    // 3: DRIVER_SELECTION (Selected driver details, ETA, Plate, [SOLICITAR CORRIDA])
+    var rideBookingStep by remember { mutableStateOf(1) }
 
     // Real Coordinates State
     var mapCenterLat by remember { mutableStateOf(-23.8078) }
@@ -548,9 +492,9 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
     var destAddress by remember { mutableStateOf<String?>(null) }
     var destZone by remember { mutableStateOf<Zone?>(null) }
 
-    // Screen Modes
-    var isMovablePickupMode by remember { mutableStateOf(false) }
+    // Dialogs & Modals
     var isDestinationSearchOpen by remember { mutableStateOf(false) }
+    var rideErrorDialogMessage by remember { mutableStateOf<String?>(null) }
 
     // Real Available Drivers & Selection
     var availableDrivers by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
@@ -593,6 +537,27 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
         }
     }
 
+    // Refresh route pricing and fetch authorized available drivers from backend
+    fun refreshRouteAndDrivers() {
+        isSearchingDrivers = true
+        ApiService.searchDrivers(
+            originId = originZone?.id ?: "z-centro",
+            destId = destZone?.id ?: "z-maresias",
+            passengerCount = 1,
+            onSuccess = { res ->
+                isSearchingDrivers = false
+                searchResponse = res
+                availableDrivers = res.results
+                if (selectedDriver == null || !res.results.any { it.driverId == selectedDriver?.driverId }) {
+                    selectedDriver = res.results.firstOrNull()
+                }
+            },
+            onError = {
+                isSearchingDrivers = false
+            }
+        )
+    }
+
     // Initialize Real Location and Load Initial Drivers
     LaunchedEffect(Unit) {
         if (DriverLocationManager.hasLocationPermission(context)) {
@@ -608,44 +573,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                 )
             )
         }
-
-        // Fetch available online drivers
-        isSearchingDrivers = true
-        ApiService.searchDrivers(
-            originId = originZone?.id ?: "z-centro",
-            destId = destZone?.id ?: "z-maresias",
-            passengerCount = 1,
-            onSuccess = { res ->
-                isSearchingDrivers = false
-                searchResponse = res
-                availableDrivers = res.results
-                selectedDriver = res.results.firstOrNull()
-            },
-            onError = {
-                isSearchingDrivers = false
-            }
-        )
-    }
-
-    // When Destination or Origin changes, refresh drivers and pricing
-    fun refreshRouteAndPricing() {
-        if (destZone != null) {
-            isSearchingDrivers = true
-            ApiService.searchDrivers(
-                originId = originZone?.id ?: "z-centro",
-                destId = destZone?.id ?: "z-maresias",
-                passengerCount = 1,
-                onSuccess = { res ->
-                    isSearchingDrivers = false
-                    searchResponse = res
-                    availableDrivers = res.results
-                    selectedDriver = res.results.firstOrNull()
-                },
-                onError = {
-                    isSearchingDrivers = false
-                }
-            )
-        }
+        refreshRouteAndDrivers()
     }
 
     // Active Ride Polling
@@ -682,12 +610,19 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "VaiCar Passageiro",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
+                    Column {
+                        Text(
+                            text = "VaiCar Passageiro",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+                        Text(
+                            text = "São Sebastião • Mobilidade Municipal",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 11.sp
+                        )
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -701,10 +636,11 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                             updateWithRealGps(last)
                             message = "Localização GPS atualizada com sucesso!"
                         } else {
-                            message = "GPS não disponível no momento. Usando localização aproximada."
+                            message = "GPS indisponível no momento."
                         }
+                        refreshRouteAndDrivers()
                     }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Recarregar", tint = Color.White)
+                        Icon(Icons.Default.Refresh, contentDescription = "Atualizar", tint = Color.White)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF0F172A))
@@ -728,8 +664,8 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.Default.Map, contentDescription = null) },
-                    label = { Text("Mapa Geral", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
+                    icon = { Icon(Icons.Default.Place, contentDescription = null) },
+                    label = { Text("Zonas & Praias", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = Color(0xFF10B981),
                         selectedTextColor = Color(0xFF10B981),
@@ -760,9 +696,9 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // TAB 0: VIAGEM (MAP-FIRST)
+            // TAB 0: VIAGEM (MAP-FIRST REAL EXPERIENCE)
             if (selectedTab == 0) {
-                // 1. FULL MAP-FIRST VIEWPORT
+                // 1. FULLSCREEN NATIVE MAP (Occupies the majority of the screen)
                 NativeInteractivePassengerMap(
                     centerLat = mapCenterLat,
                     centerLng = mapCenterLng,
@@ -772,15 +708,14 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                     destLng = destLng,
                     pickupAddress = pickupAddress,
                     destAddress = destAddress,
-                    availableDrivers = availableDrivers,
-                    selectedDriver = selectedDriver,
+                    zones = zones,
                     activeRide = currentRide,
                     liveDriverLocation = liveDriverLocation,
-                    isMovablePickupMode = isMovablePickupMode,
+                    isSelectingDestination = destAddress == null,
                     onMapCenterChanged = { newLat, newLng ->
                         mapCenterLat = newLat
                         mapCenterLng = newLng
-                        if (isMovablePickupMode) {
+                        if (destAddress == null) {
                             pickupLat = newLat
                             pickupLng = newLng
                             val nearest = findClosestZone(newLat, newLng, zones)
@@ -795,7 +730,6 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                             }
                         }
                     },
-                    onSelectDriver = { drv -> selectedDriver = drv },
                     onCenterOnGps = {
                         val loc = DriverLocationManager.getLastKnownLocation(context)
                         if (loc != null) {
@@ -808,13 +742,13 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // 2. BOTTOM FLOATING SHEET (RIDE SELECTION & CONTROLS)
+                // 2. BOTTOM PROGRESSIVE SHEET
                 if (currentRide == null) {
                     Surface(
-                        color = Color(0xFF0F172A).copy(alpha = 0.96f),
+                        color = Color(0xFF0F172A).copy(alpha = 0.98f),
                         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
                         border = BorderStroke(1.dp, Color(0xFF1E293B)),
-                        shadowElevation = 16.dp,
+                        shadowElevation = 20.dp,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
@@ -833,93 +767,17 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                     .align(Alignment.CenterHorizontally)
                             )
 
-                            // ROW 1: PICKUP LOCATION
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFF1E293B).copy(alpha = 0.7f))
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.LocationOn,
-                                        contentDescription = null,
-                                        tint = Color(0xFF10B981),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Column {
-                                        Text(
-                                            text = "Local de Embarque",
-                                            color = Color(0xFF94A3B8),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Text(
-                                            text = pickupAddress,
-                                            color = Color.White,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-
-                                TextButton(
-                                    onClick = { isMovablePickupMode = !isMovablePickupMode }
-                                ) {
-                                    Text(
-                                        text = if (isMovablePickupMode) "Confirmar" else "Alterar",
-                                        color = Color(0xFF10B981),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
-                                    )
-                                }
-                            }
-
-                            // ROW 2: "PARA ONDE VAMOS?" DESTINATION BUTTON / SUMMARY
-                            if (destAddress == null) {
-                                Surface(
-                                    onClick = { isDestinationSearchOpen = true },
-                                    color = Color(0xFF022C22),
-                                    shape = RoundedCornerShape(14.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(14.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Search,
-                                            contentDescription = null,
-                                            tint = Color(0xFF10B981),
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Text(
-                                            text = "Para onde vamos?",
-                                            color = Color.White,
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            } else {
-                                // Destination is selected: show route summary and quick change
+                            // -------------------------------------------------------------
+                            // STEP 1: INITIAL STATE (PICKUP + "PARA ONDE VAMOS?")
+                            // -------------------------------------------------------------
+                            if (destAddress == null || rideBookingStep == 1) {
+                                // Pickup location display card
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xFF083344).copy(alpha = 0.7f))
-                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        .background(Color(0xFF1E293B))
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
@@ -928,21 +786,21 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                         modifier = Modifier.weight(1f)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Flag,
+                                            imageVector = Icons.Default.LocationOn,
                                             contentDescription = null,
-                                            tint = Color(0xFF06B6D4),
-                                            modifier = Modifier.size(20.dp)
+                                            tint = Color(0xFF10B981),
+                                            modifier = Modifier.size(22.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Spacer(modifier = Modifier.width(10.dp))
                                         Column {
                                             Text(
-                                                text = "Destino",
-                                                color = Color(0xFF67E8F9),
+                                                text = "Local de Embarque",
+                                                color = Color(0xFF94A3B8),
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.SemiBold
                                             )
                                             Text(
-                                                text = destAddress ?: "Destino selecionado",
+                                                text = pickupAddress,
                                                 color = Color.White,
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.Bold,
@@ -952,84 +810,339 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                         }
                                     }
 
-                                    TextButton(onClick = { isDestinationSearchOpen = true }) {
-                                        Text(
-                                            text = "Trocar",
-                                            color = Color(0xFF06B6D4),
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp
+                                    IconButton(onClick = {
+                                        val loc = DriverLocationManager.getLastKnownLocation(context)
+                                        if (loc != null) {
+                                            updateWithRealGps(loc)
+                                            message = "Localização redefinida para o seu GPS."
+                                        }
+                                    }) {
+                                        Icon(
+                                            imageVector = Icons.Default.MyLocation,
+                                            contentDescription = "Usar GPS",
+                                            tint = Color(0xFF10B981),
+                                            modifier = Modifier.size(20.dp)
                                         )
                                     }
                                 }
 
-                                // Route Metrics Pill (Distance • ETA • Fare)
-                                val distance = searchResponse?.distanceKm ?: 0.0
-                                val duration = searchResponse?.estimatedDurationMin ?: 0
+                                Text(
+                                    text = "💡 Arraste o mapa para mover o pino até o local exato de embarque.",
+                                    color = Color(0xFF64748B),
+                                    fontSize = 11.sp
+                                )
+
+                                // Primary Destination Action Button: "Para onde vamos?"
+                                Surface(
+                                    onClick = { isDestinationSearchOpen = true },
+                                    color = Color(0xFF022C22),
+                                    shape = RoundedCornerShape(14.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(16.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = null,
+                                            tint = Color(0xFF10B981),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            text = "Para onde vamos?",
+                                            color = Color.White,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                // Availability representation
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceEvenly
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("📏 ${"%.1f".format(distance)} km", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                                    Text("⏱️ ~$duration min", color = Color(0xFF94A3B8), fontSize = 12.sp)
-                                    Text("⚡ Tarifa Oficial", color = Color(0xFF10B981), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Icon(
+                                        imageVector = Icons.Default.DirectionsCar,
+                                        contentDescription = null,
+                                        tint = Color(0xFF10B981),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (availableDrivers.isNotEmpty()) {
+                                            "${availableDrivers.size} motorista(s) credenciado(s) disponível(is)"
+                                        } else {
+                                            "Consultando motoristas credenciados online..."
+                                        },
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                 }
                             }
 
-                            // ROW 3: COMPACT DRIVER SELECTION CARD
-                            if (destAddress != null) {
-                                if (selectedDriver != null) {
-                                    val driver = selectedDriver!!
+                            // -------------------------------------------------------------
+                            // STEP 2: ROUTE SUMMARY (AFTER DESTINATION IS SELECTED)
+                            // -------------------------------------------------------------
+                            else if (rideBookingStep == 2) {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    // Route Card
                                     Card(
                                         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                        shape = RoundedCornerShape(16.dp),
-                                        border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
+                                        shape = RoundedCornerShape(14.dp),
+                                        border = BorderStroke(1.dp, Color(0xFF334155)),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Column(
                                             modifier = Modifier.padding(14.dp),
                                             verticalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Column {
-                                                    Text(
-                                                        text = driver.name,
-                                                        color = Color.White,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 17.sp
-                                                    )
-                                                    Text(
-                                                        text = "★ ${"%.1f".format(driver.ratingAverage)} • ${driver.vehicle.brand} ${driver.vehicle.model} (${driver.vehicle.color})",
-                                                        color = Color(0xFF94A3B8),
-                                                        fontSize = 12.sp
-                                                    )
-                                                    Text(
-                                                        text = "Placa: ${driver.vehicle.licensePlate} • Chega em ~${driver.arrivalTimeMin} min",
-                                                        color = Color(0xFF38BDF8),
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.Medium
-                                                    )
-                                                }
-
+                                            // Pickup row
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    Icons.Default.LocationOn,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF10B981),
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
-                                                    text = "R$ ${"%.2f".format(driver.fare)}",
-                                                    color = Color(0xFF10B981),
-                                                    fontWeight = FontWeight.Black,
-                                                    fontSize = 20.sp
+                                                    text = pickupAddress,
+                                                    color = Color.White,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
                                             }
 
-                                            // SOLICITAR CORRIDA ACTION BUTTON
+                                            Divider(color = Color(0xFF334155), thickness = 0.5.dp)
+
+                                            // Destination row
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    Icons.Default.Flag,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF06B6D4),
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = destAddress ?: "Destino selecionado",
+                                                    color = Color.White,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Metrics summary (Distance, Estimated Time, Fare)
+                                    val distance = searchResponse?.distanceKm
+                                        ?: (if (destLat != null && destLng != null) calculateDistanceKm(pickupLat, pickupLng, destLat!!, destLng!!) else 10.0)
+                                    val duration = searchResponse?.estimatedDurationMin ?: Math.max(5, (distance * 1.4).toInt())
+                                    val estimatedFare = selectedDriver?.fare ?: (searchResponse?.results?.firstOrNull()?.fare ?: 35.0)
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color(0xFF083344))
+                                            .padding(vertical = 10.dp, horizontal = 14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text("Distância e Tempo", color = Color(0xFF67E8F9), fontSize = 11.sp)
+                                            Text(
+                                                text = "${"%.1f".format(distance)} km • ~$duration min",
+                                                color = Color.White,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text("Tarifa Oficial", color = Color(0xFF67E8F9), fontSize = 11.sp)
+                                            Text(
+                                                text = "R$ ${"%.2f".format(estimatedFare)}",
+                                                color = Color(0xFF10B981),
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.Black
+                                            )
+                                        }
+                                    }
+
+                                    // Buttons row: [Trocar Destino] and [Continuar]
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = { isDestinationSearchOpen = true },
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF06B6D4)),
+                                            border = BorderStroke(1.dp, Color(0xFF06B6D4).copy(alpha = 0.5f)),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("Trocar Destino", fontWeight = FontWeight.Bold)
+                                        }
+
+                                        Button(
+                                            onClick = { rideBookingStep = 3 },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.weight(1.2f)
+                                        ) {
+                                            Text("Continuar", color = Color(0xFF022C22), fontWeight = FontWeight.Black)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Color(0xFF022C22))
+                                        }
+                                    }
+                                }
+                            }
+
+                            // -------------------------------------------------------------
+                            // STEP 3: DRIVER SELECTION & RIDE CONFIRMATION
+                            // -------------------------------------------------------------
+                            else if (rideBookingStep == 3) {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text(
+                                        text = "Motorista Selecionado",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp
+                                    )
+
+                                    // If multiple drivers available, show quick selector pills
+                                    if (availableDrivers.size > 1) {
+                                        LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            items(availableDrivers) { drv ->
+                                                val isSelected = drv.driverId == selectedDriver?.driverId
+                                                Surface(
+                                                    onClick = { selectedDriver = drv },
+                                                    color = if (isSelected) Color(0xFF022C22) else Color(0xFF1E293B),
+                                                    shape = RoundedCornerShape(20.dp),
+                                                    border = BorderStroke(
+                                                        1.dp,
+                                                        if (isSelected) Color(0xFF10B981) else Color(0xFF334155)
+                                                    )
+                                                ) {
+                                                    Text(
+                                                        text = "${drv.name} • R$ ${"%.0f".format(drv.fare)}",
+                                                        color = if (isSelected) Color(0xFF10B981) else Color(0xFF94A3B8),
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (selectedDriver != null) {
+                                        val driver = selectedDriver!!
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                            shape = RoundedCornerShape(16.dp),
+                                            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(16.dp),
+                                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Column {
+                                                        Text(
+                                                            text = driver.name,
+                                                            color = Color.White,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 18.sp
+                                                        )
+                                                        Text(
+                                                            text = "★ ${"%.1f".format(driver.ratingAverage)} • Categoria: ${driver.professionalCategory}",
+                                                            color = Color(0xFF94A3B8),
+                                                            fontSize = 12.sp
+                                                        )
+                                                    }
+
+                                                    Text(
+                                                        text = "R$ ${"%.2f".format(driver.fare)}",
+                                                        color = Color(0xFF10B981),
+                                                        fontWeight = FontWeight.Black,
+                                                        fontSize = 22.sp
+                                                    )
+                                                }
+
+                                                Divider(color = Color(0xFF334155), thickness = 0.5.dp)
+
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Column {
+                                                        Text("Veículo", color = Color(0xFF64748B), fontSize = 11.sp)
+                                                        Text(
+                                                            text = "${driver.vehicle.brand} ${driver.vehicle.model}",
+                                                            color = Color.White,
+                                                            fontSize = 13.sp,
+                                                            fontWeight = FontWeight.SemiBold
+                                                        )
+                                                        Text(
+                                                            text = "Cor: ${driver.vehicle.color} • Placa: ${driver.vehicle.licensePlate}",
+                                                            color = Color(0xFF94A3B8),
+                                                            fontSize = 12.sp
+                                                        )
+                                                    }
+
+                                                    Column(horizontalAlignment = Alignment.End) {
+                                                        Text("Chegada Estimada", color = Color(0xFF64748B), fontSize = 11.sp)
+                                                        Text(
+                                                            text = "~${driver.arrivalTimeMin} min",
+                                                            color = Color(0xFF38BDF8),
+                                                            fontSize = 16.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Action buttons: [Voltar] and [SOLICITAR CORRIDA]
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = { rideBookingStep = 2 },
+                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                                border = BorderStroke(1.dp, Color(0xFF334155)),
+                                                shape = RoundedCornerShape(12.dp)
+                                            ) {
+                                                Text("Voltar")
+                                            }
+
                                             Button(
                                                 onClick = {
                                                     isSubmittingRide = true
                                                     message = ""
                                                     ApiService.createRide(
-                                                        passengerName = passengerName,
-                                                        passengerPhone = passengerPhone,
+                                                        passengerName = passengerName.ifBlank { "Passageiro" },
+                                                        passengerPhone = passengerPhone.ifBlank { "+551299999999" },
                                                         originId = originZone?.id ?: "z-centro",
                                                         destId = destZone?.id ?: "z-maresias",
                                                         passengerCount = 1,
@@ -1049,46 +1162,58 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                         },
                                                         onError = { err ->
                                                             isSubmittingRide = false
-                                                            message = err.message ?: "Falha ao solicitar corrida."
+                                                            rideErrorDialogMessage = err.message ?: "Falha ao solicitar corrida. Verifique os dados ou conexão."
                                                         }
                                                     )
                                                 },
+                                                enabled = !isSubmittingRide,
                                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
                                                 shape = RoundedCornerShape(12.dp),
-                                                modifier = Modifier.fillMaxWidth()
+                                                modifier = Modifier.weight(1f)
                                             ) {
                                                 if (isSubmittingRide) {
                                                     CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp))
                                                 } else {
                                                     Text(
-                                                        text = "SOLICITAR CORRIDA (R$ ${"%.2f".format(driver.fare)}) 🚗",
+                                                        text = "SOLICITAR CORRIDA 🚗",
                                                         color = Color(0xFF022C22),
                                                         fontWeight = FontWeight.Black,
-                                                        fontSize = 14.sp
+                                                        fontSize = 15.sp
                                                     )
                                                 }
                                             }
                                         }
+                                    } else {
+                                        Text(
+                                            text = "Nenhum motorista disponível no momento para esta rota. Tente novamente em instantes.",
+                                            color = Color(0xFFF59E0B),
+                                            fontSize = 13.sp,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                                        )
+
+                                        Button(
+                                            onClick = { rideBookingStep = 2 },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text("Voltar ao Resumo", color = Color.White)
+                                        }
                                     }
-                                } else {
-                                    Text(
-                                        text = "Nenhum motorista online no momento para este trajeto.",
-                                        color = Color(0xFFF59E0B),
-                                        fontSize = 12.sp,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
                                 }
                             }
                         }
                     }
                 } else {
-                    // ACTIVE RIDE OVERLAY CARD (ACCEPTED / ARRIVING / IN PROGRESS / COMPLETED)
+                    // -------------------------------------------------------------
+                    // ACTIVE RIDE OVERLAY CARD (ACCEPTED / ARRIVING / IN PROGRESS)
+                    // -------------------------------------------------------------
                     Surface(
                         color = Color(0xFF0F172A).copy(alpha = 0.98f),
                         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
                         border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
-                        shadowElevation = 20.dp,
+                        shadowElevation = 24.dp,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
@@ -1135,12 +1260,12 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                             }
 
                             Text(
-                                text = "Veículo: ${currentRide!!.driverVehicle ?: "Veículo Autorizado"}",
+                                text = "Veículo: ${currentRide!!.driverVehicle ?: "Veículo Autorizado"}${if (!currentRide!!.driverLicensePlate.isNullOrBlank()) " • Placa: ${currentRide!!.driverLicensePlate}" else ""}",
                                 color = Color(0xFF94A3B8),
                                 fontSize = 12.sp
                             )
 
-                            // WAITING TIMER IF DRIVER ARRIVED
+                            // WAITING TIMER IF DRIVER ARRIVED (4 minutes free)
                             if (currentRide!!.status == "ARRIVED") {
                                 Surface(
                                     color = Color(0xFF022C22),
@@ -1149,15 +1274,35 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
-                                        text = "⏱️ Motorista aguardando no embarque. Você possui 4 minutos gratuitos.",
+                                        text = "⏱️ Motorista aguardando no embarque. Você possui 4 minutos de tolerância gratuita.",
                                         color = Color(0xFFA7F3D0),
-                                        fontSize = 11.sp,
+                                        fontSize = 12.sp,
                                         modifier = Modifier.padding(10.dp)
                                     )
                                 }
                             }
 
-                            // COMPROVANTE PDF SE FINALIZADA
+                            // CONTACT DRIVER VIA WHATSAPP / PHONE
+                            if (!currentRide!!.driverPhone.isNullOrBlank()) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val cleanPhone = currentRide!!.driverPhone!!.replace(Regex("[^0-9]"), "")
+                                        val url = "https://wa.me/$cleanPhone?text=${Uri.encode("Olá motorista, sou o passageiro ${passengerName} da corrida VaiCar.")}"
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                        context.startActivity(intent)
+                                    },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF10B981)),
+                                    border = BorderStroke(1.dp, Color(0xFF10B981)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Phone, contentDescription = null, tint = Color(0xFF10B981))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Falar com Motorista no WhatsApp", fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            // COMPLETED OR CANCEL ACTIONS
                             if (currentRide!!.status == "COMPLETED") {
                                 Button(
                                     onClick = {
@@ -1180,6 +1325,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                         destAddress = null
                                         destLat = null
                                         destLng = null
+                                        rideBookingStep = 1
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
                                     shape = RoundedCornerShape(10.dp),
@@ -1194,7 +1340,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                             rideId = currentRide!!.id,
                                             status = "CANCELLED_BY_PASSENGER",
                                             onSuccess = { currentRide = it },
-                                            onError = { message = "Falha ao cancelar." }
+                                            onError = { message = "Falha ao cancelar corrida." }
                                         )
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
@@ -1209,7 +1355,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                 }
             }
 
-            // TAB 1: MAPA GERAL DE DEMANDA
+            // TAB 1: PRAIAS E ZONAS MUNICIPAIS
             if (selectedTab == 1) {
                 LazyColumn(
                     modifier = Modifier
@@ -1306,24 +1452,6 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                 }
             }
 
-            // SNACKBAR MESSAGE
-            if (message.isNotBlank()) {
-                Snackbar(
-                    action = {
-                        TextButton(onClick = { message = "" }) {
-                            Text("OK", color = Color(0xFF10B981))
-                        }
-                    },
-                    containerColor = Color(0xFF1E293B),
-                    contentColor = Color.White,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(16.dp)
-                ) {
-                    Text(message)
-                }
-            }
-
             // ==============================================================================
             // DESTINATION SEARCH MODAL ("PARA ONDE VAMOS?")
             // ==============================================================================
@@ -1356,7 +1484,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                 .fillMaxSize()
                                 .padding(16.dp)
                         ) {
-                            // Top Bar
+                            // Header
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth()
@@ -1426,8 +1554,9 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                     destZone = place.zone ?: findClosestZone(place.lat, place.lng, zones)
                                                     mapCenterLat = (pickupLat + place.lat) / 2.0
                                                     mapCenterLng = (pickupLng + place.lng) / 2.0
+                                                    rideBookingStep = 2 // Proceed to Step 2: Route Summary
                                                     isDestinationSearchOpen = false
-                                                    refreshRouteAndPricing()
+                                                    refreshRouteAndDrivers()
                                                 },
                                                 color = Color(0xFF1E293B),
                                                 shape = RoundedCornerShape(12.dp),
@@ -1439,7 +1568,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                     modifier = Modifier.padding(14.dp)
                                                 ) {
                                                     Icon(
-                                                        imageVector = if (place.isZone) Icons.Default.BeachAccess else Icons.Default.Place,
+                                                        imageVector = if (place.isZone) Icons.Default.Place else Icons.Default.LocationOn,
                                                         contentDescription = null,
                                                         tint = Color(0xFF06B6D4),
                                                         modifier = Modifier.size(24.dp)
@@ -1450,7 +1579,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                             text = place.title,
                                                             color = Color.White,
                                                             fontWeight = FontWeight.Bold,
-                                                            fontSize = 15.sp
+                                                            fontSize = 14.sp
                                                         )
                                                         Text(
                                                             text = place.subtitle,
@@ -1461,18 +1590,28 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                 }
                                             }
                                         }
-                                    } else {
-                                        // Quick suggestions (Popular beaches)
+                                    } else if (query.isNotBlank()) {
                                         item {
                                             Text(
-                                                text = "Destinos Populares em São Sebastião:",
+                                                text = "Nenhum local encontrado para \"$query\". Verifique a digitação ou selecione uma praia próxima.",
                                                 color = Color(0xFF94A3B8),
                                                 fontSize = 13.sp,
-                                                fontWeight = FontWeight.SemiBold,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.fillMaxWidth().padding(top = 24.dp)
+                                            )
+                                        }
+                                    } else {
+                                        // Quick suggestions for popular destinations in São Sebastião
+                                        item {
+                                            Text(
+                                                text = "Destinos Populares em São Sebastião",
+                                                color = Color(0xFF64748B),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
                                                 modifier = Modifier.padding(vertical = 8.dp)
                                             )
                                         }
-                                        items(zones.take(12)) { z ->
+                                        items(zones.take(8)) { z ->
                                             Surface(
                                                 onClick = {
                                                     destLat = z.lat
@@ -1481,27 +1620,37 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                     destZone = z
                                                     mapCenterLat = (pickupLat + z.lat) / 2.0
                                                     mapCenterLng = (pickupLng + z.lng) / 2.0
+                                                    rideBookingStep = 2 // Proceed to Step 2
                                                     isDestinationSearchOpen = false
-                                                    refreshRouteAndPricing()
+                                                    refreshRouteAndDrivers()
                                                 },
-                                                color = Color(0xFF1E293B).copy(alpha = 0.6f),
-                                                shape = RoundedCornerShape(10.dp),
+                                                color = Color(0xFF1E293B),
+                                                shape = RoundedCornerShape(12.dp),
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.padding(12.dp)
+                                                    modifier = Modifier.padding(14.dp)
                                                 ) {
                                                     Icon(
-                                                        imageVector = Icons.Default.BeachAccess,
+                                                        imageVector = Icons.Default.Place,
                                                         contentDescription = null,
                                                         tint = Color(0xFF10B981),
                                                         modifier = Modifier.size(20.dp)
                                                     )
-                                                    Spacer(modifier = Modifier.width(10.dp))
+                                                    Spacer(modifier = Modifier.width(12.dp))
                                                     Column {
-                                                        Text(z.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                                        Text("${z.distanceFromCenterKm} km do Centro", color = Color(0xFF64748B), fontSize = 11.sp)
+                                                        Text(
+                                                            text = z.name,
+                                                            color = Color.White,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 14.sp
+                                                        )
+                                                        Text(
+                                                            text = "${z.distanceFromCenterKm} km do Centro Histórico",
+                                                            color = Color(0xFF94A3B8),
+                                                            fontSize = 11.sp
+                                                        )
                                                     }
                                                 }
                                             }
@@ -1511,6 +1660,64 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                             }
                         }
                     }
+                }
+            }
+
+            // ==============================================================================
+            // ERROR EXPLANATION DIALOG (FOR DIAGNOSING "FALHA AO SOLICITAR CORRIDA")
+            // ==============================================================================
+            if (rideErrorDialogMessage != null) {
+                AlertDialog(
+                    onDismissRequest = { rideErrorDialogMessage = null },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = Color(0xFFF59E0B),
+                            modifier = Modifier.size(32.dp)
+                        )
+                    },
+                    title = {
+                        Text(
+                            text = "Aviso da Solicitação",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = rideErrorDialogMessage ?: "",
+                            color = Color(0xFFE2E8F0),
+                            fontSize = 14.sp
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = { rideErrorDialogMessage = null },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                        ) {
+                            Text("Entendi", color = Color(0xFF022C22), fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    containerColor = Color(0xFF1E293B)
+                )
+            }
+
+            // SNACKBAR MESSAGE
+            if (message.isNotBlank()) {
+                Snackbar(
+                    action = {
+                        TextButton(onClick = { message = "" }) {
+                            Text("OK", color = Color(0xFF10B981))
+                        }
+                    },
+                    containerColor = Color(0xFF1E293B),
+                    contentColor = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp)
+                ) {
+                    Text(message)
                 }
             }
         }
