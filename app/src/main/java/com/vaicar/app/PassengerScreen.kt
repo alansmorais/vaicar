@@ -591,7 +591,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                     },
                     onError = {}
                 )
-                if (currentRide?.status in listOf("ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS")) {
+                if (currentRide?.status in listOf("ACCEPTED", "EN_ROUTE", "DRIVER_ARRIVING", "ARRIVED", "IN_PROGRESS")) {
                     ApiService.fetchDriverLocation(
                         rideId = currentRideId,
                         passengerPhone = passengerPhone,
@@ -1233,8 +1233,8 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                     Text(
                                         text = when (currentRide!!.status) {
                                             "REQUESTED" -> "Aguardando Confirmação do Motorista ⏳"
-                                            "ACCEPTED" -> "Corrida Aceita! Motorista a caminho 🚗"
-                                            "ARRIVED" -> "Motorista Chegou ao Local! 📍"
+                                            "ACCEPTED", "EN_ROUTE" -> "Corrida Aceita! Motorista a caminho 🚗"
+                                            "DRIVER_ARRIVING", "ARRIVED" -> "Motorista Chegou ao Local! 📍"
                                             "IN_PROGRESS" -> "Viagem em Andamento 🛣️"
                                             "COMPLETED" -> "Viagem Finalizada com Sucesso! 🏁"
                                             else -> currentRide!!.status
@@ -1266,7 +1266,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                             )
 
                             // WAITING TIMER IF DRIVER ARRIVED (4 minutes free)
-                            if (currentRide!!.status == "ARRIVED") {
+                            if (currentRide!!.status == "ARRIVED" || currentRide!!.status == "DRIVER_ARRIVING") {
                                 Surface(
                                     color = Color(0xFF022C22),
                                     shape = RoundedCornerShape(8.dp),
