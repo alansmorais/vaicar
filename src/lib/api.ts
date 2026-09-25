@@ -124,11 +124,27 @@ export async function searchDrivers(
   originZoneId: string,
   destinationZoneId: string,
   passengerCount: number = 1,
+  originLat?: number | null,
+  originLng?: number | null,
+  destinationLat?: number | null,
+  destinationLng?: number | null
 ): Promise<SearchDriversResponse> {
   return safeFetchJson<SearchDriversResponse>('/api/v1/search/drivers', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ originZoneId, destinationZoneId, passengerCount }),
+    body: JSON.stringify({
+      originZoneId,
+      destinationZoneId,
+      passengerCount,
+      originLat: originLat ?? undefined,
+      originLng: originLng ?? undefined,
+      destinationLat: destinationLat ?? undefined,
+      destinationLng: destinationLng ?? undefined,
+      pickupLat: originLat ?? undefined,
+      pickupLng: originLng ?? undefined,
+      destLat: destinationLat ?? undefined,
+      destLng: destinationLng ?? undefined,
+    }),
   }, 'Erro na busca de motoristas');
 }
 
@@ -829,6 +845,101 @@ export async function searchPlaces(query: string): Promise<PlaceSearchResult[]> 
     return [];
   }
 }
+
+// --- PROFILE & AUTH ADVANCED VERIFICATION API ---
+
+export async function requestPhoneChangePin(params: {
+  userId: string;
+  userRole: 'PASSENGER' | 'DRIVER';
+  currentPhone?: string;
+  newPhone: string;
+}): Promise<{ success: boolean; message: string; pin?: string; emailSent?: boolean }> {
+  return safeFetchJson<{ success: boolean; message: string; pin?: string; emailSent?: boolean }>(
+    '/api/v1/auth/request-phone-change-pin',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    },
+    'Falha ao solicitar código para alteração de telefone'
+  );
+}
+
+export async function verifyPhoneChange(params: {
+  userId: string;
+  userRole: 'PASSENGER' | 'DRIVER';
+  newPhone: string;
+  verificationCode: string;
+}): Promise<{ success: boolean; updatedPhone: string; message: string }> {
+  return safeFetchJson<{ success: boolean; updatedPhone: string; message: string }>(
+    '/api/v1/auth/verify-phone-change',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    },
+    'Falha ao verificar código de alteração de telefone'
+  );
+}
+
+export async function requestEmailChangePin(params: {
+  userId: string;
+  userRole: 'PASSENGER' | 'DRIVER';
+  newEmail: string;
+}): Promise<{ success: boolean; message: string; emailSent?: boolean }> {
+  return safeFetchJson<{ success: boolean; message: string; emailSent?: boolean }>(
+    '/api/v1/auth/request-email-change-pin',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    },
+    'Falha ao solicitar código para alteração de e-mail'
+  );
+}
+
+export async function verifyEmailChange(params: {
+  userId: string;
+  userRole: 'PASSENGER' | 'DRIVER';
+  newEmail: string;
+  verificationCode: string;
+}): Promise<{ success: boolean; updatedEmail: string; message: string }> {
+  return safeFetchJson<{ success: boolean; updatedEmail: string; message: string }>(
+    '/api/v1/auth/verify-email-change',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    },
+    'Falha ao verificar código de alteração de e-mail'
+  );
+}
+
+export async function updateDriverPhoto(driverId: string, avatarUrl: string): Promise<{ success: boolean; avatarUrl: string }> {
+  return safeFetchJson<{ success: boolean; avatarUrl: string }>(
+    `/api/v1/drivers/${driverId}/photo`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ avatarUrl }),
+    },
+    'Falha ao atualizar foto de perfil do motorista'
+  );
+}
+
+export async function fetchUserReports(contact: string): Promise<Report[]> {
+  if (!contact) return [];
+  try {
+    return await safeFetchJson<Report[]>(
+      `/api/v1/reports/user/${encodeURIComponent(contact)}`,
+      undefined,
+      'Falha ao carregar histórico de ocorrências'
+    );
+  } catch {
+    return [];
+  }
+}
+
 
 
 

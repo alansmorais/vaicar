@@ -22,6 +22,7 @@ interface HeaderProps {
   currentRole: UserRole | null;
   onSelectRole: (role: UserRole | null, extra?: { mode?: string }) => void;
   onLogout?: () => void;
+  onOpenProfile?: () => void;
   passengerName?: string;
   passengerAvatar?: string;
   activeDriverId?: string;
@@ -34,6 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
   currentRole,
   onSelectRole,
   onLogout,
+  onOpenProfile,
   passengerName,
   passengerAvatar,
   activeDriverId,
@@ -186,7 +188,11 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center gap-2.5 sm:gap-3">
             {/* If Logged In as Passenger or Driver */}
             {currentRole === 'PASSENGER' && (
-              <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl">
+              <button
+                onClick={onOpenProfile}
+                className="flex items-center gap-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-emerald-500/40 px-3 py-1.5 rounded-xl transition-all cursor-pointer text-left"
+                title="Abrir Meu Perfil e Comprovantes"
+              >
                 {passengerAvatar ? (
                   <img
                     src={passengerAvatar}
@@ -202,8 +208,8 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="text-xs font-bold text-white max-w-[120px] truncate hidden sm:inline">
                   {passengerName || 'Passageiro'}
                 </span>
-                <span className="text-[10px] text-emerald-400 font-semibold">Online</span>
-              </div>
+                <span className="text-[10px] text-emerald-400 font-semibold">Perfil</span>
+              </button>
             )}
 
             {currentRole === 'DRIVER' && availableDrivers.length > 0 && onSelectDriverId && (

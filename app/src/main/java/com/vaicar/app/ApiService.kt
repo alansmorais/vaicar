@@ -114,14 +114,34 @@ object ApiService {
         originId: String,
         destId: String,
         passengerCount: Int,
+        originLat: Double? = null,
+        originLng: Double? = null,
+        destLat: Double? = null,
+        destLng: Double? = null,
         onSuccess: (SearchDriversResponse) -> Unit,
         onError: (Exception) -> Unit
     ) {
-        val bodyMap = mapOf(
+        val bodyMap = mutableMapOf<String, Any>(
             "originZoneId" to originId,
             "destinationZoneId" to destId,
             "passengerCount" to passengerCount
         )
+        if (originLat != null) {
+            bodyMap["originLat"] = originLat
+            bodyMap["pickupLat"] = originLat
+        }
+        if (originLng != null) {
+            bodyMap["originLng"] = originLng
+            bodyMap["pickupLng"] = originLng
+        }
+        if (destLat != null) {
+            bodyMap["destinationLat"] = destLat
+            bodyMap["destLat"] = destLat
+        }
+        if (destLng != null) {
+            bodyMap["destinationLng"] = destLng
+            bodyMap["destLng"] = destLng
+        }
         val requestBody = gson.toJson(bodyMap).toRequestBody(JSON_MEDIA_TYPE)
 
         val request = Request.Builder()

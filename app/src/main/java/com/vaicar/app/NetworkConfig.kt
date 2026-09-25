@@ -166,7 +166,11 @@ data class SearchResult(
     val distanceKm: Double,
     val estimatedDurationMin: Int,
     val arrivalTimeMin: Int,
-    val isOnline: Boolean
+    val isOnline: Boolean,
+    val distanceToPickupKm: Double? = null,
+    val estimatedArrivalMinutes: Int? = null,
+    val currentLat: Double? = null,
+    val currentLng: Double? = null
 )
 
 data class SearchDriversResponse(

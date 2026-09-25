@@ -203,6 +203,7 @@ fun NativeInteractivePassengerMap(
     pickupAddress: String,
     destAddress: String?,
     zones: List<Zone>,
+    availableDrivers: List<SearchResult> = emptyList(),
     activeRide: Ride?,
     liveDriverLocation: DriverLocation?,
     isSelectingDestination: Boolean,
@@ -248,13 +249,34 @@ fun NativeInteractivePassengerMap(
             if (pickupLat != 0.0 && pickupLng != 0.0 && destLat != null) {
                 Marker(
                     state = MarkerState(position = LatLng(pickupLat, pickupLng)),
-                    title = "Embarque"
+                    title = "Embarque: $pickupAddress"
                 )
             }
             if (destLat != null && destLng != null) {
                 Marker(
                     state = MarkerState(position = LatLng(destLat, destLng)),
-                    title = "Destino"
+                    title = "Destino: ${destAddress ?: "Destino"}"
+                )
+            }
+            // Real Available Drivers Markers on Google Map
+            if (activeRide == null) {
+                availableDrivers.forEach { drv ->
+                    val dLat = drv.currentLat ?: if (pickupLat != 0.0) pickupLat + 0.002 else null
+                    val dLng = drv.currentLng ?: if (pickupLng != 0.0) pickupLng + 0.002 else null
+                    if (dLat != null && dLng != null) {
+                        Marker(
+                            state = MarkerState(position = LatLng(dLat, dLng)),
+                            title = "🚗 ${drv.name} (R$ ${"%.2f".format(drv.fare)})",
+                            snippet = "${drv.vehicle.brand} ${drv.vehicle.model} • ${drv.vehicle.color}"
+                        )
+                    }
+                }
+            }
+            // Live Driver Location Marker for active ride
+            if (activeRide != null && liveDriverLocation != null) {
+                Marker(
+                    state = MarkerState(position = LatLng(liveDriverLocation.lat, liveDriverLocation.lng)),
+                    title = "🚗 Motorista a caminho: ${activeRide.driverName ?: "Motorista"}"
                 )
             }
         }
@@ -368,6 +390,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
     var selectedDriver by remember { mutableStateOf<SearchResult?>(null) }
     var searchResponse by remember { mutableStateOf<SearchDriversResponse?>(null) }
     var isSearchingDrivers by remember { mutableStateOf(false) }
+    var showAllDrivers by remember { mutableStateOf(false) }
 
     // Passenger Profile & Ride state
     var passengerName by remember { mutableStateOf(SecurityUtils.getPassengerName(context).ifBlank { "Alan" }) }
@@ -412,6 +435,10 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
             originId = originZone?.id ?: "z-centro",
             destId = destZone?.id ?: "z-maresias",
             passengerCount = 1,
+            originLat = if (pickupLat != 0.0) pickupLat else null,
+            originLng = if (pickupLng != 0.0) pickupLng else null,
+            destLat = destLat,
+            destLng = destLng,
             onSuccess = { res ->
                 isSearchingDrivers = false
                 searchResponse = res
@@ -577,6 +604,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                     pickupAddress = pickupAddress,
                     destAddress = destAddress,
                     zones = zones,
+                    availableDrivers = availableDrivers,
                     activeRide = currentRide,
                     liveDriverLocation = liveDriverLocation,
                     isSelectingDestination = destAddress == null,
@@ -893,197 +921,261 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                             }
 
                             // -------------------------------------------------------------
-                            // STEP 3: DRIVER SELECTION & RIDE CONFIRMATION
+                            // STEP 3: DRIVER SELECTION & RIDE CONFIRMATION (MOTORISTAS DISPONÍVEIS)
                             // -------------------------------------------------------------
                             else if (rideBookingStep == 3) {
-                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Text(
-                                        text = "Motorista Selecionado",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp
-                                    )
+                                val displayedDrivers = if (showAllDrivers) availableDrivers else availableDrivers.take(5)
 
-                                    // If multiple drivers available, show quick selector pills
-                                    if (availableDrivers.size > 1) {
-                                        LazyRow(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = "MOTORISTAS DISPONÍVEIS",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 15.sp
+                                            )
+                                            Text(
+                                                text = "Menor preço e tempo de chegada estimado",
+                                                color = Color(0xFF94A3B8),
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                        Surface(
+                                            color = Color(0xFF022C22),
+                                            shape = RoundedCornerShape(12.dp),
+                                            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f))
+                                        ) {
+                                            Text(
+                                                text = "${availableDrivers.size} ${if (availableDrivers.size == 1) "disponível" else "disponíveis"}",
+                                                color = Color(0xFF10B981),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+
+                                    if (availableDrivers.isEmpty()) {
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                            shape = RoundedCornerShape(16.dp),
+                                            border = BorderStroke(1.dp, Color(0xFF334155)),
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            items(availableDrivers) { drv ->
-                                                val isSelected = drv.driverId == selectedDriver?.driverId
-                                                Surface(
-                                                    onClick = { selectedDriver = drv },
-                                                    color = if (isSelected) Color(0xFF022C22) else Color(0xFF1E293B),
-                                                    shape = RoundedCornerShape(20.dp),
-                                                    border = BorderStroke(
-                                                        1.dp,
-                                                        if (isSelected) Color(0xFF10B981) else Color(0xFF334155)
-                                                    )
+                                            Column(
+                                                modifier = Modifier.padding(20.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(36.dp))
+                                                Text(
+                                                    text = "Nenhum motorista disponível no momento.",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 14.sp,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                                Text(
+                                                    text = "Novos motoristas ficam online a qualquer momento. Você pode tentar novamente em instantes.",
+                                                    color = Color(0xFF94A3B8),
+                                                    fontSize = 12.sp,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                                Button(
+                                                    onClick = { refreshRouteAndDrivers() },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                                    shape = RoundedCornerShape(12.dp)
+                                                ) {
+                                                    Text("Atualizar Motoristas", color = Color(0xFF022C22), fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(max = 380.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            LazyColumn(
+                                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                                modifier = Modifier.weight(1f, fill = false)
+                                            ) {
+                                                items(displayedDrivers) { driver ->
+                                                    val distanceKmFormatted = driver.distanceToPickupKm?.let { "${"%.1f".format(it)} km" } ?: "1.2 km"
+                                                    val etaMinutes = driver.estimatedArrivalMinutes ?: driver.arrivalTimeMin
+                                                    val vehicleInfo = "${driver.vehicle.brand} ${driver.vehicle.model} • ${driver.vehicle.color}"
+
+                                                    Card(
+                                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                                        shape = RoundedCornerShape(16.dp),
+                                                        border = BorderStroke(1.dp, Color(0xFF334155)),
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    ) {
+                                                        Column(
+                                                            modifier = Modifier.padding(14.dp),
+                                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                                        ) {
+                                                            // Header: Driver Name + Rating + Vehicle Info + Fare
+                                                            Row(
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                                verticalAlignment = Alignment.Top
+                                                            ) {
+                                                                Row(
+                                                                    verticalAlignment = Alignment.CenterVertically,
+                                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                                ) {
+                                                                    Text(text = "🚗", fontSize = 20.sp)
+                                                                    Column {
+                                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                                            Text(
+                                                                                text = driver.name,
+                                                                                color = Color.White,
+                                                                                fontWeight = FontWeight.Bold,
+                                                                                fontSize = 15.sp
+                                                                            )
+                                                                            Surface(
+                                                                                color = Color(0xFF0F172A),
+                                                                                shape = RoundedCornerShape(6.dp),
+                                                                                border = BorderStroke(0.5.dp, Color(0xFFF59E0B).copy(alpha = 0.5f))
+                                                                            ) {
+                                                                                Row(
+                                                                                    verticalAlignment = Alignment.CenterVertically,
+                                                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                                                ) {
+                                                                                    Text("★", color = Color(0xFFF59E0B), fontSize = 10.sp)
+                                                                                    Spacer(modifier = Modifier.width(2.dp))
+                                                                                    Text(
+                                                                                        text = "%.1f".format(driver.ratingAverage),
+                                                                                        color = Color(0xFFF59E0B),
+                                                                                        fontSize = 10.sp,
+                                                                                        fontWeight = FontWeight.Bold
+                                                                                    )
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        Text(
+                                                                            text = vehicleInfo,
+                                                                            color = Color(0xFF94A3B8),
+                                                                            fontSize = 12.sp
+                                                                        )
+                                                                    }
+                                                                }
+
+                                                                Text(
+                                                                    text = "R$ ${"%.2f".format(driver.fare)}",
+                                                                    color = Color(0xFF10B981),
+                                                                    fontSize = 18.sp,
+                                                                    fontWeight = FontWeight.Black
+                                                                )
+                                                            }
+
+                                                            // Distance & ETA
+                                                            Row(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .clip(RoundedCornerShape(8.dp))
+                                                                    .background(Color(0xFF0F172A))
+                                                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
+                                                                    Text(
+                                                                        text = "$distanceKmFormatted • Chega em ~$etaMinutes min",
+                                                                        color = Color(0xFFCBD5E1),
+                                                                        fontSize = 12.sp,
+                                                                        fontWeight = FontWeight.Medium
+                                                                    )
+                                                                }
+                                                            }
+
+                                                            // Direct [ Solicitar ] button
+                                                            Button(
+                                                                onClick = {
+                                                                    selectedDriver = driver
+                                                                    isSubmittingRide = true
+                                                                    message = ""
+                                                                    ApiService.createRide(
+                                                                        passengerName = passengerName.ifBlank { "Passageiro" },
+                                                                        passengerPhone = passengerPhone.ifBlank { "+551299999999" },
+                                                                        originId = originZone?.id ?: "z-centro",
+                                                                        destId = destZone?.id ?: "z-maresias",
+                                                                        passengerCount = 1,
+                                                                        driverId = driver.driverId,
+                                                                        fare = driver.fare,
+                                                                        notes = null,
+                                                                        originAddress = pickupAddress,
+                                                                        destAddress = destAddress,
+                                                                        originLat = pickupLat,
+                                                                        originLng = pickupLng,
+                                                                        destinationLat = destLat,
+                                                                        destinationLng = destLng,
+                                                                        onSuccess = { ride ->
+                                                                            isSubmittingRide = false
+                                                                            currentRide = ride
+                                                                            message = "Corrida solicitada com sucesso! Aguardando o motorista aceitar."
+                                                                        },
+                                                                        onError = { err ->
+                                                                            isSubmittingRide = false
+                                                                            rideErrorDialogMessage = err.message ?: "Falha ao solicitar corrida. Verifique os dados ou conexão."
+                                                                        }
+                                                                    )
+                                                                },
+                                                                enabled = !isSubmittingRide,
+                                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                                                shape = RoundedCornerShape(10.dp),
+                                                                modifier = Modifier.fillMaxWidth().height(40.dp)
+                                                            ) {
+                                                                if (isSubmittingRide && selectedDriver?.driverId == driver.driverId) {
+                                                                    CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(18.dp))
+                                                                } else {
+                                                                    Text(
+                                                                        text = "Solicitar",
+                                                                        color = Color(0xFF022C22),
+                                                                        fontWeight = FontWeight.Black,
+                                                                        fontSize = 14.sp
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            // "Ver mais motoristas" Toggle button if more than 5
+                                            if (availableDrivers.size > 5) {
+                                                TextButton(
+                                                    onClick = { showAllDrivers = !showAllDrivers },
+                                                    modifier = Modifier.fillMaxWidth()
                                                 ) {
                                                     Text(
-                                                        text = "${drv.name} • R$ ${"%.0f".format(drv.fare)}",
-                                                        color = if (isSelected) Color(0xFF10B981) else Color(0xFF94A3B8),
-                                                        fontSize = 12.sp,
+                                                        text = if (showAllDrivers) "Mostrar menos motoristas" else "Ver mais motoristas (+${availableDrivers.size - 5})",
+                                                        color = Color(0xFF10B981),
                                                         fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                                        fontSize = 13.sp
                                                     )
                                                 }
                                             }
                                         }
                                     }
 
-                                    if (selectedDriver != null) {
-                                        val driver = selectedDriver!!
-                                        Card(
-                                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                            shape = RoundedCornerShape(16.dp),
-                                            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Column(
-                                                modifier = Modifier.padding(16.dp),
-                                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Column {
-                                                        Text(
-                                                            text = driver.name,
-                                                            color = Color.White,
-                                                            fontWeight = FontWeight.Bold,
-                                                            fontSize = 18.sp
-                                                        )
-                                                        Text(
-                                                            text = "★ ${"%.1f".format(driver.ratingAverage)} • Categoria: ${driver.professionalCategory}",
-                                                            color = Color(0xFF94A3B8),
-                                                            fontSize = 12.sp
-                                                        )
-                                                    }
-
-                                                    Text(
-                                                        text = "R$ ${"%.2f".format(driver.fare)}",
-                                                        color = Color(0xFF10B981),
-                                                        fontWeight = FontWeight.Black,
-                                                        fontSize = 22.sp
-                                                    )
-                                                }
-
-                                                Divider(color = Color(0xFF334155), thickness = 0.5.dp)
-
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceBetween
-                                                ) {
-                                                    Column {
-                                                        Text("Veículo", color = Color(0xFF64748B), fontSize = 11.sp)
-                                                        Text(
-                                                            text = "${driver.vehicle.brand} ${driver.vehicle.model}",
-                                                            color = Color.White,
-                                                            fontSize = 13.sp,
-                                                            fontWeight = FontWeight.SemiBold
-                                                        )
-                                                        Text(
-                                                            text = "Cor: ${driver.vehicle.color} • Placa: ${driver.vehicle.licensePlate}",
-                                                            color = Color(0xFF94A3B8),
-                                                            fontSize = 12.sp
-                                                        )
-                                                    }
-
-                                                    Column(horizontalAlignment = Alignment.End) {
-                                                        Text("Chegada Estimada", color = Color(0xFF64748B), fontSize = 11.sp)
-                                                        Text(
-                                                            text = "~${driver.arrivalTimeMin} min",
-                                                            color = Color(0xFF38BDF8),
-                                                            fontSize = 16.sp,
-                                                            fontWeight = FontWeight.Bold
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        // Action buttons: [Voltar] and [SOLICITAR CORRIDA]
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            OutlinedButton(
-                                                onClick = { rideBookingStep = 2 },
-                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                                                border = BorderStroke(1.dp, Color(0xFF334155)),
-                                                shape = RoundedCornerShape(12.dp)
-                                            ) {
-                                                Text("Voltar")
-                                            }
-
-                                            Button(
-                                                onClick = {
-                                                    isSubmittingRide = true
-                                                    message = ""
-                                                    ApiService.createRide(
-                                                        passengerName = passengerName.ifBlank { "Passageiro" },
-                                                        passengerPhone = passengerPhone.ifBlank { "+551299999999" },
-                                                        originId = originZone?.id ?: "z-centro",
-                                                        destId = destZone?.id ?: "z-maresias",
-                                                        passengerCount = 1,
-                                                        driverId = driver.driverId,
-                                                        fare = driver.fare,
-                                                        notes = null,
-                                                        originAddress = pickupAddress,
-                                                        destAddress = destAddress,
-                                                        originLat = pickupLat,
-                                                        originLng = pickupLng,
-                                                        destinationLat = destLat,
-                                                        destinationLng = destLng,
-                                                        onSuccess = { ride ->
-                                                            isSubmittingRide = false
-                                                            currentRide = ride
-                                                            message = "Corrida solicitada com sucesso! Aguardando o motorista aceitar."
-                                                        },
-                                                        onError = { err ->
-                                                            isSubmittingRide = false
-                                                            rideErrorDialogMessage = err.message ?: "Falha ao solicitar corrida. Verifique os dados ou conexão."
-                                                        }
-                                                    )
-                                                },
-                                                enabled = !isSubmittingRide,
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                                                shape = RoundedCornerShape(12.dp),
-                                                modifier = Modifier.weight(1f)
-                                            ) {
-                                                if (isSubmittingRide) {
-                                                    CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(20.dp))
-                                                } else {
-                                                    Text(
-                                                        text = "SOLICITAR CORRIDA 🚗",
-                                                        color = Color(0xFF022C22),
-                                                        fontWeight = FontWeight.Black,
-                                                        fontSize = 15.sp
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        Text(
-                                            text = "Nenhum motorista disponível no momento para esta rota. Tente novamente em instantes.",
-                                            color = Color(0xFFF59E0B),
-                                            fontSize = 13.sp,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
-                                        )
-
-                                        Button(
-                                            onClick = { rideBookingStep = 2 },
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
-                                            shape = RoundedCornerShape(12.dp),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Text("Voltar ao Resumo", color = Color.White)
-                                        }
+                                    // Back button
+                                    OutlinedButton(
+                                        onClick = { rideBookingStep = 2 },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                        border = BorderStroke(1.dp, Color(0xFF334155)),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Voltar ao Destino")
                                     }
                                 }
                             }

@@ -18,6 +18,9 @@ android {
         vectorDrawables {
             useSupportLibrary true
         }
+        manifestPlaceholders = [
+            MAPS_API_KEY: "AIzaSyAqF4zL02-t-Im_cItTvUj-gPeDs4mmGK4"
+        ]
     }
 
     buildTypes {

@@ -10,6 +10,7 @@ import { DriverSubscription } from './components/DriverSubscription.tsx';
 import { AdminDashboard } from './components/AdminDashboard.tsx';
 import { DevDashboard } from './components/DevDashboard.tsx';
 import { LegalModal } from './components/LegalModal.tsx';
+import { UserProfileModal } from './components/UserProfileModal.tsx';
 import {
   Zone,
   Driver,
@@ -99,6 +100,15 @@ export default function App() {
   // Legal Modal
   const [legalModalOpen, setLegalModalOpen] = useState<boolean>(false);
   const [legalModalTab, setLegalModalTab] = useState<'termos' | 'privacidade' | 'regulacao' | 'seguranca'>('regulacao');
+
+  // User Profile Modal State
+  const [userProfileModalOpen, setUserProfileModalOpen] = useState<boolean>(false);
+  const [passengerProfileData, setPassengerProfileData] = useState({
+    name: localStorage.getItem('vaicar_passenger_name') || 'Passageiro VaiCar',
+    phone: localStorage.getItem('vaicar_passenger_phone') || '',
+    email: localStorage.getItem('vaicar_passenger_email') || '',
+    avatarUrl: localStorage.getItem('vaicar_passenger_avatar') || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80',
+  });
 
   // Load Initial Data
   const loadData = async () => {
@@ -242,8 +252,9 @@ export default function App() {
           handleSelectRole(r);
         }}
         onLogout={() => handleSelectRole(null)}
-        passengerName={localStorage.getItem('vaicar_passenger_name') || ''}
-        passengerAvatar={localStorage.getItem('vaicar_passenger_avatar') || ''}
+        onOpenProfile={() => setUserProfileModalOpen(true)}
+        passengerName={passengerProfileData.name}
+        passengerAvatar={passengerProfileData.avatarUrl}
         activeDriverId={currentDriverId}
         onSelectDriverId={(id) => {
           if (id === 'new') {
@@ -454,6 +465,51 @@ export default function App() {
           isOpen={legalModalOpen}
           onClose={() => setLegalModalOpen(false)}
           initialTab={legalModalTab}
+        />
+      )}
+
+      {/* Universal User Profile & Receipts Modal */}
+      {userProfileModalOpen && (
+        <UserProfileModal
+          isOpen={userProfileModalOpen}
+          onClose={() => setUserProfileModalOpen(false)}
+          role={role === 'DRIVER' ? 'DRIVER' : 'PASSENGER'}
+          userId={role === 'DRIVER' ? currentDriver?.id : passengerProfileData.phone}
+          name={role === 'DRIVER' ? currentDriver?.name || 'Motorista' : passengerProfileData.name}
+          phone={role === 'DRIVER' ? currentDriver?.phone || '' : passengerProfileData.phone}
+          email={role === 'DRIVER' ? currentDriver?.email : passengerProfileData.email}
+          avatarUrl={role === 'DRIVER' ? currentDriver?.avatarUrl : passengerProfileData.avatarUrl}
+          driverData={currentDriver}
+          rides={rides}
+          onProfileUpdated={(updated) => {
+            if (role === 'PASSENGER') {
+              setPassengerProfileData((prev) => ({
+                ...prev,
+                ...updated,
+                email: updated.email !== undefined ? updated.email : prev.email,
+                avatarUrl: updated.avatarUrl !== undefined ? updated.avatarUrl : prev.avatarUrl,
+              }));
+            } else if (role === 'DRIVER' && currentDriver) {
+              const updatedDrv = { ...currentDriver, ...updated };
+              setDrivers(drivers.map((d) => (d.id === updatedDrv.id ? updatedDrv : d)));
+            }
+          }}
+          onDeleteAccount={() => {
+            if (role === 'PASSENGER') {
+              localStorage.removeItem('vaicar_passenger_name');
+              localStorage.removeItem('vaicar_passenger_phone');
+              localStorage.removeItem('vaicar_passenger_email');
+              localStorage.removeItem('vaicar_passenger_avatar');
+              localStorage.removeItem('vaicar_passenger_verified');
+              setPassengerProfileData({
+                name: 'Passageiro VaiCar',
+                phone: '',
+                email: '',
+                avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80',
+              });
+            }
+            handleSelectRole(null);
+          }}
         />
       )}
 

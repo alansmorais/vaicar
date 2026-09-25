@@ -65,6 +65,7 @@ import { ReportModal } from './ReportModal.tsx';
 import { RideReceiptModal } from './RideReceiptModal.tsx';
 import { VaiCarMobilityMap } from './VaiCarMobilityMap.tsx';
 import { PassengerInteractiveMap } from './PassengerInteractiveMap.tsx';
+import { UserProfileModal } from './UserProfileModal.tsx';
 import { realtimeSync, broadcastLocalRideCreated, broadcastLocalRideUpdate } from '../lib/realtimeSync.ts';
 
 function findNearestZone(lat: number, lng: number, zoneList: Zone[]): Zone | null {
@@ -126,6 +127,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'SOLICITAR' | 'MAPA' | 'ATUAL' | 'HISTORICO' | 'AVALIACOES' | 'PERFIL' | 'AJUDA'>('SOLICITAR');
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [selectedReceiptRideId, setSelectedReceiptRideId] = useState<string | null>(null);
 
   // Service Type: Passenger Ride vs Item Delivery
@@ -253,7 +255,14 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [destLng, setDestLng] = useState<number | null>(null);
   const [destAddress, setDestAddress] = useState<string | null>(null);
 
-  // Address Search State ("Para onde vamos?")
+  // Address Search State ("Local de Embarque" & "Para onde vamos?")
+  const [pickupSearchInput, setPickupSearchInput] = useState<string>(
+    initialOrigin ? `${initialOrigin.name}, São Sebastião - SP` : 'Centro, São Sebastião - SP'
+  );
+  const [pickupSuggestions, setPickupSuggestions] = useState<PlaceSearchResult[]>([]);
+  const [isSearchingPickup, setIsSearchingPickup] = useState<boolean>(false);
+  const [isPickupSuggestionsOpen, setIsPickupSuggestionsOpen] = useState<boolean>(false);
+
   const [destSearchInput, setDestSearchInput] = useState<string>('');
   const [destSuggestions, setDestSuggestions] = useState<PlaceSearchResult[]>([]);
   const [isSearchingDest, setIsSearchingDest] = useState<boolean>(false);
@@ -261,9 +270,39 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [routeDistanceKm, setRouteDistanceKm] = useState<number | null>(null);
   const [routeDurationMin, setRouteDurationMin] = useState<number | null>(null);
 
-  // Real-time Places & Address Search
+  // Real-time Places & Address Search for Pickup
+  useEffect(() => {
+    if (!pickupSearchInput.trim() || pickupSearchInput.trim().length < 2) {
+      setPickupSuggestions([]);
+      return;
+    }
+    // Don't search if the input matches current selected address exactly
+    if (pickupSearchInput === pickupAddress) {
+      setPickupSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearchingPickup(true);
+      try {
+        const results = await searchPlaces(pickupSearchInput.trim());
+        setPickupSuggestions(results);
+      } catch (err) {
+        console.warn('Pickup search error:', err);
+      } finally {
+        setIsSearchingPickup(false);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [pickupSearchInput, pickupAddress]);
+
+  // Real-time Places & Address Search for Destination
   useEffect(() => {
     if (!destSearchInput.trim() || destSearchInput.trim().length < 2) {
+      setDestSuggestions([]);
+      return;
+    }
+    // Don't search if the input matches current selected address exactly
+    if (destSearchInput === destAddress) {
       setDestSuggestions([]);
       return;
     }
@@ -279,7 +318,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
       }
     }, 350);
     return () => clearTimeout(timer);
-  }, [destSearchInput]);
+  }, [destSearchInput, destAddress]);
 
   // Route calculation when both pickup and destination exist
   useEffect(() => {
@@ -305,6 +344,34 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [searchResults, setSearchResults] = useState<SearchDriversResponse | null>(null);
   const [searchConcluded, setSearchConcluded] = useState<boolean>(false);
+  const [showAllDrivers, setShowAllDrivers] = useState<boolean>(false);
+
+  // Auto-fetch available drivers when pickup and destination are selected
+  useEffect(() => {
+    if (destAddress && destLat !== null && destLng !== null && pickupLat && pickupLng) {
+      const effOriginZone = zones.find((z) => z.id === originZoneId) || findNearestZone(pickupLat, pickupLng, zones) || zones[0];
+      const effDestZone = zones.find((z) => z.id === destinationZoneId) || (destLat !== null && destLng !== null ? findNearestZone(destLat, destLng, zones) : null) || zones[1] || zones[0];
+
+      if (effOriginZone && effDestZone) {
+        searchDrivers(
+          effOriginZone.id,
+          effDestZone.id,
+          serviceType === 'DELIVERY' ? 1 : passengers,
+          pickupLat,
+          pickupLng,
+          destLat,
+          destLng
+        )
+          .then((res) => {
+            setSearchResults(res);
+            setSearchConcluded(true);
+          })
+          .catch((err) => {
+            console.warn('Auto search drivers error:', err);
+          });
+      }
+    }
+  }, [destAddress, destLat, destLng, pickupLat, pickupLng, originZoneId, destinationZoneId, passengers, serviceType, zones]);
 
   // Requesting Ride
   const [selectedDriverForRequest, setSelectedDriverForRequest] = useState<any | null>(null);
@@ -550,11 +617,14 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         reverseGeocode(lat, lng)
           .then((geo) => {
             setPickupAddress(geo.address);
+            setPickupSearchInput(geo.address);
             const nearest = findNearestZone(lat, lng, zones);
             if (nearest) setOriginZoneId(nearest.id);
           })
           .catch(() => {
-            setPickupAddress(`GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+            const fallbackAddr = `GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+            setPickupAddress(fallbackAddr);
+            setPickupSearchInput(fallbackAddr);
           });
 
         if (!pickupLandmark) {
@@ -572,6 +642,13 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
 
   const handleConfirmRequest = async () => {
     if (!selectedDriverForRequest || !originZone || !destinationZone) return;
+
+    // Check mandatory profile photo for passenger recognition
+    if (!passengerAvatarUrl || passengerAvatarUrl.trim() === '') {
+      alert('Foto de Perfil Obrigatória: Adicione uma selfie ou foto do seu rosto em "Meu Perfil" para que o motorista possa reconhecer você no embarque.');
+      setIsProfileModalOpen(true);
+      return;
+    }
 
     try {
       setIsSubmittingRide(true);
@@ -1068,15 +1145,15 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         </button>
 
         <button
-          onClick={() => setActiveTab('PERFIL')}
+          onClick={() => setIsProfileModalOpen(true)}
           className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-            activeTab === 'PERFIL'
+            isProfileModalOpen
               ? 'bg-emerald-500 text-slate-950 shadow-md'
               : 'text-slate-300 hover:text-white hover:bg-slate-800'
           }`}
         >
           <User className="w-4 h-4" />
-          <span>Perfil</span>
+          <span>Meu Perfil & Recibos</span>
         </button>
 
         <button
@@ -1190,6 +1267,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                     setPickupLat(lat);
                     setPickupLng(lng);
                     setPickupAddress(addr);
+                    setPickupSearchInput(addr);
                     const nearest = findNearestZone(lat, lng, zones);
                     if (nearest) setOriginZoneId(nearest.id);
                   }}
@@ -1229,32 +1307,120 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                 </div>
 
                 <form onSubmit={handlePerformSearch} className="space-y-4">
-                  {/* 1. Local de Embarque Card */}
-                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                  {/* 1. Local de Embarque Card (Permite digitar endereço e/ou usar GPS e mapa) */}
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2.5 relative">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                         <MapPin className="w-3.5 h-3.5 text-emerald-400" />
                         Local de Embarque
                       </span>
-                      <button
-                        type="button"
-                        onClick={handleCapturePickupGps}
-                        disabled={isLocatingGps}
-                        className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-500/30 px-2 py-1 rounded-lg transition-colors cursor-pointer"
-                        title="Usar minha localização GPS atual"
-                      >
-                        <Navigation className={`w-3 h-3 ${isLocatingGps ? 'animate-spin' : ''}`} />
-                        <span>{isLocatingGps ? 'Obtendo GPS...' : 'Usar GPS'}</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {pickupSearchInput && pickupSearchInput !== pickupAddress && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPickupSearchInput(pickupAddress);
+                              setIsPickupSuggestionsOpen(false);
+                            }}
+                            className="text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
+                            title="Restaurar endereço selecionado"
+                          >
+                            Restaurar
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleCapturePickupGps}
+                          disabled={isLocatingGps}
+                          className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-500/30 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                          title="Usar minha localização GPS atual"
+                        >
+                          <Navigation className={`w-3 h-3 ${isLocatingGps ? 'animate-spin' : ''}`} />
+                          <span>{isLocatingGps ? 'Obtendo GPS...' : 'Usar GPS'}</span>
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="text-xs font-semibold text-white bg-slate-900/80 p-2.5 rounded-lg border border-slate-800/80 break-words flex items-start gap-2">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-1 animate-pulse" />
-                      <span>{pickupAddress || 'São Sebastião - SP'}</span>
+                    {/* Input de Digitação do Embarque com Autocomplete */}
+                    <div className="relative">
+                      <div className="relative flex items-center">
+                        <MapPin className="w-4 h-4 text-emerald-400 absolute left-3 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={pickupSearchInput}
+                          onChange={(e) => {
+                            setPickupSearchInput(e.target.value);
+                            setIsPickupSuggestionsOpen(true);
+                          }}
+                          onFocus={() => setIsPickupSuggestionsOpen(true)}
+                          placeholder="Digite seu local de embarque (rua, bairro, praia)..."
+                          className="w-full bg-slate-900 text-white text-xs pl-9 pr-14 py-2.5 rounded-xl border border-slate-800 focus:border-emerald-500 outline-none transition-colors"
+                        />
+                        <div className="absolute right-2 flex items-center gap-1">
+                          {isSearchingPickup && (
+                            <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin mr-1" />
+                          )}
+                          {pickupSearchInput && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPickupSearchInput('');
+                                setIsPickupSuggestionsOpen(true);
+                              }}
+                              className="text-slate-500 hover:text-slate-300 p-1 rounded-full transition-colors cursor-pointer"
+                              title="Limpar campo de embarque"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Dropdown de Sugestões de Embarque */}
+                      {isPickupSuggestionsOpen && (
+                        <div className="absolute left-0 right-0 mt-1 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl z-40 max-h-56 overflow-y-auto p-1.5 space-y-1">
+                          {pickupSuggestions.length > 0 ? (
+                            pickupSuggestions.map((place, idx) => (
+                              <button
+                                key={`pickup-sugg-${idx}-${place.lat}-${place.lng}`}
+                                type="button"
+                                onClick={() => {
+                                  setPickupLat(place.lat);
+                                  setPickupLng(place.lng);
+                                  const formatted = `${place.title}${place.subtitle ? ' - ' + place.subtitle : ''}`;
+                                  setPickupAddress(formatted);
+                                  setPickupSearchInput(formatted);
+                                  setIsPickupSuggestionsOpen(false);
+                                  const nearest = findNearestZone(place.lat, place.lng, zones);
+                                  if (nearest) setOriginZoneId(nearest.id);
+                                }}
+                                className="w-full text-left p-2 rounded-lg hover:bg-emerald-500/20 transition-colors flex items-start gap-2 cursor-pointer"
+                              >
+                                <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-xs font-bold text-white block truncate">{place.title}</span>
+                                  <span className="text-[10px] text-slate-400 block truncate">{place.subtitle}</span>
+                                </div>
+                                {place.isZone && (
+                                  <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-bold self-center">
+                                    Bairro
+                                  </span>
+                                )}
+                              </button>
+                            ))
+                          ) : (
+                            <div className="p-3 text-center text-xs text-slate-400">
+                              {isSearchingPickup
+                                ? 'Buscando locais em São Sebastião...'
+                                : 'Digite para ver sugestões de ruas, praias e bairros ou arraste o mapa.'}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
-                    <p className="text-[10px] text-slate-500">
-                      💡 O pino de embarque fica fixo no centro do mapa. Arraste o mapa para posicionar com precisão.
+                    <p className="text-[10px] text-slate-500 flex items-center justify-between">
+                      <span>💡 Você pode digitar o endereço acima ou arrastar o pino no mapa.</span>
                     </p>
                   </div>
 
@@ -1518,21 +1684,25 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
             </div>
           </div>
 
-          {/* Search Results Area */}
+          {/* Search Results Area - MOTORISTAS DISPONÍVEIS */}
           {searchConcluded && searchResults && (
-            <div className="space-y-4">
+            <div className="space-y-4 pt-2">
               <div className="flex flex-col gap-1">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-lg font-black text-white flex items-center gap-2 uppercase tracking-wide">
                     <span>Motoristas Disponíveis</span>
-                    <span className="text-xs bg-emerald-950 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">
-                      {searchResults.totalFound} {searchResults.totalFound === 1 ? 'encontrado' : 'encontrados'}
+                    <span className="text-xs bg-emerald-950 text-emerald-400 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-bold">
+                      {searchResults.totalFound} {searchResults.totalFound === 1 ? 'disponível' : 'disponíveis'}
                     </span>
                   </h3>
-                  <span className="text-xs text-slate-400">
-                    Estimativa de trajeto: {searchResults.distanceKm} km • ~{searchResults.estimatedDurationMin} min
+                  <span className="text-xs text-slate-400 font-medium">
+                    Trajeto estimado: <strong>{searchResults.distanceKm} km</strong> • ~{searchResults.estimatedDurationMin} min
                   </span>
                 </div>
+
+                <p className="text-xs text-slate-400">
+                  Ordenado pelo menor preço estimado e menor tempo de chegada.
+                </p>
 
                 {/* Dynamic Pricing Alert */}
                 {searchResults.isDynamicActive && (
@@ -1560,7 +1730,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   </div>
                   <h4 className="text-base font-bold text-white">Nenhum motorista disponível no momento.</h4>
                   <p className="text-xs text-slate-400 max-w-md mx-auto">
-                    Não há motoristas cadastrados e online para esta rota no momento. Tente novamente em alguns minutos.
+                    Não há motoristas cadastrados e online para esta rota no momento. Tente novamente em alguns instantes.
                   </p>
                   <button
                     onClick={onGoToDriverSignup}
@@ -1570,70 +1740,95 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {searchResults.results.map((driver) => {
-                    const isDelivery = serviceType === 'DELIVERY';
-                    const displayVehicleText = isDelivery
-                      ? (deliveryVehicle === 'MOTO' ? '🏍️ Motocicleta Honda CG Titan 160 (Preta)' : '🚲 Bicicleta Caloi Vulcan (Vermelha)')
-                      : `${driver.vehicle.brand} ${driver.vehicle.model} • ${driver.vehicle.color}`;
-                    
-                    const labelRoleText = isDelivery ? 'Entregador Verificado' : 'Verificado';
-                    const priceLabel = isDelivery ? 'Preço da entrega' : 'Preço do motorista';
-                    const selectButtonText = isDelivery ? 'Escolher este Entregador' : 'Escolher este Motorista';
-                    const capacityLabel = isDelivery ? `Tipo: Envio por ${deliveryVehicle === 'MOTO' ? 'Moto' : 'Bike'}` : `Capacidade: ${driver.vehicle.capacity} passageiros`;
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {(showAllDrivers ? searchResults.results : searchResults.results.slice(0, 5)).map((driver) => {
+                      const isDelivery = serviceType === 'DELIVERY';
+                      const vehicleModel = driver.vehicle?.model ? `${driver.vehicle.brand} ${driver.vehicle.model}` : 'Veículo Cadastrado';
+                      const vehicleColor = driver.vehicle?.color || 'Cor padrão';
+                      const vehiclePlate = driver.vehicle?.licensePlate ? ` • Placa: ${driver.vehicle.licensePlate}` : '';
+                      const displayVehicleText = isDelivery
+                        ? (deliveryVehicle === 'MOTO' ? '🏍️ Moto Honda CG Titan 160 • Preta' : '🚲 Bicicleta Caloi Vulcan • Vermelha')
+                        : `${vehicleModel} • ${vehicleColor}${vehiclePlate}`;
+                      
+                      const distanceToPassenger = typeof driver.distanceToPickupKm === 'number' ? `${driver.distanceToPickupKm} km` : '1.2 km';
+                      const arrivalEtaText = `Chega em ~${driver.estimatedArrivalMinutes || driver.arrivalTimeMin || 4} min`;
+                      const priceFormatted = `R$ ${driver.fare.toFixed(2).replace('.', ',')}`;
 
-                    return (
-                      <div
-                        key={driver.driverId}
-                        className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 rounded-2xl p-5 space-y-4 transition-all shadow-lg relative group"
-                      >
-                        {/* Driver info header */}
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            <img
-                              src={driver.avatarUrl}
-                              alt={driver.name}
-                              className="w-12 h-12 rounded-xl object-cover border border-slate-700 shadow-md"
-                            />
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <h4 className="font-bold text-white text-sm">{driver.name}</h4>
-                                <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-500/30 px-1 rounded font-semibold">
-                                  {labelRoleText}
-                                </span>
+                      return (
+                        <div
+                          key={driver.driverId}
+                          className="bg-slate-900 border border-slate-800 hover:border-emerald-500/60 rounded-2xl p-4 sm:p-5 space-y-3.5 transition-all shadow-lg relative group flex flex-col justify-between"
+                        >
+                          {/* Driver header & price */}
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <img
+                                src={driver.avatarUrl}
+                                alt={driver.name}
+                                className="w-12 h-12 rounded-xl object-cover border border-slate-700 shadow-md shrink-0"
+                              />
+                              <div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <h4 className="font-bold text-white text-sm">{driver.name}</h4>
+                                  <div className="flex items-center gap-1 text-[11px] text-amber-400 font-black bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
+                                    <Star className="w-3 h-3 fill-amber-400" />
+                                    <span>{driver.ratingAverage.toFixed(1)}</span>
+                                  </div>
+                                </div>
+                                <p className="text-xs text-slate-300 font-medium mt-0.5">{displayVehicleText}</p>
                               </div>
-                              <p className="text-xs text-slate-400">{displayVehicleText}</p>
-                              <div className="flex items-center gap-1 text-[11px] text-amber-400 font-bold mt-0.5">
-                                <Star className="w-3 h-3 fill-amber-400" />
-                                <span>{driver.ratingAverage.toFixed(1)}</span>
-                                <span className="text-slate-500 font-normal">({driver.ratingCount} avaliações)</span>
-                              </div>
+                            </div>
+
+                            {/* Prominent Price */}
+                            <div className="text-right shrink-0">
+                              <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Valor Estimado</span>
+                              <span className="text-xl sm:text-2xl font-black text-emerald-400 block">{priceFormatted}</span>
                             </div>
                           </div>
 
-                          {/* Price badge */}
-                          <div className="text-right">
-                            <span className="text-xs text-slate-400 block">{priceLabel}</span>
-                            <span className="text-xl font-black text-emerald-400">R$ {driver.fare.toFixed(2)}</span>
+                          {/* Distance & Arrival ETA */}
+                          <div className="bg-slate-950/80 rounded-xl px-3 py-2 border border-slate-800 flex items-center justify-between text-xs text-slate-300">
+                            <div className="flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              <span>{distanceToPassenger} do embarque</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-sky-400 font-semibold">
+                              <Clock className="w-3.5 h-3.5 shrink-0" />
+                              <span>{arrivalEtaText}</span>
+                            </div>
                           </div>
-                        </div>
 
-                        <div className="border-t border-slate-800/80 pt-3 flex items-center justify-between text-xs text-slate-400">
-                          <span>Chegada em ~{driver.arrivalTimeMin} min</span>
-                          <span className="text-slate-400">{capacityLabel}</span>
+                          {/* Direct Solicitar Button */}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDriverForRequest(driver)}
+                            className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/25 active:scale-[0.98]"
+                          >
+                            <Car className="w-4 h-4 text-slate-950" />
+                            <span>Solicitar</span>
+                          </button>
                         </div>
+                      );
+                    })}
+                  </div>
 
-                        {/* Select driver for ride button */}
-                        <button
-                          onClick={() => setSelectedDriverForRequest(driver)}
-                          className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-md"
-                        >
-                          <span>{selectButtonText}</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    );
-                  })}
+                  {/* "Ver mais motoristas" Toggle button if more than 5 */}
+                  {searchResults.results.length > 5 && (
+                    <div className="text-center pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowAllDrivers(!showAllDrivers)}
+                        className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-white text-xs font-bold border border-slate-700 transition-colors inline-flex items-center gap-2 cursor-pointer"
+                      >
+                        {showAllDrivers ? (
+                          <span>Mostrar menos motoristas</span>
+                        ) : (
+                          <span>Ver mais motoristas (+{searchResults.results.length - 5})</span>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -2616,6 +2811,28 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         <ReportModal
           ride={activeRide}
           onClose={() => setIsReportModalOpen(false)}
+        />
+      )}
+
+      {/* User Profile & Receipts Modal */}
+      {isProfileModalOpen && (
+        <UserProfileModal
+          isOpen={isProfileModalOpen}
+          onClose={() => setIsProfileModalOpen(false)}
+          role="PASSENGER"
+          userId={passengerPhone}
+          name={passengerName}
+          phone={passengerPhone}
+          email={passengerEmail}
+          avatarUrl={passengerAvatarUrl}
+          rides={allRides}
+          onProfileUpdated={(updated) => {
+            setPassengerName(updated.name);
+            setPassengerPhone(updated.phone);
+            if (updated.email !== undefined) setPassengerEmail(updated.email);
+            if (updated.avatarUrl) setPassengerAvatarUrl(updated.avatarUrl);
+          }}
+          onDeleteAccount={handleDeleteOwnAccount}
         />
       )}
 

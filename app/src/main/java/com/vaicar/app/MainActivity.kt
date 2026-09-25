@@ -85,6 +85,25 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Initialize Google Maps SDK Latest Renderer & Log initialization status
+        try {
+            com.google.android.gms.maps.MapsInitializer.initialize(applicationContext, com.google.android.gms.maps.MapsInitializer.Renderer.LATEST) { renderer ->
+                when (renderer) {
+                    com.google.android.gms.maps.MapsInitializer.Renderer.LATEST -> {
+                        android.util.Log.i("VaiCarMaps", "Google Maps SDK initialized with LATEST renderer.")
+                    }
+                    com.google.android.gms.maps.MapsInitializer.Renderer.LEGACY -> {
+                        android.util.Log.i("VaiCarMaps", "Google Maps SDK initialized with LEGACY renderer.")
+                    }
+                    else -> {
+                        android.util.Log.i("VaiCarMaps", "Google Maps SDK initialized with renderer: $renderer")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("VaiCarMaps", "Google Maps SDK MapsInitializer failed: ${e.message}", e)
+        }
+
         val initialScreen = intent.getStringExtra("initial_screen")
 
         setContent {

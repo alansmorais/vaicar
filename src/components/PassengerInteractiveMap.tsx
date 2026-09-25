@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { Zone, Driver, Ride } from '../types.ts';
 import { reverseGeocode, computeRouteDirections, decodePolyline, searchPlaces, PlaceSearchResult } from '../lib/api.ts';
+import { MapErrorBoundary } from './MapErrorBoundary.tsx';
 
 export interface PassengerInteractiveMapProps {
   zones: Zone[];
@@ -320,122 +321,124 @@ export const PassengerInteractiveMap: React.FC<PassengerInteractiveMapProps> = (
     >
       {/* Real Google Maps Container */}
       <div className="relative w-full h-full">
-        <Map
-          id="vaicar-passenger-map"
-          mapId="DEMO_MAP_ID"
-          defaultCenter={defaultCenter}
-          defaultZoom={14}
-          gestureHandling="greedy"
-          disableDefaultUI={false}
-          zoomControl={true}
-          mapTypeControl={false}
-          streetViewControl={false}
-          fullscreenControl={false}
-          onCameraChanged={handleCameraChange}
-          onClick={handleMapClick}
-          internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
-          className="w-full h-full"
-        >
-          <MapController
-            targetCenter={panTarget}
-            routeBounds={
-              destLat && destLng
-                ? {
-                    minLat: Math.min(pickupLat, destLat) - 0.01,
-                    maxLat: Math.max(pickupLat, destLat) + 0.01,
-                    minLng: Math.min(pickupLng, destLng) - 0.01,
-                    maxLng: Math.max(pickupLng, destLng) + 0.01,
-                  }
-                : null
-            }
-          />
-
-          {/* 1. Pickup Marker (Shown when destination is set) */}
-          {destLat && (
-            <AdvancedMarker position={{ lat: pickupLat, lng: pickupLng }} title="Local de Embarque">
-              <div className="flex flex-col items-center">
-                <span className="bg-emerald-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded shadow-md border border-emerald-300 whitespace-nowrap mb-1">
-                  📍 Embarque
-                </span>
-                <div className="w-8 h-8 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-lg border-2 border-white">
-                  <MapPin className="w-5 h-5 fill-current" />
-                </div>
-              </div>
-            </AdvancedMarker>
-          )}
-
-          {/* 2. Destination Marker */}
-          {destLat && destLng && (
-            <AdvancedMarker position={{ lat: destLat, lng: destLng }} title="Destino">
-              <div className="flex flex-col items-center">
-                <span className="bg-sky-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded shadow-md border border-sky-300 whitespace-nowrap mb-1">
-                  🏁 Destino
-                </span>
-                <div className="w-8 h-8 rounded-full bg-sky-500 text-slate-950 flex items-center justify-center shadow-lg border-2 border-white">
-                  <Flag className="w-4 h-4 fill-current" />
-                </div>
-              </div>
-            </AdvancedMarker>
-          )}
-
-          {/* 3. Nearby Online Drivers Markers */}
-          {availableDrivers &&
-            availableDrivers.map((drv: any) => {
-              const dLat = drv.lat || drv.currentLat || (drv.zone ? drv.zone.lat : -23.805);
-              const dLng = drv.lng || drv.currentLng || (drv.zone ? drv.zone.lng : -45.402);
-              if (!dLat || !dLng) return null;
-
-              return (
-                <AdvancedMarker
-                  key={`driver-${drv.id || drv.driverId}`}
-                  position={{ lat: dLat, lng: dLng }}
-                  title={`${drv.name} (${drv.vehicle?.brand || 'Carro'})`}
-                  onClick={() => onSelectDriver && onSelectDriver(drv)}
-                >
-                  <div className="group cursor-pointer flex flex-col items-center">
-                    <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/90 text-white text-[10px] font-bold px-2 py-0.5 rounded border border-slate-700 shadow whitespace-nowrap mb-1">
-                      {drv.name}
-                    </span>
-                    <div className="w-7 h-7 rounded-full bg-slate-900 text-emerald-400 border-2 border-emerald-400 flex items-center justify-center shadow-md hover:scale-110 transition-transform">
-                      <Car className="w-4 h-4" />
-                    </div>
-                  </div>
-                </AdvancedMarker>
-              );
-            })}
-
-          {/* 4. Live Driver Marker for Active Ride */}
-          {liveDriverPos && (
-            <AdvancedMarker
-              position={{ lat: liveDriverPos.lat, lng: liveDriverPos.lng }}
-              title={`Motorista: ${activeRide?.driverName || 'VaiCar'}`}
-            >
-              <div className="flex flex-col items-center animate-pulse">
-                <span className="bg-emerald-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded shadow-lg border border-emerald-200 whitespace-nowrap mb-1">
-                  🚗 {activeRide?.driverName?.split(' ')[0] || 'Motorista'}
-                </span>
-                <div
-                  className="w-9 h-9 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-2xl border-2 border-white transform transition-transform"
-                  style={{
-                    transform: `rotate(${liveDriverPos.heading || 0}deg)`,
-                  }}
-                >
-                  <Navigation className="w-5 h-5 fill-current" />
-                </div>
-              </div>
-            </AdvancedMarker>
-          )}
-
-          {/* 5. Route Polyline on Roads */}
-          {routePath.length > 0 && (
-            <Polyline
-              path={routePath}
-              strokeColor="#10B981"
-              strokeOpacity={0.85}
-              strokeWeight={5}
+        <MapErrorBoundary>
+          <Map
+            id="vaicar-passenger-map"
+            mapId="DEMO_MAP_ID"
+            defaultCenter={defaultCenter}
+            defaultZoom={14}
+            gestureHandling="greedy"
+            disableDefaultUI={false}
+            zoomControl={true}
+            mapTypeControl={false}
+            streetViewControl={false}
+            fullscreenControl={false}
+            onCameraChanged={handleCameraChange}
+            onClick={handleMapClick}
+            internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
+            className="w-full h-full"
+          >
+            <MapController
+              targetCenter={panTarget}
+              routeBounds={
+                destLat && destLng
+                  ? {
+                      minLat: Math.min(pickupLat, destLat) - 0.01,
+                      maxLat: Math.max(pickupLat, destLat) + 0.01,
+                      minLng: Math.min(pickupLng, destLng) - 0.01,
+                      maxLng: Math.max(pickupLng, destLng) + 0.01,
+                    }
+                  : null
+              }
             />
-          )}
-        </Map>
+
+            {/* 1. Pickup Marker (Shown when destination is set) */}
+            {destLat && (
+              <AdvancedMarker position={{ lat: pickupLat, lng: pickupLng }} title="Local de Embarque">
+                <div className="flex flex-col items-center">
+                  <span className="bg-emerald-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded shadow-md border border-emerald-300 whitespace-nowrap mb-1">
+                    📍 Embarque
+                  </span>
+                  <div className="w-8 h-8 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-lg border-2 border-white">
+                    <MapPin className="w-5 h-5 fill-current" />
+                  </div>
+                </div>
+              </AdvancedMarker>
+            )}
+
+            {/* 2. Destination Marker */}
+            {destLat && destLng && (
+              <AdvancedMarker position={{ lat: destLat, lng: destLng }} title="Destino">
+                <div className="flex flex-col items-center">
+                  <span className="bg-sky-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded shadow-md border border-sky-300 whitespace-nowrap mb-1">
+                    🏁 Destino
+                  </span>
+                  <div className="w-8 h-8 rounded-full bg-sky-500 text-slate-950 flex items-center justify-center shadow-lg border-2 border-white">
+                    <Flag className="w-4 h-4 fill-current" />
+                  </div>
+                </div>
+              </AdvancedMarker>
+            )}
+
+            {/* 3. Nearby Online Drivers Markers */}
+            {availableDrivers &&
+              availableDrivers.map((drv: any) => {
+                const dLat = drv.lat || drv.currentLat || (drv.zone ? drv.zone.lat : -23.805);
+                const dLng = drv.lng || drv.currentLng || (drv.zone ? drv.zone.lng : -45.402);
+                if (!dLat || !dLng) return null;
+
+                return (
+                  <AdvancedMarker
+                    key={`driver-${drv.id || drv.driverId}`}
+                    position={{ lat: dLat, lng: dLng }}
+                    title={`${drv.name} (${drv.vehicle?.brand || 'Carro'})`}
+                    onClick={() => onSelectDriver && onSelectDriver(drv)}
+                  >
+                    <div className="group cursor-pointer flex flex-col items-center">
+                      <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/90 text-white text-[10px] font-bold px-2 py-0.5 rounded border border-slate-700 shadow whitespace-nowrap mb-1">
+                        {drv.name}
+                      </span>
+                      <div className="w-7 h-7 rounded-full bg-slate-900 text-emerald-400 border-2 border-emerald-400 flex items-center justify-center shadow-md hover:scale-110 transition-transform">
+                        <Car className="w-4 h-4" />
+                      </div>
+                    </div>
+                  </AdvancedMarker>
+                );
+              })}
+
+            {/* 4. Live Driver Marker for Active Ride */}
+            {liveDriverPos && (
+              <AdvancedMarker
+                position={{ lat: liveDriverPos.lat, lng: liveDriverPos.lng }}
+                title={`Motorista: ${activeRide?.driverName || 'VaiCar'}`}
+              >
+                <div className="flex flex-col items-center animate-pulse">
+                  <span className="bg-emerald-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded shadow-lg border border-emerald-200 whitespace-nowrap mb-1">
+                    🚗 {activeRide?.driverName?.split(' ')[0] || 'Motorista'}
+                  </span>
+                  <div
+                    className="w-9 h-9 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-2xl border-2 border-white transform transition-transform"
+                    style={{
+                      transform: `rotate(${liveDriverPos.heading || 0}deg)`,
+                    }}
+                  >
+                    <Navigation className="w-5 h-5 fill-current" />
+                  </div>
+                </div>
+              </AdvancedMarker>
+            )}
+
+            {/* 5. Route Polyline on Roads */}
+            {routePath.length > 0 && (
+              <Polyline
+                path={routePath}
+                strokeColor="#10B981"
+                strokeOpacity={0.85}
+                strokeWeight={5}
+              />
+            )}
+          </Map>
+        </MapErrorBoundary>
 
         {/* 6. Fixed Center Pickup Pin (Active when destination is not yet chosen) */}
         {!destLat && (

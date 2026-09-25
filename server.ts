@@ -616,6 +616,17 @@ async function getPassengers(): Promise<Passenger[]> {
 }
 
 // --- DISTANCE & PRICE CALCULATION HELPER ---
+function calculateHaversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Radius of earth in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Number((R * c).toFixed(2));
+}
+
 async function calculateCurrentDynamicMultiplier(zoneId?: string): Promise<{ multiplier: number; isActive: boolean }> {
   const config = await ensureConfig();
   const settings = config.dynamicPricingSettings;
@@ -662,7 +673,12 @@ async function calculateDistanceKm(originZoneId: string, destZoneId: string): Pr
   return Math.max(3.0, Math.round(diffKm * 10) / 10);
 }
 
-async function calculateDriverFare(driver: Driver, originZoneId: string, destZoneId: string): Promise<number> {
+async function calculateDriverFare(
+  driver: Driver,
+  originZoneId: string,
+  destZoneId: string,
+  overrideDistanceKm?: number
+): Promise<number> {
   const config = await ensureConfig();
   const fareSettings = config.platformFareSettings;
   const dynamic = await calculateCurrentDynamicMultiplier(originZoneId);
@@ -682,7 +698,10 @@ async function calculateDriverFare(driver: Driver, originZoneId: string, destZon
     return Math.round(routePrice);
   }
 
-  const distanceKm = await calculateDistanceKm(originZoneId, destZoneId);
+  const distanceKm = overrideDistanceKm && overrideDistanceKm > 0
+    ? overrideDistanceKm
+    : await calculateDistanceKm(originZoneId, destZoneId);
+
   const minBase = fareSettings.isEnforced
     ? Math.max(driver.pricing?.minimumFare || 20.0, fareSettings.minBaseFare)
     : (driver.pricing?.minimumFare || 20.0);
@@ -909,67 +928,132 @@ app.post('/api/v1/zones', async (req, res) => {
   }
 });
 
-// Search Drivers
-app.post('/api/v1/search/drivers', async (req, res) => {
+// Search Drivers (Used by Web and Android Passenger flow)
+app.post(['/api/v1/search/drivers', '/api/v1/rides/available-drivers'], async (req, res) => {
   try {
-    const originZoneId = req.body.originZoneId || req.body.originId;
-    const destinationZoneId = req.body.destinationZoneId || req.body.destId;
-    const passengerCount = req.body.passengerCount || 1;
-    if (!originZoneId || !destinationZoneId) return res.status(400).json({ error: 'Origem e destino são obrigatórios.' });
+    const originZoneId = req.body.originZoneId || req.body.originId || 'z-centro';
+    const destinationZoneId = req.body.destinationZoneId || req.body.destId || 'z-maresias';
+    const passengerCount = Number(req.body.passengerCount) || 1;
+    const originLat = req.body.originLat !== undefined && req.body.originLat !== null ? Number(req.body.originLat) : (req.body.pickupLat !== undefined ? Number(req.body.pickupLat) : undefined);
+    const originLng = req.body.originLng !== undefined && req.body.originLng !== null ? Number(req.body.originLng) : (req.body.pickupLng !== undefined ? Number(req.body.pickupLng) : undefined);
+    const destLat = req.body.destinationLat !== undefined && req.body.destinationLat !== null ? Number(req.body.destinationLat) : (req.body.destLat !== undefined ? Number(req.body.destLat) : undefined);
+    const destLng = req.body.destinationLng !== undefined && req.body.destinationLng !== null ? Number(req.body.destinationLng) : (req.body.destLng !== undefined ? Number(req.body.destLng) : undefined);
 
-    const distanceKm = await calculateDistanceKm(originZoneId, destinationZoneId);
-    const estimatedDurationMin = Math.max(5, Math.round(distanceKm * 1.4));
-    const drivers = await getDrivers();
-    const config = await ensureConfig();
+    const zones = await getZones();
+    const originZone = zones.find((z) => z.id === originZoneId) || zones[0];
+    const destinationZone = zones.find((z) => z.id === destinationZoneId) || zones[1] || zones[0];
+
+    // Calculate trip distance (using coordinates if provided, or zone difference)
+    let tripDistanceKm = 0;
+    if (typeof originLat === 'number' && typeof originLng === 'number' && typeof destLat === 'number' && typeof destLng === 'number') {
+      const geoDist = calculateHaversineDistanceKm(originLat, originLng, destLat, destLng);
+      tripDistanceKm = geoDist > 0.5 ? Math.max(3.0, Math.round(geoDist * 10) / 10) : await calculateDistanceKm(originZoneId, destinationZoneId);
+    } else {
+      tripDistanceKm = await calculateDistanceKm(originZoneId, destinationZoneId);
+    }
+    const estimatedDurationMin = Math.max(5, Math.round(tripDistanceKm * 1.4));
+
+    // Pickup reference point
+    const pLat = typeof originLat === 'number' ? originLat : (originZone?.lat || -23.8078);
+    const pLng = typeof originLng === 'number' ? originLng : (originZone?.lng || -45.4058);
+
+    const [drivers, rides, config] = await Promise.all([
+      getDrivers(),
+      getRides(),
+      ensureConfig(),
+    ]);
+
+    // Identify busy drivers currently on an active ride
+    const busyDriverIds = new Set<string>();
+    rides.forEach((r) => {
+      if (['ACCEPTED', 'DRIVER_ARRIVING', 'PASSENGER_PICKED_UP', 'IN_PROGRESS'].includes(r.status)) {
+        if (r.driverId) busyDriverIds.add(r.driverId);
+      }
+    });
 
     const matchingDrivers = drivers.filter((driver) => {
       const isApproved = driver.regulatoryStatus === 'APPROVED';
       const isSubscribed = driver.subscriptionStatus === 'ACTIVE' || driver.subscriptionStatus === 'TRIAL';
+      const isAvailable = driver.isOnline && !busyDriverIds.has(driver.id);
       const coversZone = !driver.operatingZones || 
                          driver.operatingZones.length === 0 || 
                          driver.operatingZones.includes('ALL') || 
                          driver.operatingZones.includes(originZoneId);
-      const hasCapacity = (driver.vehicle?.passengerCapacity || 4) >= Number(passengerCount);
-      return driver.isOnline && isApproved && isSubscribed && coversZone && hasCapacity;
+      const hasCapacity = (driver.vehicle?.passengerCapacity || 4) >= passengerCount;
+      return isApproved && isSubscribed && isAvailable && coversZone && hasCapacity;
     });
 
     const results = await Promise.all(matchingDrivers.map(async (driver) => {
-      const fare = await calculateDriverFare(driver, originZoneId, destinationZoneId);
-      const arrivalTimeMin = Math.floor(Math.random() * 4) + 3;
+      const fare = await calculateDriverFare(driver, originZoneId, destinationZoneId, tripDistanceKm);
+      
+      // Calculate real distance from driver's GPS location to passenger pickup
+      const drvLat = typeof driver.currentLat === 'number' ? driver.currentLat : (originZone?.lat || -23.8078);
+      const drvLng = typeof driver.currentLng === 'number' ? driver.currentLng : (originZone?.lng || -45.4058);
+      const rawDistance = calculateHaversineDistanceKm(drvLat, drvLng, pLat, pLng);
+      const distanceToPickupKm = Math.max(0.3, Math.round(rawDistance * 10) / 10);
+      const estimatedArrivalMinutes = Math.max(2, Math.round(distanceToPickupKm * 2.5));
+
       return {
         driverId: driver.id,
+        id: driver.id,
         name: driver.name,
-        avatarUrl: driver.avatarUrl,
-        ratingAverage: driver.ratingAverage,
-        ratingCount: driver.ratingCount,
-        ridesCompleted: driver.ridesCompleted,
-        professionalCategory: driver.professionalCategory,
-        vehicle: driver.vehicle,
+        avatarUrl: driver.avatarUrl || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=400&q=80`,
+        phone: driver.phone,
+        ratingAverage: Number((driver.ratingAverage || 5.0).toFixed(1)),
+        ratingCount: driver.ratingCount || 1,
+        ridesCompleted: driver.ridesCompleted || 0,
+        professionalCategory: driver.professionalCategory || 'Transporte Remunerado',
+        vehicle: driver.vehicle || {
+          brand: 'Carro',
+          model: 'Padrão',
+          year: 2021,
+          color: 'Prata',
+          licensePlate: 'ABC-1234',
+          passengerCapacity: 4,
+          category: 'Standard',
+        },
         fare,
-        distanceKm,
+        estimatedFare: fare,
+        distanceToPickupKm,
+        estimatedArrivalMinutes,
+        arrivalTimeMin: estimatedArrivalMinutes,
+        distanceKm: tripDistanceKm,
+        tripDistanceKm,
         estimatedDurationMin,
-        arrivalTimeMin,
+        currentLat: drvLat,
+        currentLng: drvLng,
+        lat: drvLat,
+        lng: drvLng,
         isOnline: driver.isOnline,
         pricingType: driver.pricing?.pricingType || 'KM_ONLY',
+        pixKey: driver.pixKey || driver.phone || '',
+        acceptedPaymentMethods: driver.acceptedPaymentMethods || ['PIX', 'CASH', 'CARD_CREDIT', 'CARD_DEBIT'],
       };
     }));
 
+    // Sorting: 1. Lowest estimated fare, 2. Shortest distance to pickup
+    results.sort((a, b) => {
+      if (a.fare !== b.fare) {
+        return a.fare - b.fare;
+      }
+      return a.distanceToPickupKm - b.distanceToPickupKm;
+    });
+
     const dynamic = await calculateCurrentDynamicMultiplier(originZoneId);
-    const zones = await getZones();
 
     res.json({
       totalFound: results.length,
-      distanceKm,
+      distanceKm: tripDistanceKm,
       estimatedDurationMin,
-      originZone: zones.find((z) => z.id === originZoneId),
-      destinationZone: zones.find((z) => z.id === destinationZoneId),
+      originZone,
+      destinationZone,
       dynamicMultiplier: dynamic.multiplier,
       isDynamicActive: dynamic.isActive,
       results,
     });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Search failed' });
+  } catch (err: any) {
+    console.error('Search drivers error:', err);
+    res.status(500).json({ error: 'Search failed: ' + err.message });
   }
 });
 
@@ -2007,17 +2091,6 @@ app.post('/api/v1/rides/:id/resolve-payment', async (req, res) => {
 // =========================================================================
 // REAL-TIME DRIVER LOCATION TRACKING (PASSENGER MAP & GPS INTEGRATION)
 // =========================================================================
-
-function calculateHaversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371; // Radius of earth in km
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return Number((R * c).toFixed(2));
-}
 
 // Update driver real-time GPS location (called by Driver Android App)
 app.post(['/api/v1/drivers/:id/location', '/api/v1/rides/:rideId/driver-location'], async (req, res) => {
@@ -3149,6 +3222,43 @@ app.post('/api/v1/admin/drivers/:id/subscription/mark-paid', async (req, res) =>
   }
 });
 
+// First Access Password Email Route
+app.post('/api/v1/auth/send-first-access-email', async (req, res) => {
+  try {
+    const { email, role = 'ADMIN' } = req.body;
+    const targetEmail = (email || process.env.ADMIN_EMAIL || 'alanpkmorais@gmail.com').trim().toLowerCase();
+    const initialPin = role === 'DEV' ? '778899' : '202526';
+    
+    const senderUser =
+      process.env.SMTP_USER ||
+      process.env.EMAIL_USER ||
+      process.env.GMAIL_USER ||
+      'vaicar@alansmsolutions.com';
+
+    await sendSystemMail({
+      from: `"VaiCar São Sebastião" <${senderUser}>`,
+      to: targetEmail,
+      subject: `🔑 Senha de Primeiro Acesso (${role}) - VaiCar São Sebastião`,
+      text: `Olá!\n\nSua senha provisória de primeiro acesso para a área ${role} do VaiCar São Sebastião é: ${initialPin}\n\nPor favor, cadastre sua senha definitiva no primeiro login.`,
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #020617; color: #fff; padding: 24px; border-radius: 12px; max-width: 480px; margin: 0 auto; border: 1px solid #1e293b;">
+          <h2 style="color: #10b981; margin-top: 0; font-size: 22px;">VaiCar São Sebastião</h2>
+          <p style="font-size: 13px; color: #94a3b8;">Credencial Provisória de Primeiro Acesso (${role}):</p>
+          <div style="background: #0f172a; padding: 16px; border-radius: 8px; text-align: center; border: 1px solid #334155; margin: 16px 0;">
+            <span style="font-size: 28px; font-weight: 900; letter-spacing: 4px; color: #34d399;">${initialPin}</span>
+          </div>
+          <p style="font-size: 11px; color: #64748b; margin-bottom: 0;">Você será solicitado a definir sua senha pessoal definitiva no primeiro login.</p>
+        </div>
+      `,
+    });
+    
+    res.json({ success: true, message: `Senha de primeiro acesso enviada para ${targetEmail}` });
+  } catch (err: any) {
+    console.error('Error sending first access email:', err);
+    res.status(500).json({ error: 'Falha ao enviar e-mail: ' + err.message });
+  }
+});
+
 // --- PLATFORM COSTS ---
 app.get('/api/v1/admin/costs', async (req, res) => {
   const snap = await db.collection('platformCosts').get();
@@ -3287,7 +3397,324 @@ app.post('/api/v1/admin/test-email', async (req, res) => {
   }
 });
 
-// --- PASSENGER PROFILE & AUTH ---
+// --- PHONE & EMAIL OTP VERIFICATION FOR PROFILE UPDATES ---
+app.post('/api/v1/auth/request-phone-change-pin', async (req, res) => {
+  try {
+    const { userId, userRole = 'PASSENGER', currentPhone, newPhone } = req.body;
+    if (!newPhone) {
+      return res.status(400).json({ error: 'Novo número de telefone é obrigatório.' });
+    }
+
+    const cleanNewPhone = newPhone.trim();
+    const newPhoneDigits = cleanNewPhone.replace(/\D/g, '');
+    if (newPhoneDigits.length < 10) {
+      return res.status(400).json({ error: 'Telefone inválido. Informe o DDD e o número completo.' });
+    }
+
+    // Check if new phone is already used in passengers or drivers
+    if (userRole === 'PASSENGER') {
+      const dupSnap = await db.collection('passengers').where('phone', '==', cleanNewPhone).get();
+      const otherDoc = dupSnap.docs.find((d: any) => d.id !== userId);
+      if (otherDoc) {
+        return res.status(409).json({ error: 'Este número de telefone já está associado a outra conta de passageiro.' });
+      }
+    } else if (userRole === 'DRIVER') {
+      const dupSnap = await db.collection('drivers').where('phone', '==', cleanNewPhone).get();
+      const otherDoc = dupSnap.docs.find((d: any) => d.id !== userId);
+      if (otherDoc) {
+        return res.status(409).json({ error: 'Este número de telefone já está associado a outro motorista.' });
+      }
+    }
+
+    // Determine target email for verification code
+    let targetEmail = '';
+    if (userRole === 'PASSENGER' && userId) {
+      const doc = await db.collection('passengers').doc(userId).get();
+      if (doc.exists) targetEmail = doc.data()?.email || '';
+    } else if (userRole === 'DRIVER' && userId) {
+      const doc = await db.collection('drivers').doc(userId).get();
+      if (doc.exists) targetEmail = doc.data()?.email || '';
+    }
+
+    const pin = Math.floor(1000 + Math.random() * 9000).toString();
+    const pinDocId = `change-phone-${userRole.toLowerCase()}-${userId || newPhoneDigits}`;
+
+    await db.collection('pendingPins').doc(pinDocId).set({
+      pin,
+      userId,
+      userRole,
+      newPhone: cleanNewPhone,
+      newPhoneDigits,
+      createdAt: new Date().toISOString(),
+    });
+
+    let emailSent = false;
+    if (targetEmail) {
+      try {
+        const senderUser =
+          process.env.SMTP_USER ||
+          process.env.EMAIL_USER ||
+          process.env.GMAIL_USER ||
+          'vaicar@alansmsolutions.com';
+        await sendSystemMail({
+          from: `"VaiCar São Sebastião" <${senderUser}>`,
+          to: targetEmail,
+          subject: `Código para Alteração de Telefone: ${pin}`,
+          text: `Olá! Seu código de verificação para alterar o telefone no VaiCar para ${cleanNewPhone} é: ${pin}.\n\nSe você não solicitou esta alteração, proteja sua conta.`,
+          html: `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #020617; color: #f8fafc; padding: 24px; border-radius: 16px; max-width: 480px; margin: 0 auto; border: 1px solid #1e293b;">
+              <h2 style="color: #10b981; margin: 0 0 8px 0; font-size: 22px;">VaiCar São Sebastião</h2>
+              <p style="color: #94a3b8; font-size: 13px;">Confirmação de alteração de número de telefone:</p>
+              <div style="background-color: #0f172a; padding: 18px; border-radius: 12px; text-align: center; border: 1px solid #334155; margin: 16px 0;">
+                <p style="color: #cbd5e1; font-size: 13px; margin: 0 0 8px 0;">Novo número: <strong>${cleanNewPhone}</strong></p>
+                <div style="font-size: 32px; font-weight: 900; letter-spacing: 6px; color: #10b981; padding: 10px; background: #020617; border-radius: 8px; border: 1px solid #10b981;">
+                  ${pin}
+                </div>
+              </div>
+              <p style="color: #64748b; font-size: 11px; margin: 0;">Válido por 15 minutos. Use este código para concluir a alteração no aplicativo.</p>
+            </div>
+          `,
+        });
+        emailSent = true;
+      } catch (err: any) {
+        console.warn('[OTP] Error sending phone change email:', err.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: targetEmail
+        ? `Código PIN enviado para o e-mail cadastrado (${targetEmail.replace(/(.{2})(.*)(@.*)/, '$1***$3')})!`
+        : `Código PIN gerado: ${pin}`,
+      pin: targetEmail ? undefined : pin,
+      emailSent,
+    });
+  } catch (err: any) {
+    console.error('Error in request-phone-change-pin:', err);
+    res.status(500).json({ error: 'Falha ao solicitar código: ' + err.message });
+  }
+});
+
+app.post('/api/v1/auth/verify-phone-change', async (req, res) => {
+  try {
+    const { userId, userRole = 'PASSENGER', newPhone, verificationCode } = req.body;
+    if (!newPhone || !verificationCode) {
+      return res.status(400).json({ error: 'Novo telefone e código PIN são obrigatórios.' });
+    }
+
+    const cleanNewPhone = newPhone.trim();
+    const newPhoneDigits = cleanNewPhone.replace(/\D/g, '');
+    const pinDocId = `change-phone-${userRole.toLowerCase()}-${userId || newPhoneDigits}`;
+
+    const pinDoc = await db.collection('pendingPins').doc(pinDocId).get();
+    if (!pinDoc.exists) {
+      return res.status(400).json({ error: 'Nenhum código pendente ou o código expirou. Solicite novamente.' });
+    }
+
+    const storedData = pinDoc.data();
+    if (storedData?.pin !== verificationCode.toString().trim()) {
+      return res.status(400).json({ error: 'Código incorreto. Verifique o PIN digitado.' });
+    }
+
+    // Code verified: update user account
+    if (userRole === 'PASSENGER') {
+      let docRef = db.collection('passengers').doc(userId);
+      let doc = await docRef.get();
+      if (!doc.exists) {
+        const snap = await db.collection('passengers').where('phone', '==', storedData.newPhone).get();
+        if (!snap.empty) docRef = snap.docs[0].ref;
+      }
+      await docRef.update({ phone: cleanNewPhone });
+    } else if (userRole === 'DRIVER') {
+      let docRef = db.collection('drivers').doc(userId);
+      await docRef.update({ phone: cleanNewPhone, whatsappDirectNumber: cleanNewPhone.replace(/\D/g, '') });
+    }
+
+    // Delete verified PIN
+    await db.collection('pendingPins').doc(pinDocId).delete().catch(() => {});
+
+    res.json({ success: true, updatedPhone: cleanNewPhone, message: 'Telefone atualizado com sucesso!' });
+  } catch (err: any) {
+    console.error('Error verifying phone change:', err);
+    res.status(500).json({ error: 'Falha ao validar alteração de telefone: ' + err.message });
+  }
+});
+
+app.post('/api/v1/auth/request-email-change-pin', async (req, res) => {
+  try {
+    const { userId, userRole = 'PASSENGER', newEmail } = req.body;
+    if (!newEmail || !newEmail.includes('@')) {
+      return res.status(400).json({ error: 'Novo e-mail válido é obrigatório.' });
+    }
+
+    const cleanNewEmail = newEmail.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanNewEmail)) {
+      return res.status(400).json({ error: 'Formato de e-mail inválido.' });
+    }
+
+    // Check duplicate
+    if (userRole === 'PASSENGER') {
+      const dupSnap = await db.collection('passengers').where('email', '==', cleanNewEmail).get();
+      const otherDoc = dupSnap.docs.find((d: any) => d.id !== userId);
+      if (otherDoc) {
+        return res.status(409).json({ error: 'Este e-mail já está em uso por outro passageiro.' });
+      }
+    } else if (userRole === 'DRIVER') {
+      const dupSnap = await db.collection('drivers').where('email', '==', cleanNewEmail).get();
+      const otherDoc = dupSnap.docs.find((d: any) => d.id !== userId);
+      if (otherDoc) {
+        return res.status(409).json({ error: 'Este e-mail já está em uso por outro motorista.' });
+      }
+    }
+
+    const pin = Math.floor(1000 + Math.random() * 9000).toString();
+    const pinDocId = `change-email-${userRole.toLowerCase()}-${userId || cleanNewEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+    await db.collection('pendingPins').doc(pinDocId).set({
+      pin,
+      userId,
+      userRole,
+      newEmail: cleanNewEmail,
+      createdAt: new Date().toISOString(),
+    });
+
+    let emailSent = false;
+    try {
+      const senderUser =
+        process.env.SMTP_USER ||
+        process.env.EMAIL_USER ||
+        process.env.GMAIL_USER ||
+        'vaicar@alansmsolutions.com';
+      await sendSystemMail({
+        from: `"VaiCar São Sebastião" <${senderUser}>`,
+        to: cleanNewEmail,
+        subject: `Confirme seu Novo E-mail no VaiCar: ${pin}`,
+        text: `Olá! Seu código de confirmação para cadastrar o e-mail ${cleanNewEmail} no VaiCar é: ${pin}.\n\nSe você não solicitou, desconsidere esta mensagem.`,
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #020617; color: #f8fafc; padding: 24px; border-radius: 16px; max-width: 480px; margin: 0 auto; border: 1px solid #1e293b;">
+            <h2 style="color: #10b981; margin: 0 0 8px 0; font-size: 22px;">VaiCar São Sebastião</h2>
+            <p style="color: #94a3b8; font-size: 13px;">Confirmação de novo endereço de e-mail:</p>
+            <div style="background-color: #0f172a; padding: 18px; border-radius: 12px; text-align: center; border: 1px solid #334155; margin: 16px 0;">
+              <p style="color: #cbd5e1; font-size: 13px; margin: 0 0 8px 0;">E-mail a confirmar: <strong>${cleanNewEmail}</strong></p>
+              <div style="font-size: 32px; font-weight: 900; letter-spacing: 6px; color: #10b981; padding: 10px; background: #020617; border-radius: 8px; border: 1px solid #10b981;">
+                ${pin}
+              </div>
+            </div>
+            <p style="color: #64748b; font-size: 11px; margin: 0;">Insira este código na tela do aplicativo para validar o e-mail.</p>
+          </div>
+        `,
+      });
+      emailSent = true;
+    } catch (err: any) {
+      console.warn('[OTP] Error sending email change verification:', err.message);
+    }
+
+    res.json({
+      success: true,
+      message: `Código de confirmação enviado para o novo e-mail (${cleanNewEmail})!`,
+      emailSent,
+    });
+  } catch (err: any) {
+    console.error('Error in request-email-change-pin:', err);
+    res.status(500).json({ error: 'Falha ao solicitar código: ' + err.message });
+  }
+});
+
+app.post('/api/v1/auth/verify-email-change', async (req, res) => {
+  try {
+    const { userId, userRole = 'PASSENGER', newEmail, verificationCode } = req.body;
+    if (!newEmail || !verificationCode) {
+      return res.status(400).json({ error: 'Novo e-mail e código PIN são obrigatórios.' });
+    }
+
+    const cleanNewEmail = newEmail.trim().toLowerCase();
+    const pinDocId = `change-email-${userRole.toLowerCase()}-${userId || cleanNewEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+    const pinDoc = await db.collection('pendingPins').doc(pinDocId).get();
+    if (!pinDoc.exists) {
+      return res.status(400).json({ error: 'Nenhum código pendente ou o código expirou. Solicite novamente.' });
+    }
+
+    const storedData = pinDoc.data();
+    if (storedData?.pin !== verificationCode.toString().trim()) {
+      return res.status(400).json({ error: 'Código incorreto. Verifique o PIN recebido no seu novo e-mail.' });
+    }
+
+    // Code verified: update user account
+    if (userRole === 'PASSENGER') {
+      let docRef = db.collection('passengers').doc(userId);
+      let doc = await docRef.get();
+      if (!doc.exists) {
+        const snap = await db.collection('passengers').where('email', '==', storedData.newEmail).get();
+        if (!snap.empty) docRef = snap.docs[0].ref;
+      }
+      await docRef.update({ email: cleanNewEmail });
+    } else if (userRole === 'DRIVER') {
+      let docRef = db.collection('drivers').doc(userId);
+      await docRef.update({ email: cleanNewEmail });
+    }
+
+    // Delete verified PIN
+    await db.collection('pendingPins').doc(pinDocId).delete().catch(() => {});
+
+    res.json({ success: true, updatedEmail: cleanNewEmail, message: 'E-mail atualizado com sucesso!' });
+  } catch (err: any) {
+    console.error('Error verifying email change:', err);
+    res.status(500).json({ error: 'Falha ao validar alteração de e-mail: ' + err.message });
+  }
+});
+
+// Update Driver Profile Photo / Selfie
+app.post('/api/v1/drivers/:id/photo', async (req, res) => {
+  try {
+    const { avatarUrl } = req.body;
+    if (!avatarUrl || typeof avatarUrl !== 'string') {
+      return res.status(400).json({ error: 'Foto de perfil / selfie obrigatória.' });
+    }
+
+    if (avatarUrl.length > 5 * 1024 * 1024) {
+      return res.status(400).json({ error: 'A foto excede o limite máximo permitido de 5MB.' });
+    }
+
+    const driverRef = db.collection('drivers').doc(req.params.id);
+    const driverDoc = await driverRef.get();
+    if (!driverDoc.exists) {
+      return res.status(404).json({ error: 'Motorista não encontrado.' });
+    }
+
+    await driverRef.update({ avatarUrl });
+    broadcastLiveEvent('DRIVER_UPDATED', { id: req.params.id, avatarUrl });
+    res.json({ success: true, avatarUrl, message: 'Foto de perfil do motorista atualizada com sucesso!' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Falha ao atualizar foto: ' + err.message });
+  }
+});
+
+// Get User Reports History (Minhas Ocorrências)
+app.get('/api/v1/reports/user/:contact', async (req, res) => {
+  try {
+    const rawContact = req.params.contact;
+    const cleanDigits = rawContact.replace(/\D/g, '');
+    
+    const snap = await db.collection('reports').get();
+    const userReports = snap.docs
+      .map((doc: any) => doc.data() as Report)
+      .filter((r: Report) => {
+        if (!r.reporterContact && !r.reporterName) return false;
+        const repDigits = (r.reporterContact || '').replace(/\D/g, '');
+        if (cleanDigits && repDigits && repDigits.includes(cleanDigits)) return true;
+        if (r.reporterContact?.toLowerCase() === rawContact.toLowerCase()) return true;
+        if (r.reporterName?.toLowerCase() === rawContact.toLowerCase()) return true;
+        return false;
+      });
+
+    userReports.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    res.json(userReports);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Falha ao buscar ocorrências do usuário: ' + err.message });
+  }
+});
 app.post('/api/v1/passengers/auth', async (req, res) => {
   console.log('DEBUG: Received POST /api/v1/passengers/auth');
   console.log('DEBUG: Request Body Keys:', Object.keys(req.body));
