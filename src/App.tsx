@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { APIProvider } from '@vis.gl/react-google-maps';
+import { AlertTriangle, ExternalLink, X } from 'lucide-react';
 import { Header } from './components/Header.tsx';
 import { RoleSelector } from './components/RoleSelector.tsx';
 import { PassengerDashboard } from './components/PassengerDashboard.tsx';
@@ -192,9 +194,43 @@ export default function App() {
   };
 
   const currentDriver = drivers.find((d) => d.id === currentDriverId) || drivers[0];
+  const mapsApiKey = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyAqF4zL02-t-Im_cItTvUj-gPeDs4mmGK4';
+  const [mapsAuthError, setMapsAuthError] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Listen for Google Maps JS auth / activation failures (ApiNotActivatedMapError)
+    (window as any).gm_authFailure = () => {
+      console.warn('[Google Maps] Authentication failure or API not activated on key.');
+      setMapsAuthError(true);
+    };
+
+    const handleWindowError = (event: ErrorEvent) => {
+      if (
+        (event.message && (event.message.includes('ApiNotActivatedMapError') || event.message.includes('Google Maps JavaScript API error'))) ||
+        (event.error && String(event.error).includes('ApiNotActivatedMapError'))
+      ) {
+        console.warn('[Google Maps] Caught ApiNotActivatedMapError event.');
+        setMapsAuthError(true);
+      }
+    };
+
+    window.addEventListener('error', handleWindowError);
+    return () => {
+      window.removeEventListener('error', handleWindowError);
+    };
+  }, []);
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
+    <APIProvider
+      apiKey={mapsApiKey}
+      language="pt-BR"
+      region="BR"
+      onError={(err) => {
+        console.warn('[APIProvider] Maps error:', err);
+        setMapsAuthError(true);
+      }}
+    >
+      <div className="min-h-screen w-full overflow-x-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
       <Header
         currentRole={role}
         onSelectRole={(r, extra) => {
@@ -224,6 +260,36 @@ export default function App() {
         }))}
         onOpenLegal={handleOpenLegal}
       />
+
+      {/* Google Maps Activation Advisory Banner */}
+      {mapsAuthError && (
+        <div className="bg-amber-950/80 border-b border-amber-500/40 px-4 py-2.5 text-xs text-amber-200 flex items-center justify-between gap-3 z-50">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>
+              <strong>Aviso de Configuração do Google Maps:</strong> A chave de API requer a ativação da{' '}
+              <strong>"Maps JavaScript API"</strong> no Google Cloud Console.{' '}
+              <a
+                href="https://console.cloud.google.com/apis/library/maps-backend.googleapis.com"
+                target="_blank"
+                rel="noreferrer"
+                className="underline font-bold text-amber-300 hover:text-white inline-flex items-center gap-1"
+              >
+                <span>Ativar no Google Cloud</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              . O modo de navegação interativo do VaiCar permanece ativo e funcionando.
+            </span>
+          </div>
+          <button
+            onClick={() => setMapsAuthError(false)}
+            className="text-amber-400 hover:text-white p-1 cursor-pointer transition-colors"
+            title="Fechar aviso"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 pb-16">
@@ -421,5 +487,6 @@ export default function App() {
         </div>
       </footer>
     </div>
+    </APIProvider>
   );
 }

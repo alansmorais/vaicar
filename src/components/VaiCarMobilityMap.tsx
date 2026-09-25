@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Map, AdvancedMarker, useMap } from '@vis.gl/react-google-maps';
 import {
   MapPin,
   Car,
@@ -22,6 +23,22 @@ import {
 } from 'lucide-react';
 import { Zone, MobilityMapData, Driver, Ride } from '../types.ts';
 import { fetchMobilityMapData } from '../lib/api.ts';
+
+function MobilityMapCameraController({
+  targetCenter,
+  targetZoom,
+}: {
+  targetCenter: { lat: number; lng: number } | null;
+  targetZoom?: number;
+}) {
+  const map = useMap('vaicar-city-map');
+  useEffect(() => {
+    if (!map || !targetCenter) return;
+    map.panTo(targetCenter);
+    if (targetZoom) map.setZoom(targetZoom);
+  }, [map, targetCenter, targetZoom]);
+  return null;
+}
 
 interface VaiCarMobilityMapProps {
   mode: 'PASSENGER' | 'DRIVER' | 'ADMIN';
@@ -49,6 +66,30 @@ export const VaiCarMobilityMap: React.FC<VaiCarMobilityMapProps> = ({
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [showOnlineDrivers, setShowOnlineDrivers] = useState(true);
   const [showActiveRides, setShowActiveRides] = useState(true);
+
+  // Google Maps Camera Target State
+  const [cameraTarget, setCameraTarget] = useState<{ lat: number; lng: number } | null>({
+    lat: -23.8078,
+    lng: -45.4058,
+  });
+  const [cameraZoom, setCameraZoom] = useState<number>(11);
+
+  const handleRegionFilter = (r: 'ALL' | 'NORTE' | 'CENTRO' | 'SUL') => {
+    setActiveRegionFilter(r);
+    if (r === 'NORTE') {
+      setCameraTarget({ lat: -23.74, lng: -45.38 });
+      setCameraZoom(13);
+    } else if (r === 'CENTRO') {
+      setCameraTarget({ lat: -23.8078, lng: -45.4058 });
+      setCameraZoom(14);
+    } else if (r === 'SUL') {
+      setCameraTarget({ lat: -23.7915, lng: -45.55 });
+      setCameraZoom(12);
+    } else {
+      setCameraTarget({ lat: -23.8078, lng: -45.43 });
+      setCameraZoom(11);
+    }
+  };
 
   const loadData = async () => {
     setIsLoading(true);
@@ -247,163 +288,110 @@ export const VaiCarMobilityMap: React.FC<VaiCarMobilityMapProps> = ({
       <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Visual Map Representation (Left / Center) */}
         <div className="lg:col-span-8 space-y-4">
-          <div className="relative w-full aspect-[16/10] sm:aspect-[16/9] bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-inner p-4 flex flex-col justify-between">
-            {/* Topographic & Ocean Aesthetics */}
-            <div className="absolute inset-0 opacity-15 pointer-events-none bg-[radial-gradient(#10b981_1px,transparent_1px)] [background-size:16px_16px]"></div>
-            
-            {/* Ocean Label & SP-055 Highway Indicator */}
-            <div className="absolute top-3 left-3 bg-slate-900/90 border border-slate-800 backdrop-blur-md px-3 py-1.5 rounded-xl text-[10px] text-slate-300 font-semibold flex items-center gap-2 z-10">
-              <span className="w-2 h-2 rounded-full bg-sky-500"></span>
-              <span>Canal de São Sebastião & Oceano Atlântico</span>
-            </div>
+          <div className="relative w-full h-[480px] bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-inner flex flex-col justify-between">
+            <Map
+              id="vaicar-city-map"
+              mapId="DEMO_MAP_ID"
+              defaultCenter={{ lat: -23.8078, lng: -45.4058 }}
+              defaultZoom={11}
+              gestureHandling="greedy"
+              disableDefaultUI={false}
+              zoomControl={true}
+              mapTypeControl={false}
+              streetViewControl={false}
+              internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
+              className="w-full h-full"
+            >
+              <MobilityMapCameraController targetCenter={cameraTarget} targetZoom={cameraZoom} />
 
-            <div className="absolute top-3 right-3 bg-slate-900/90 border border-slate-800 backdrop-blur-md px-3 py-1.5 rounded-xl text-[10px] text-emerald-400 font-semibold flex items-center gap-1.5 z-10">
-              <Navigation className="w-3 h-3" />
-              <span>Rodovia Rio-Santos (SP-055)</span>
-            </div>
+              {/* Zone / Beach Markers */}
+              {enrichedZones.map((z) => {
+                const isOrigin = z.id === localOriginId;
+                const isDest = z.id === localDestId;
+                const isSelected = selectedZone?.id === z.id;
+                return (
+                  <AdvancedMarker
+                    key={`map-zone-${z.id}`}
+                    position={{ lat: z.lat, lng: z.lng }}
+                    title={z.name}
+                    onClick={() => handleZoneClick(z)}
+                  >
+                    <div className="cursor-pointer flex flex-col items-center group">
+                      <div
+                        className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 border whitespace-nowrap ${
+                          isOrigin
+                            ? 'bg-emerald-500 text-slate-950 border-emerald-300 scale-105 shadow-emerald-500/30'
+                            : isDest
+                            ? 'bg-sky-500 text-slate-950 border-sky-300 scale-105 shadow-sky-500/30'
+                            : isSelected
+                            ? 'bg-slate-800 text-white border-emerald-500 scale-105'
+                            : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:border-emerald-400 hover:text-white'
+                        }`}
+                      >
+                        <MapPin
+                          className={`w-3.5 h-3.5 ${
+                            isOrigin || isDest ? 'text-slate-950' : 'text-emerald-400'
+                          }`}
+                        />
+                        <span>{z.name}</span>
+                        {z.isSurgeActive && <span className="text-[10px]">⚡{z.multiplier}x</span>}
+                        {z.onlineDrivers > 0 && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        )}
+                      </div>
+                    </div>
+                  </AdvancedMarker>
+                );
+              })}
 
-            {/* Map Coastline SVG Flow */}
-            <div className="relative w-full h-full flex flex-col justify-between py-6 px-2 z-10">
-              {/* North Zone Row */}
-              {(activeRegionFilter === 'ALL' || activeRegionFilter === 'NORTE') && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2 text-[10px] font-bold text-sky-400 uppercase tracking-widest pl-1">
-                    <span>Costa Norte (Enseada / Cigarras)</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {enrichedZones
-                      .filter((z) => z.region === 'NORTE')
-                      .map((z) => {
-                        const isOrigin = z.id === localOriginId;
-                        const isDest = z.id === localDestId;
-                        const isSelected = selectedZone?.id === z.id;
-                        return (
-                          <button
-                            key={z.id}
-                            onClick={() => handleZoneClick(z)}
-                            className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border cursor-pointer ${
-                              isOrigin
-                                ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-lg shadow-emerald-500/20 scale-105'
-                                : isDest
-                                ? 'bg-sky-500 text-slate-950 border-sky-400 shadow-lg shadow-sky-500/20 scale-105'
-                                : isSelected
-                                ? 'bg-slate-800 text-white border-emerald-500'
-                                : 'bg-slate-900/80 text-slate-300 border-slate-800 hover:border-slate-700 hover:text-white'
-                            }`}
-                          >
-                            <MapPin className={`w-3.5 h-3.5 ${isOrigin || isDest ? 'text-slate-950' : 'text-emerald-400'}`} />
-                            <span>{z.name}</span>
-                            {z.isSurgeActive && <span className="text-[10px]">⚡{z.multiplier}x</span>}
-                            {z.onlineDrivers > 0 && (
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                            )}
-                          </button>
-                        );
-                      })}
-                  </div>
-                </div>
-              )}
+              {/* Online Drivers Markers */}
+              {showOnlineDrivers &&
+                mapData?.onlineDrivers?.map((d: any) => {
+                  if (!d.lat || !d.lng) return null;
+                  return (
+                    <AdvancedMarker
+                      key={`mobility-driver-${d.id}`}
+                      position={{ lat: d.lat, lng: d.lng }}
+                      title={`Motorista: ${d.name}`}
+                    >
+                      <div className="w-7 h-7 rounded-full bg-slate-900 text-emerald-400 border border-emerald-400 flex items-center justify-center shadow-lg">
+                        <Car className="w-4 h-4" />
+                      </div>
+                    </AdvancedMarker>
+                  );
+                })}
+            </Map>
 
-              {/* Center Zone Row */}
-              {(activeRegionFilter === 'ALL' || activeRegionFilter === 'CENTRO') && (
-                <div className="space-y-1.5 py-2">
-                  <div className="flex items-center gap-2 text-[10px] font-bold text-emerald-400 uppercase tracking-widest pl-1">
-                    <span>Centro Histórico & Balsa Ilhabela</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {enrichedZones
-                      .filter((z) => z.region === 'CENTRO')
-                      .map((z) => {
-                        const isOrigin = z.id === localOriginId;
-                        const isDest = z.id === localDestId;
-                        const isSelected = selectedZone?.id === z.id;
-                        return (
-                          <button
-                            key={z.id}
-                            onClick={() => handleZoneClick(z)}
-                            className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border cursor-pointer ${
-                              isOrigin
-                                ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-lg shadow-emerald-500/20 scale-105'
-                                : isDest
-                                ? 'bg-sky-500 text-slate-950 border-sky-400 shadow-lg shadow-sky-500/20 scale-105'
-                                : isSelected
-                                ? 'bg-slate-800 text-white border-emerald-500'
-                                : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:border-slate-600 hover:text-white'
-                            }`}
-                          >
-                            <MapPin className={`w-4 h-4 ${isOrigin || isDest ? 'text-slate-950' : 'text-emerald-400'}`} />
-                            <span>{z.name}</span>
-                            {z.onlineDrivers > 0 && (
-                              <span className="text-[10px] font-mono bg-emerald-950 text-emerald-400 px-1.5 py-0.2 rounded border border-emerald-500/30">
-                                {z.onlineDrivers} carros
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                  </div>
-                </div>
-              )}
-
-              {/* South Zone Row */}
-              {(activeRegionFilter === 'ALL' || activeRegionFilter === 'SUL') && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2 text-[10px] font-bold text-amber-400 uppercase tracking-widest pl-1">
-                    <span>Costa Sul (Maresias / Boiçucanga / Juquehy)</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {enrichedZones
-                      .filter((z) => z.region === 'SUL')
-                      .map((z) => {
-                        const isOrigin = z.id === localOriginId;
-                        const isDest = z.id === localDestId;
-                        const isSelected = selectedZone?.id === z.id;
-                        return (
-                          <button
-                            key={z.id}
-                            onClick={() => handleZoneClick(z)}
-                            className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border cursor-pointer ${
-                              isOrigin
-                                ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-lg shadow-emerald-500/20 scale-105'
-                                : isDest
-                                ? 'bg-sky-500 text-slate-950 border-sky-400 shadow-lg shadow-sky-500/20 scale-105'
-                                : isSelected
-                                ? 'bg-slate-800 text-white border-emerald-500'
-                                : 'bg-slate-900/80 text-slate-300 border-slate-800 hover:border-slate-700 hover:text-white'
-                            }`}
-                          >
-                            <MapPin className={`w-3.5 h-3.5 ${isOrigin || isDest ? 'text-slate-950' : 'text-amber-400'}`} />
-                            <span>{z.name}</span>
-                            {z.isSurgeActive && <span className="text-[10px]">⚡{z.multiplier}x</span>}
-                            {z.onlineDrivers > 0 && (
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                            )}
-                          </button>
-                        );
-                      })}
-                  </div>
-                </div>
-              )}
+            {/* Top Info Floating Pills */}
+            <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none z-10">
+              <div className="bg-slate-900/90 border border-slate-800 backdrop-blur-md px-3 py-1.5 rounded-xl text-[10px] text-slate-300 font-semibold flex items-center gap-2 pointer-events-auto">
+                <span className="w-2 h-2 rounded-full bg-sky-500" />
+                <span>Canal de São Sebastião & Ilhabela</span>
+              </div>
+              <div className="bg-slate-900/90 border border-slate-800 backdrop-blur-md px-3 py-1.5 rounded-xl text-[10px] text-emerald-400 font-semibold flex items-center gap-1.5 pointer-events-auto">
+                <Navigation className="w-3 h-3" />
+                <span>Rodovia Rio-Santos (SP-055)</span>
+              </div>
             </div>
 
             {/* Bottom Legend */}
-            <div className="flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-400 border-t border-slate-800/80 pt-2.5 z-10">
+            <div className="bg-slate-950/90 border-t border-slate-800/80 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-400 z-10">
               <div className="flex items-center gap-4">
                 <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
-                  <span>Origem (Embarque)</span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                  <span>Origem</span>
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-sky-400"></span>
-                  <span>Destino (Desembarque)</span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-sky-400" />
+                  <span>Destino</span>
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                  <span className="w-2 h-2 rounded-full bg-amber-400" />
                   <span>Alta Procura (⚡)</span>
                 </span>
               </div>
               <span className="text-[10px] text-slate-400">
-                Clique nos bairros para traçar rotas instantâneas
+                Clique nos pontos do mapa para selecionar origem e destino
               </span>
             </div>
           </div>

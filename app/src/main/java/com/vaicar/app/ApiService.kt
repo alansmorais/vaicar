@@ -976,6 +976,33 @@ object ApiService {
         })
     }
 
+    fun deletePassenger(id: String, onSuccess: (String) -> Unit, onError: (Exception) -> Unit) {
+        val request = Request.Builder()
+            .url("${NetworkConfig.apiBaseUrl}/admin/passengers/$id")
+            .delete()
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val bodyString = response.body?.string() ?: ""
+                    if (response.isSuccessful) {
+                        mainHandler.post { onSuccess("Passageiro excluído com sucesso do banco de dados!") }
+                    } else {
+                        val errMsg = parseHttpError(response.code, bodyString)
+                        mainHandler.post { onError(Exception(errMsg)) }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post { onError(Exception(parseNetworkError(e), e)) }
+                }
+            }
+        })
+    }
+
     fun approveDriver(id: String, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
         val request = Request.Builder()
             .url("${NetworkConfig.apiBaseUrl}/admin/drivers/$id/approve")

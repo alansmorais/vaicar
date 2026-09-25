@@ -14,6 +14,7 @@ import {
   Car,
   Phone,
   AlertTriangle,
+  AlertCircle,
   History,
   Star,
   User,
@@ -30,10 +31,12 @@ import {
   LogOut,
   Navigation,
   XCircle,
+  X,
   Package,
   FileText,
   Download,
   Compass,
+  Trash2,
 } from 'lucide-react';
 import { Zone, Ride, Driver, PaymentMethod, SearchDriversResponse } from '../types.ts';
 import {
@@ -47,12 +50,30 @@ import {
   fetchPassengerRides,
   fetchPassengerReviews,
   getWhatsAppContact,
+  fetchUnpaidRides,
+  contestRidePayment,
+  deleteOwnPassengerAccount,
 } from '../lib/api.ts';
 import { LiveRideTracker } from './LiveRideTracker.tsx';
 import { ReportModal } from './ReportModal.tsx';
 import { RideReceiptModal } from './RideReceiptModal.tsx';
 import { VaiCarMobilityMap } from './VaiCarMobilityMap.tsx';
+import { PassengerInteractiveMap } from './PassengerInteractiveMap.tsx';
 import { realtimeSync, broadcastLocalRideCreated, broadcastLocalRideUpdate } from '../lib/realtimeSync.ts';
+
+function findNearestZone(lat: number, lng: number, zoneList: Zone[]): Zone | null {
+  if (!zoneList || zoneList.length === 0) return null;
+  let closest = zoneList[0];
+  let minDistance = Infinity;
+  for (const z of zoneList) {
+    const d = Math.hypot(z.lat - lat, z.lng - lng);
+    if (d < minDistance) {
+      minDistance = d;
+      closest = z;
+    }
+  }
+  return closest;
+}
 
 export function parseDeliveryDetails(originLandmark?: string) {
   if (!originLandmark || !originLandmark.startsWith('📦 [DELIVERY')) {
@@ -139,6 +160,38 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [isLoginMode, setIsLoginMode] = useState(false);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [emailSentSuccessfully, setEmailSentSuccessfully] = useState<boolean>(false);
+  const [isDeleteAccountModalOpen, setIsDeleteAccountModalOpen] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
+
+  const handleDeleteOwnAccount = async () => {
+    try {
+      setIsDeletingAccount(true);
+      setDeleteAccountError(null);
+      const identifier = passengerPhone || passengerEmail;
+      if (!identifier) {
+        throw new Error('Nenhum identificador de passageiro encontrado.');
+      }
+      await deleteOwnPassengerAccount(identifier);
+      localStorage.removeItem('vaicar_passenger_name');
+      localStorage.removeItem('vaicar_passenger_phone');
+      localStorage.removeItem('vaicar_passenger_email');
+      localStorage.removeItem('vaicar_passenger_avatar');
+      localStorage.removeItem('vaicar_passenger_verified');
+      setIsVerified(false);
+      setPassengerName('');
+      setPassengerPhone('');
+      setPassengerEmail('');
+      setIsDeleteAccountModalOpen(false);
+      if (onLogout) {
+        onLogout();
+      }
+    } catch (err: any) {
+      setDeleteAccountError(err.message || 'Erro ao excluir conta.');
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
 
   const handlePassengerAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -182,6 +235,21 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   // Search State
   const [originZoneId, setOriginZoneId] = useState<string>(zones[0]?.id || 'z-centro');
   const [destinationZoneId, setDestinationZoneId] = useState<string>(zones[1]?.id || 'z-maresias');
+
+  // Google Maps Coordinates & Addresses (matching native Android)
+  const initialOrigin = zones.find((z) => z.id === (zones[0]?.id || 'z-centro')) || zones[0];
+  const initialDest = zones.find((z) => z.id === (zones[1]?.id || 'z-maresias')) || zones[1];
+  const [pickupLat, setPickupLat] = useState<number>(initialOrigin?.lat || -23.8078);
+  const [pickupLng, setPickupLng] = useState<number>(initialOrigin?.lng || -45.4058);
+  const [pickupAddress, setPickupAddress] = useState<string>(
+    initialOrigin ? `${initialOrigin.name}, São Sebastião - SP` : 'Centro, São Sebastião - SP'
+  );
+  const [destLat, setDestLat] = useState<number | null>(initialDest?.lat || -23.7915);
+  const [destLng, setDestLng] = useState<number | null>(initialDest?.lng || -45.4215);
+  const [destAddress, setDestAddress] = useState<string | null>(
+    initialDest ? `${initialDest.name}, São Sebastião - SP` : 'Maresias, São Sebastião - SP'
+  );
+
   const [passengers, setPassengers] = useState<number>(1);
   const [scheduleType, setScheduleType] = useState<'NOW' | 'LATER'>('NOW');
   const [scheduledTime, setScheduledTime] = useState<string>('14:00');
@@ -211,6 +279,24 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [reportTargetName, setReportTargetName] = useState('');
   const [reportDescription, setReportDescription] = useState('');
   const [reportSuccessMsg, setReportSuccessMsg] = useState(false);
+
+  // Unpaid Ride & Payment Pending states
+  const [unpaidRides, setUnpaidRides] = useState<Ride[]>([]);
+  const [showUnpaidModal, setShowUnpaidModal] = useState<boolean>(false);
+  const [unpaidContestText, setUnpaidContestText] = useState<string>('');
+  const [isSubmittingUnpaidContest, setIsSubmittingUnpaidContest] = useState<boolean>(false);
+  const [unpaidContestSuccess, setUnpaidContestSuccess] = useState<string>('');
+
+  // Sync unpaid rides for this passenger
+  useEffect(() => {
+    if (passengerPhone) {
+      fetchUnpaidRides(passengerPhone)
+        .then((list) => {
+          setUnpaidRides(list || []);
+        })
+        .catch(() => {});
+    }
+  }, [passengerPhone, activeRide?.paymentStatus]);
 
   // Auto-sync active ride from props or from rides list
   useEffect(() => {
@@ -429,8 +515,12 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         passengerCount: serviceType === 'DELIVERY' ? 1 : passengers,
         originZoneId: originZone.id,
         destinationZoneId: destinationZone.id,
-        originAddress: `${originZone.name}, São Sebastião - SP`,
-        destinationAddress: `${destinationZone.name}, São Sebastião - SP`,
+        originAddress: pickupAddress || `${originZone.name}, São Sebastião - SP`,
+        destinationAddress: destAddress || `${destinationZone.name}, São Sebastião - SP`,
+        originLat: pickupLat,
+        originLng: pickupLng,
+        destinationLat: destLat ?? undefined,
+        destinationLng: destLng ?? undefined,
         originLandmark: finalOriginLandmark, // <--- Pass exact landmark / delivery info
         originMapsLink: pickupMapsLink, // <--- Pass maps link
         estimatedDistanceKm: searchResults?.distanceKm || 12,
@@ -449,7 +539,16 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
       broadcastLocalRideCreated(newRide);
       onRefreshRides();
     } catch (err: any) {
-      alert(err.message || 'Erro ao solicitar corrida');
+      if (err.message && (err.message.includes('pagamento pendente') || err.message.includes('PAYMENT_PENDING') || err.message.includes('pendente de uma corrida'))) {
+        fetchUnpaidRides(passengerPhone).then((list) => {
+          setUnpaidRides(list || []);
+          setShowUnpaidModal(true);
+        }).catch(() => {
+          setShowUnpaidModal(true);
+        });
+      } else {
+        alert(err.message || 'Erro ao solicitar corrida');
+      }
     } finally {
       setIsSubmittingRide(false);
     }
@@ -803,6 +902,32 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         </div>
       </div>
 
+      {/* Unpaid Pending Payment Banner */}
+      {unpaidRides.length > 0 && (
+        <div className="bg-rose-950/80 border border-rose-500/50 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg shadow-rose-950/40 animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <div>
+              <span className="text-xs font-black text-white block">
+                Você possui um pagamento pendente de corrida anterior
+              </span>
+              <span className="text-[11px] text-rose-300">
+                Valor devido: <strong>R$ {(unpaidRides[0].fareBrl !== undefined ? unpaidRides[0].fareBrl : unpaidRides[0].estimatedPrice).toFixed(2).replace('.', ',')}</strong> ({unpaidRides[0].driverName || 'Motorista'}) • {unpaidRides[0].paymentStatus === 'PAYMENT_CONTESTED' ? 'Contestação sob análise' : 'Regularize ou conteste para solicitar novas viagens'}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowUnpaidModal(true)}
+            className="bg-rose-500 hover:bg-rose-400 text-white font-black text-xs px-4 py-2 rounded-xl transition-all cursor-pointer shrink-0 shadow text-center"
+          >
+            Ver Detalhes / Contestar
+          </button>
+        </div>
+      )}
+
       {/* Passenger Navigation Tabs */}
       <div className="flex items-center gap-1 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800 overflow-x-auto shadow-xl scrollbar-none">
         <button
@@ -959,6 +1084,52 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               </div>
             </div>
 
+            {/* Interactive Google Map with Fixed Pickup Pin & Destination */}
+            <div className="mb-6 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                    Mapa Interativo Google Maps • Embarque & Destino
+                  </h3>
+                </div>
+                <span className="text-[11px] text-slate-400 hidden sm:inline">
+                  Arraste o mapa sob o pino central para definir o embarque
+                </span>
+              </div>
+
+              <PassengerInteractiveMap
+                zones={zones}
+                pickupLat={pickupLat}
+                pickupLng={pickupLng}
+                pickupAddress={pickupAddress}
+                destLat={destLat}
+                destLng={destLng}
+                destAddress={destAddress}
+                availableDrivers={searchResults?.results || []}
+                selectedDriver={selectedDriverForRequest}
+                activeRide={activeRide}
+                onUpdatePickup={(lat, lng, addr) => {
+                  setPickupLat(lat);
+                  setPickupLng(lng);
+                  setPickupAddress(addr);
+                  const nearest = findNearestZone(lat, lng, zones);
+                  if (nearest) setOriginZoneId(nearest.id);
+                }}
+                onSelectDestination={(lat, lng, addr, zoneId) => {
+                  setDestLat(lat);
+                  setDestLng(lng);
+                  setDestAddress(addr);
+                  if (zoneId) {
+                    setDestinationZoneId(zoneId);
+                  } else {
+                    const nearest = findNearestZone(lat, lng, zones);
+                    if (nearest) setDestinationZoneId(nearest.id);
+                  }
+                }}
+              />
+            </div>
+
             {/* Form */}
             <form onSubmit={handlePerformSearch} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -970,7 +1141,16 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   </label>
                   <select
                     value={originZoneId}
-                    onChange={(e) => setOriginZoneId(e.target.value)}
+                    onChange={(e) => {
+                      const newZoneId = e.target.value;
+                      setOriginZoneId(newZoneId);
+                      const z = zones.find((item) => item.id === newZoneId);
+                      if (z) {
+                        setPickupLat(z.lat);
+                        setPickupLng(z.lng);
+                        setPickupAddress(`${z.name}, São Sebastião - SP`);
+                      }
+                    }}
                     className="w-full bg-slate-950 text-white font-medium px-4 py-3 rounded-xl border border-slate-700/80 focus:border-emerald-500 outline-none cursor-pointer text-sm"
                   >
                     {zones.map((zone) => (
@@ -989,7 +1169,16 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   </label>
                   <select
                     value={destinationZoneId}
-                    onChange={(e) => setDestinationZoneId(e.target.value)}
+                    onChange={(e) => {
+                      const newZoneId = e.target.value;
+                      setDestinationZoneId(newZoneId);
+                      const z = zones.find((item) => item.id === newZoneId);
+                      if (z) {
+                        setDestLat(z.lat);
+                        setDestLng(z.lng);
+                        setDestAddress(`${z.name}, São Sebastião - SP`);
+                      }
+                    }}
                     className="w-full bg-slate-950 text-white font-medium px-4 py-3 rounded-xl border border-slate-700/80 focus:border-emerald-500 outline-none cursor-pointer text-sm"
                   >
                     {zones.map((zone) => (
@@ -1204,9 +1393,12 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
             )}
 
               {/* Map Service Notice */}
-              <div className="text-[11px] text-slate-500 bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/80 flex items-center justify-between">
-                <span>ℹ️ Serviço de mapas não configurado. Distâncias estimadas pela malha viária municipal (SP-055).</span>
-                <span className="text-emerald-400 font-semibold cursor-pointer" onClick={() => onOpenLegal('regulacao')}>
+              <div className="text-[11px] text-emerald-400/90 bg-emerald-950/30 p-2.5 rounded-lg border border-emerald-500/30 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Google Maps ativo • Coordenadas GPS em tempo real e cálculo de rotas pela SP-055.</span>
+                </span>
+                <span className="text-slate-400 font-semibold cursor-pointer hover:text-white" onClick={() => onOpenLegal('regulacao')}>
                   Ver Regulação
                 </span>
               </div>
@@ -1574,7 +1766,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
             zones={zones}
             selectedOriginId={originZoneId}
             selectedDestId={destinationZoneId}
-            onSelectRoute={(origId, destId) => {
+            onSelectRoute={(origId: string, destId: string) => {
               setOriginZoneId(origId);
               setDestinationZoneId(destId);
               setActiveTab('SOLICITAR');
@@ -2194,6 +2386,31 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               </button>
             </div>
           </form>
+
+          {/* Danger Zone: Account Deletion */}
+          <div className="pt-6 border-t border-slate-800 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider">
+                  Exclusão Definitiva de Conta
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  Excluir permanentemente seus dados de cadastro de passageiro do sistema VaiCar.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteAccountError(null);
+                  setIsDeleteAccountModalOpen(true);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900 border border-rose-800/80 text-rose-300 hover:text-white font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Excluir Minha Conta</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2314,6 +2531,187 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
           rideId={selectedReceiptRideId}
           onClose={() => setSelectedReceiptRideId(null)}
         />
+      )}
+
+      {/* Unpaid Pending Payment Modal */}
+      {showUnpaidModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-rose-500/40 rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl relative my-6">
+            <button
+              onClick={() => setShowUnpaidModal(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <span className="text-[10px] font-black text-rose-400 bg-rose-950/80 border border-rose-500/30 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                Bloqueio Temporário por Débito
+              </span>
+              <h3 className="text-xl font-black text-white mt-1">Pagamento Pendente</h3>
+              <p className="text-xs text-slate-400">
+                Existe uma corrida anterior que não teve o pagamento confirmado pelo motorista.
+              </p>
+            </div>
+
+            {unpaidRides.length > 0 ? (
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-2 text-xs">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="text-slate-400">Motorista:</span>
+                  <strong className="text-white">{unpaidRides[0].driverName || 'Motorista Parceiro'}</strong>
+                </div>
+                {unpaidRides[0].driverPhone && (
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <span className="text-slate-400">Contato do Motorista:</span>
+                    <a
+                      href={`https://wa.me/${unpaidRides[0].driverPhone.replace(/\D/g, '')}?text=${encodeURIComponent('Olá! Gostaria de acertar o pagamento da corrida no VaiCar.')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-emerald-400 hover:underline font-bold"
+                    >
+                      {unpaidRides[0].driverPhone} (WhatsApp ↗)
+                    </a>
+                  </div>
+                )}
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="text-slate-400">Trajeto:</span>
+                  <span className="text-slate-300 text-right">{unpaidRides[0].originAddress} ➔ {unpaidRides[0].destinationAddress}</span>
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-slate-300 font-bold">Valor da Corrida:</span>
+                  <span className="text-lg font-black text-rose-400">
+                    R$ {(unpaidRides[0].fareBrl !== undefined ? unpaidRides[0].fareBrl : unpaidRides[0].estimatedPrice).toFixed(2).replace('.', ',')}
+                  </span>
+                </div>
+                {unpaidRides[0].paymentPendingReason && (
+                  <p className="text-[11px] text-rose-400/90 pt-1">
+                    Motivo registrado: {unpaidRides[0].paymentPendingReason}
+                  </p>
+                )}
+                {unpaidRides[0].paymentStatus === 'PAYMENT_CONTESTED' && (
+                  <div className="bg-amber-950/60 border border-amber-500/40 p-2.5 rounded-xl text-[11px] text-amber-300 mt-2">
+                    ⏳ <strong>Sua contestação já foi enviada:</strong> "{unpaidRides[0].contestReason}"
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 text-xs text-center text-slate-400">
+                Você possui uma restrição financeira pendente no sistema. Regularize com o motorista ou fale com a administração.
+              </div>
+            )}
+
+            {/* Contest Form */}
+            {unpaidRides.length > 0 && unpaidRides[0].paymentStatus !== 'PAYMENT_CONTESTED' && (
+              <div className="space-y-2 text-xs">
+                <label className="block font-bold text-slate-300">
+                  Já pagou esta corrida? Envie sua justificativa/comprovante:
+                </label>
+                <textarea
+                  value={unpaidContestText}
+                  onChange={(e) => setUnpaidContestText(e.target.value)}
+                  placeholder="Ex: Realizei o Pix de R$ 35,00 às 15:40 / Paguei em dinheiro trocado no desembarque..."
+                  rows={3}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!unpaidContestText.trim()) return alert('Por favor, informe os detalhes de quando e como pagou.');
+                    try {
+                      setIsSubmittingUnpaidContest(true);
+                      await contestRidePayment(unpaidRides[0].id, unpaidContestText.trim(), undefined, passengerPhone);
+                      setUnpaidContestSuccess('Contestação enviada com sucesso para a administração!');
+                      fetchUnpaidRides(passengerPhone).then(setUnpaidRides).catch(() => {});
+                    } catch (err: any) {
+                      alert(err.message || 'Erro ao enviar contestação');
+                    } finally {
+                      setIsSubmittingUnpaidContest(false);
+                    }
+                  }}
+                  disabled={isSubmittingUnpaidContest}
+                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow"
+                >
+                  {isSubmittingUnpaidContest ? 'Enviando...' : 'Enviar Contestação para Análise'}
+                </button>
+              </div>
+            )}
+
+            {unpaidContestSuccess && (
+              <div className="bg-emerald-950/60 border border-emerald-500/40 rounded-xl p-3 text-xs text-emerald-300">
+                {unpaidContestSuccess}
+              </div>
+            )}
+
+            <div className="pt-1 text-center">
+              <button
+                type="button"
+                onClick={() => setShowUnpaidModal(false)}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Own Account Confirmation Modal */}
+      {isDeleteAccountModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-rose-500/30 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0 border border-rose-500/30">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-base font-bold text-white">Excluir Conta de Passageiro</h4>
+                <p className="text-[11px] text-slate-400">Esta ação é irreversível</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 text-xs">
+              <p className="font-semibold text-rose-300">
+                Are you sure you want to delete this passenger account?
+              </p>
+              <p className="text-slate-400 text-[11px]">
+                Tem certeza que deseja excluir sua conta de passageiro? Todos os seus dados de cadastro serão permanentemente removidos:
+              </p>
+              <div className="pt-2 border-t border-slate-900 space-y-1">
+                <div><span className="text-slate-500 font-bold">Nome:</span> <span className="text-white font-bold">{passengerName || 'Passageiro'}</span></div>
+                <div><span className="text-slate-500 font-bold">WhatsApp:</span> <span className="text-emerald-400 font-mono font-bold">{passengerPhone}</span></div>
+                {passengerEmail && <div><span className="text-slate-500 font-bold">E-mail:</span> <span className="text-slate-300">{passengerEmail}</span></div>}
+              </div>
+            </div>
+
+            {deleteAccountError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400">
+                {deleteAccountError}
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsDeleteAccountModalOpen(false)}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteOwnAccount}
+                disabled={isDeletingAccount}
+                className="flex-1 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer shadow-lg flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isDeletingAccount ? 'Excluindo...' : 'Confirmar Exclusão'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Map, AdvancedMarker, Polyline } from '@vis.gl/react-google-maps';
 import { 
   MapPin, 
   Car, 
@@ -12,9 +13,14 @@ import {
   ChevronRight,
   Info,
   XCircle,
-  RotateCcw
+  RotateCcw,
+  AlertCircle,
+  Banknote,
+  Send,
+  Flag
 } from 'lucide-react';
 import { Ride } from '../types.ts';
+import { contestRidePayment, computeRouteDirections, decodePolyline } from '../lib/api.ts';
 
 interface LiveRideTrackerProps {
   ride: Ride;
@@ -25,7 +31,86 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
   const [progress, setProgress] = useState(0.1);
   const [simulatedEtaMin, setSimulatedEtaMin] = useState(ride.estimatedDurationMin);
   const [simulatedDistanceKm, setSimulatedDistanceKm] = useState(ride.estimatedDistanceKm);
+  const [isContesting, setIsContesting] = useState(false);
+  const [contestReason, setContestReason] = useState('');
+  const [isSubmittingContest, setIsSubmittingContest] = useState(false);
+  const [contestSuccessMsg, setContestSuccessMsg] = useState('');
   const animationRef = useRef<number | null>(null);
+
+  const originLat = ride.originLat || -23.8078;
+  const originLng = ride.originLng || -45.4058;
+  const destLat = ride.destinationLat || -23.7915;
+  const destLng = ride.destinationLng || -45.4215;
+
+  const [routePolyline, setRoutePolyline] = useState<{ lat: number; lng: number }[]>([]);
+  const [driverGPS, setDriverGPS] = useState<{
+    lat: number;
+    lng: number;
+    heading: number;
+    speedKmh: number;
+  }>({
+    lat: ride.driverLocation?.lat || originLat + 0.003,
+    lng: ride.driverLocation?.lng || originLng + 0.003,
+    heading: ride.driverLocation?.heading || 0,
+    speedKmh: (ride.driverLocation as any)?.speedKmh || ride.driverLocation?.speed || 30,
+  });
+
+  // Calculate route polyline
+  useEffect(() => {
+    let active = true;
+    computeRouteDirections(originLat, originLng, destLat, destLng)
+      .then((res) => {
+        if (!active) return;
+        if (res.encodedPolyline) {
+          setRoutePolyline(decodePolyline(res.encodedPolyline));
+        } else {
+          setRoutePolyline([
+            { lat: originLat, lng: originLng },
+            { lat: destLat, lng: destLng }
+          ]);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setRoutePolyline([
+            { lat: originLat, lng: originLng },
+            { lat: destLat, lng: destLng }
+          ]);
+        }
+      });
+    return () => { active = false; };
+  }, [originLat, originLng, destLat, destLng]);
+
+  // Real-time Driver GPS polling
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/v1/rides/${ride.id}/driver-location`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.driverLocation?.lat) {
+            setDriverGPS({
+              lat: Number(data.driverLocation.lat),
+              lng: Number(data.driverLocation.lng),
+              heading: data.driverLocation.heading || 0,
+              speedKmh: data.driverLocation.speedKmh || 30,
+            });
+            if (data.driverLocation.etaMinutes !== undefined) {
+              setSimulatedEtaMin(data.driverLocation.etaMinutes);
+            }
+            if (data.driverLocation.distanceKm !== undefined) {
+              setSimulatedDistanceKm(data.driverLocation.distanceKm);
+            }
+          }
+        }
+      } catch (e) {
+        // silent
+      }
+    };
+    poll();
+    const interval = setInterval(poll, 4000);
+    return () => clearInterval(interval);
+  }, [ride.id]);
 
   const driverFirstName = ride.driverName?.split(' ')[0] || 'Motorista';
   const originName = ride.originAddress.split(',')[0];
@@ -188,13 +273,6 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
           color: 'text-amber-400 bg-amber-950/40 border-amber-500/20',
           step: 1
         };
-      case 'QUEUED':
-        return {
-          title: 'Motorista em corrida anterior',
-          desc: `${ride.driverName || 'Seu motorista'} está finalizando uma corrida próxima e responderá/chegará em seguida.`,
-          color: 'text-amber-400 bg-amber-950/40 border-amber-500/20',
-          step: 1
-        };
       case 'ACCEPTED':
         return {
           title: 'Chamada Aceita!',
@@ -244,117 +322,85 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
 
   return (
     <div className="bg-slate-950/50 rounded-2xl border border-slate-800/80 overflow-hidden shadow-lg">
-      {/* Live Map Box */}
-      <div className="p-4 bg-slate-950 relative overflow-hidden h-[240px] flex flex-col justify-between border-b border-slate-900">
-        
-        {/* Map Header with Real-time GPS watermark */}
-        <div className="flex items-center justify-between z-10">
-          <div className="flex items-center gap-1.5 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded-lg text-[10px] font-bold text-emerald-400 uppercase tracking-widest animate-pulse">
-            <Compass className="w-3.5 h-3.5 spin-slow" />
-            <span>Sinal GPS Ativo</span>
+      {/* Live Google Map Container */}
+      <div className="relative w-full h-[280px] border-b border-slate-900 bg-slate-950 overflow-hidden">
+        <Map
+          id={`tracker-map-${ride.id}`}
+          mapId="DEMO_MAP_ID"
+          defaultCenter={{ lat: originLat, lng: originLng }}
+          defaultZoom={13}
+          gestureHandling="greedy"
+          disableDefaultUI={false}
+          zoomControl={true}
+          mapTypeControl={false}
+          streetViewControl={false}
+          internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
+          className="w-full h-full"
+        >
+          {/* Pickup Marker */}
+          <AdvancedMarker position={{ lat: originLat, lng: originLng }} title="Embarque">
+            <div className="flex flex-col items-center">
+              <span className="bg-emerald-500 text-slate-950 text-[10px] font-black px-1.5 py-0.5 rounded shadow whitespace-nowrap mb-0.5">
+                📍 Embarque
+              </span>
+              <div className="w-6 h-6 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow border border-white">
+                <MapPin className="w-3.5 h-3.5 fill-current" />
+              </div>
+            </div>
+          </AdvancedMarker>
+
+          {/* Destination Marker */}
+          <AdvancedMarker position={{ lat: destLat, lng: destLng }} title="Destino">
+            <div className="flex flex-col items-center">
+              <span className="bg-sky-500 text-slate-950 text-[10px] font-black px-1.5 py-0.5 rounded shadow whitespace-nowrap mb-0.5">
+                🏁 Destino
+              </span>
+              <div className="w-6 h-6 rounded-full bg-sky-500 text-slate-950 flex items-center justify-center shadow border border-white">
+                <Flag className="w-3.5 h-3.5 fill-current" />
+              </div>
+            </div>
+          </AdvancedMarker>
+
+          {/* Live Driver Marker */}
+          {driverGPS && (
+            <AdvancedMarker position={{ lat: driverGPS.lat, lng: driverGPS.lng }} title={`Motorista ${driverFirstName}`}>
+              <div className="flex flex-col items-center animate-pulse">
+                <span className="bg-amber-400 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded shadow border border-amber-200 whitespace-nowrap mb-0.5">
+                  🚗 {driverFirstName}
+                </span>
+                <div
+                  className="w-8 h-8 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center shadow-lg border-2 border-white transform transition-transform"
+                  style={{ transform: `rotate(${driverGPS.heading || 0}deg)` }}
+                >
+                  <Navigation className="w-4 h-4 fill-current" />
+                </div>
+              </div>
+            </AdvancedMarker>
+          )}
+
+          {/* Route Polyline */}
+          {routePolyline.length > 0 && (
+            <Polyline
+              path={routePolyline}
+              strokeColor="#10B981"
+              strokeOpacity={0.85}
+              strokeWeight={4}
+            />
+          )}
+        </Map>
+
+        {/* Top Floating Telemetry Overlay */}
+        <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between pointer-events-none z-10">
+          <div className="flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md border border-slate-800 px-2.5 py-1 rounded-lg text-[10px] font-bold text-emerald-400 uppercase tracking-widest pointer-events-auto">
+            <Compass className="w-3.5 h-3.5 animate-spin" />
+            <span>GPS Ativo em Tempo Real</span>
           </div>
-          
-          <div className="text-[10px] text-slate-500 bg-slate-900/60 px-2 py-0.5 rounded border border-slate-800/60 font-mono">
-            SS-GPS // LAT: {carPos.y.toFixed(4)} Lng: {carPos.x.toFixed(4)}
+
+          <div className="text-[10px] text-slate-300 bg-slate-900/90 backdrop-blur-md px-2.5 py-1 rounded-lg border border-slate-800 font-mono pointer-events-auto">
+            SP-055 // LAT: {driverGPS.lat.toFixed(4)} LNG: {driverGPS.lng.toFixed(4)}
           </div>
         </div>
-
-        {/* The Map Canvas (SVG) */}
-        <div className="absolute inset-0 flex items-center justify-center opacity-90 py-4">
-          <svg 
-            ref={svgRef}
-            viewBox={`0 0 ${width} ${height}`} 
-            className="w-full h-full max-h-[180px] pointer-events-none select-none"
-          >
-            {/* Grid Pattern Background for techy radar map look */}
-            <defs>
-              <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(30, 41, 59, 0.25)" strokeWidth="1"/>
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-
-            {/* Ocean outline representing São Sebastião Coast */}
-            <path 
-              d="M 0,130 C 120,130 180,160 300,120 T 500,150" 
-              fill="none" 
-              stroke="rgba(14, 116, 144, 0.15)" 
-              strokeWidth="20" 
-              strokeLinecap="round" 
-            />
-
-            {/* Scenic Landmarks along the road */}
-            <text x="130" y="55" fill="rgba(100, 116, 139, 0.4)" fontSize="8" fontWeight="bold" className="font-sans">SERRA DO MAR</text>
-            <text x="280" y="150" fill="rgba(14, 116, 144, 0.3)" fontSize="8" fontWeight="bold" className="font-sans">OCEANO ATLÂNTICO</text>
-
-            {/* The Rio-Santos Highway Road Line (Shadow & Core) */}
-            <path 
-              d={pathData} 
-              fill="none" 
-              stroke="#1e293b" 
-              strokeWidth="8" 
-              strokeLinecap="round" 
-            />
-            <path 
-              d={pathData} 
-              fill="none" 
-              stroke="#0f172a" 
-              strokeWidth="6" 
-              strokeLinecap="round" 
-            />
-            <path 
-              d={pathData} 
-              fill="none" 
-              stroke="#eab308" 
-              strokeWidth="0.8" 
-              strokeDasharray="4 4" 
-              strokeLinecap="round" 
-            />
-
-            {/* Driver Start Base Marker */}
-            <circle cx="50" cy="90" r="4" fill="#475569" className="animate-ping" />
-            <circle cx="50" cy="90" r="3" fill="#64748b" />
-            <text x="45" y="105" fill="#64748b" fontSize="8" fontWeight="bold" textAnchor="middle">Base</text>
-
-            {/* Passenger PICKUP Point (Origin) */}
-            <g transform="translate(210, 75)">
-              <circle cx="0" cy="0" r="8" fill="rgba(16, 185, 129, 0.15)" className="animate-ping" />
-              <circle cx="0" cy="0" r="5" fill="#10b981" />
-              <text x="0" y="15" fill="#10b981" fontSize="9" fontWeight="black" textAnchor="middle">{originName}</text>
-            </g>
-
-            {/* DESTINATION Point (Finish) */}
-            <g transform="translate(425, 90)">
-              <circle cx="0" cy="0" r="8" fill="rgba(6, 182, 212, 0.15)" />
-              <path d="M-4,-4 L4,4 M4,-4 L-4,4" stroke="#06b6d4" strokeWidth="2" />
-              <circle cx="0" cy="0" r="4" fill="#06b6d4" />
-              <text x="0" y="15" fill="#06b6d4" fontSize="9" fontWeight="black" textAnchor="middle">{destName}</text>
-            </g>
-
-            {/* THE VEHICLE (Moving Car) */}
-            <g transform={`translate(${carPos.x}, ${carPos.y}) rotate(${carPos.angle})`}>
-              {/* Pulsing radar range ring */}
-              <circle cx="0" cy="0" r="14" fill="none" stroke="rgba(245, 158, 11, 0.3)" strokeWidth="1" className="animate-pulse" />
-              
-              {/* Car Body Shadow */}
-              <rect x="-9" y="-6" width="18" height="12" rx="3" fill="rgba(15, 23, 42, 0.5)" />
-              
-              {/* Car Body Core */}
-              <rect x="-8" y="-5" width="16" height="10" rx="2" fill="#f59e0b" stroke="#d97706" strokeWidth="1" />
-              
-              {/* Windshield */}
-              <rect x="2" y="-3.5" width="3" height="7" rx="0.5" fill="#0f172a" />
-              
-              {/* Headlights */}
-              <circle cx="7" cy="-3" r="1" fill="#fff" />
-              <circle cx="7" cy="3" r="1" fill="#fff" />
-              
-              {/* Tail lights */}
-              <rect x="-8" y="-4" width="1" height="2" fill="#ef4444" />
-              <rect x="-8" y="2" width="1" height="2" fill="#ef4444" />
-            </g>
-          </svg>
-        </div>
+      </div>
 
         {/* Map Footer overlay containing progress bar */}
         <div className="w-full bg-slate-900/90 border border-slate-800/80 rounded-xl p-2.5 sm:p-3.5 z-10 flex items-center justify-between gap-4 mt-auto">
@@ -365,7 +411,6 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
             <div>
               <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Status do Carro</span>
               <span className="text-xs font-black text-white">
-                {ride.status === 'QUEUED' ? `${driverFirstName} está finalizando a viagem anterior` : ''}
                 {ride.status === 'ACCEPTED' || ride.status === 'DRIVER_ARRIVING' ? `${driverFirstName} a caminho do embarque` : ''}
                 {ride.status === 'PASSENGER_PICKED_UP' ? 'Aguardando partida' : ''}
                 {ride.status === 'IN_PROGRESS' ? 'Em direção ao destino' : ''}
@@ -383,8 +428,6 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
             <span className="text-[10px] text-slate-400 block font-bold">{simulatedDistanceKm} km restantes</span>
           </div>
         </div>
-
-      </div>
 
       {/* Live Status and Next steps */}
       <div className="p-4 sm:p-5 space-y-4">
@@ -551,6 +594,114 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
             </div>
           )}
         </div>
+
+        {/* Payment Confirmation & Unpaid Control for Completed Ride */}
+        {ride.status === 'COMPLETED' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <Banknote className="w-4 h-4 text-emerald-400" />
+                Status do Pagamento da Corrida
+              </span>
+              <span className="text-sm font-black text-emerald-400">
+                R$ {(ride.fareBrl !== undefined ? ride.fareBrl : ride.estimatedPrice).toFixed(2).replace('.', ',')}
+              </span>
+            </div>
+
+            {ride.paymentStatus === 'PAID' || ride.paymentStatus === 'CONFIRMED_BY_DRIVER' ? (
+              <div className="bg-emerald-950/50 border border-emerald-500/40 rounded-xl p-3 flex items-center gap-2.5 text-xs text-emerald-300">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <div>
+                  <strong className="block font-bold text-emerald-200">Pagamento Confirmado pelo Motorista</strong>
+                  <span className="text-[11px] text-emerald-400/80">Recebido via {ride.paymentMethod || 'Direto'} • Nenhuma pendência em aberto</span>
+                </div>
+              </div>
+            ) : ride.paymentStatus === 'PAYMENT_PENDING' ? (
+              <div className="space-y-3">
+                <div className="bg-rose-950/50 border border-rose-500/40 rounded-xl p-3.5 space-y-2 text-xs">
+                  <div className="flex items-center gap-2 text-rose-300 font-bold">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>Pagamento Não Confirmado pelo Motorista</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    O motorista marcou que este pagamento ainda está pendente. Enquanto houver pendência financeira, novas corridas não poderão ser solicitadas.
+                  </p>
+                  {ride.paymentPendingReason && (
+                    <p className="text-[11px] text-rose-300 font-medium">
+                      Motivo informado: {ride.paymentPendingReason}
+                    </p>
+                  )}
+                </div>
+
+                {!isContesting && !contestSuccessMsg && (
+                  <button
+                    type="button"
+                    onClick={() => setIsContesting(true)}
+                    className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 hover:text-amber-200 font-bold text-xs py-2.5 rounded-xl transition-all cursor-pointer text-center"
+                  >
+                    💬 Já paguei / Contestar Cobrança com a Moderação
+                  </button>
+                )}
+
+                {isContesting && (
+                  <div className="bg-slate-950 border border-slate-700 p-3.5 rounded-xl space-y-2.5 text-xs">
+                    <span className="font-bold text-white block">Contestação de Pagamento:</span>
+                    <textarea
+                      value={contestReason}
+                      onChange={(e) => setContestReason(e.target.value)}
+                      placeholder="Descreva como e quando você realizou o pagamento (ex: Pix enviado às 14:30 / Dinheiro entregue em mãos)..."
+                      rows={3}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400"
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsContesting(false)}
+                        disabled={isSubmittingContest}
+                        className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold py-2 rounded-lg cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!contestReason.trim()) return alert('Informe o motivo da contestação.');
+                          try {
+                            setIsSubmittingContest(true);
+                            await contestRidePayment(ride.id, contestReason.trim(), undefined, ride.passengerPhone);
+                            setContestSuccessMsg('Contestação enviada com sucesso! A administração analisará seu caso.');
+                            setIsContesting(false);
+                          } catch (err: any) {
+                            alert(err.message || 'Erro ao enviar contestação');
+                          } finally {
+                            setIsSubmittingContest(false);
+                          }
+                        }}
+                        disabled={isSubmittingContest}
+                        className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black py-2 rounded-lg cursor-pointer"
+                      >
+                        {isSubmittingContest ? 'Enviando...' : 'Enviar Contestação'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {contestSuccessMsg && (
+                  <div className="bg-amber-950/60 border border-amber-500/40 rounded-xl p-3 text-xs text-amber-300">
+                    {contestSuccessMsg}
+                  </div>
+                )}
+              </div>
+            ) : ride.paymentStatus === 'PAYMENT_CONTESTED' ? (
+              <div className="bg-amber-950/50 border border-amber-500/40 rounded-xl p-3 text-xs space-y-1">
+                <span className="font-bold text-amber-300 block">⏳ Pagamento em Análise / Contestado</span>
+                <p className="text-[11px] text-slate-300">
+                  Sua contestação foi registrada e está sob auditoria da administração. Motivo: "{ride.contestReason || 'Em análise'}"
+                </p>
+              </div>
+            ) : null}
+          </div>
+        )}
 
         {/* Safety & Identification Guidance */}
         <div className="bg-slate-950 p-3 rounded-xl border border-slate-900/80 flex items-center gap-2.5 text-[10px] text-slate-400">

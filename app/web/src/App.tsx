@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { APIProvider } from '@vis.gl/react-google-maps';
 import { Header } from './components/Header.tsx';
 import { RoleSelector } from './components/RoleSelector.tsx';
 import { PassengerDashboard } from './components/PassengerDashboard.tsx';
@@ -192,9 +193,11 @@ export default function App() {
   };
 
   const currentDriver = drivers.find((d) => d.id === currentDriverId) || drivers[0];
+  const mapsApiKey = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyAqF4zL02-t-Im_cItTvUj-gPeDs4mmGK4';
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
+    <APIProvider apiKey={mapsApiKey} language="pt-BR" region="BR">
+      <div className="min-h-screen w-full overflow-x-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
       <Header
         currentRole={role}
         onSelectRole={(r, extra) => {
@@ -421,5 +424,6 @@ export default function App() {
         </div>
       </footer>
     </div>
+    </APIProvider>
   );
 }

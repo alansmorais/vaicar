@@ -669,11 +669,20 @@ export async function updatePassengerProfile(id: string, data: { name?: string; 
   }, 'Falha ao salvar dados do passageiro');
 }
 
-export async function deletePassenger(id: string): Promise<{ success: boolean }> {
-  const res = await fetch(`/api/v1/admin/passengers/${id}`, { method: 'DELETE' });
+export async function deletePassenger(id: string): Promise<{ success: boolean; message?: string; deletedId?: string }> {
+  const res = await fetch(`/api/v1/admin/passengers/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Falha ao excluir passageiro');
+    throw new Error(err.error || err.details || 'Falha ao excluir passageiro');
+  }
+  return res.json();
+}
+
+export async function deleteOwnPassengerAccount(id: string): Promise<{ success: boolean; message?: string }> {
+  const res = await fetch(`/api/v1/passengers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || err.details || 'Falha ao excluir conta');
   }
   return res.json();
 }
@@ -704,6 +713,99 @@ export async function updateDriverProfile(driverId: string, updates: Partial<Dri
 export async function fetchMobilityMapData(): Promise<MobilityMapData> {
   return safeFetchJson<MobilityMapData>('/api/v1/mobility/map-data', undefined, 'Falha ao carregar mapa de mobilidade');
 }
+
+// --- GOOGLE MAPS SERVICES ---
+export interface ReverseGeocodeResult {
+  address: string;
+  neighborhood?: string;
+  placeId?: string;
+  fallback?: boolean;
+}
+
+export async function reverseGeocode(lat: number, lng: number): Promise<ReverseGeocodeResult> {
+  try {
+    return await safeFetchJson<ReverseGeocodeResult>(
+      `/api/v1/maps/reverse-geocode?lat=${lat}&lng=${lng}`,
+      undefined,
+      'Falha ao identificar endereço'
+    );
+  } catch (err) {
+    console.warn('Reverse geocode error:', err);
+    return {
+      address: `Localização (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+      fallback: true,
+    };
+  }
+}
+
+export interface RouteDirectionsResult {
+  distanceKm: number;
+  durationMin: number;
+  encodedPolyline: string;
+  summary?: string;
+  fallback?: boolean;
+}
+
+export async function computeRouteDirections(
+  originLat: number,
+  originLng: number,
+  destLat: number,
+  destLng: number
+): Promise<RouteDirectionsResult> {
+  try {
+    return await safeFetchJson<RouteDirectionsResult>(
+      `/api/v1/maps/directions?originLat=${originLat}&originLng=${originLng}&destLat=${destLat}&destLng=${destLng}`,
+      undefined,
+      'Falha ao calcular rota'
+    );
+  } catch (err) {
+    console.warn('Directions calculation error:', err);
+    return {
+      distanceKm: 5.0,
+      durationMin: 10,
+      encodedPolyline: '',
+      fallback: true,
+    };
+  }
+}
+
+// Decodes an encoded Google Maps polyline string into an array of {lat, lng} objects
+export function decodePolyline(encoded: string): { lat: number; lng: number }[] {
+  if (!encoded) return [];
+  const points: { lat: number; lng: number }[] = [];
+  let index = 0;
+  const len = encoded.length;
+  let lat = 0;
+  let lng = 0;
+
+  while (index < len) {
+    let b: number;
+    let shift = 0;
+    let result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlat = (result & 1) !== 0 ? ~(result >> 1) : result >> 1;
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    const dlng = (result & 1) !== 0 ? ~(result >> 1) : result >> 1;
+    lng += dlng;
+
+    points.push({ lat: lat / 1e5, lng: lng / 1e5 });
+  }
+
+  return points;
+}
+
 
 
 

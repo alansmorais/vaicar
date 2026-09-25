@@ -376,6 +376,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
     var liveDriverLocation by remember { mutableStateOf<DriverLocation?>(null) }
     var message by remember { mutableStateOf("") }
     var isSubmittingRide by remember { mutableStateOf(false) }
+    var isDeleteAccountDialogOpen by remember { mutableStateOf(false) }
 
     // Real GPS Location Manager
     fun updateWithRealGps(loc: Location) {
@@ -1329,6 +1330,16 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                 ) {
                                     Text("Salvar Perfil", color = Color.Black, fontWeight = FontWeight.Bold)
                                 }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Button(
+                                    onClick = { isDeleteAccountDialogOpen = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7F1D1D)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Excluir Minha Conta", color = Color(0xFFFCA5A5), fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
@@ -1736,6 +1747,68 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                         }
                     },
                     containerColor = Color(0xFF1E293B)
+                )
+            }
+
+            // DELETE ACCOUNT CONFIRMATION DIALOG
+            if (isDeleteAccountDialogOpen) {
+                AlertDialog(
+                    onDismissRequest = { isDeleteAccountDialogOpen = false },
+                    containerColor = Color(0xFF0F172A),
+                    title = {
+                        Text("Excluir Conta de Passageiro", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "Are you sure you want to delete this passenger account?",
+                                color = Color(0xFFF87171),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                "Tem certeza que deseja excluir sua conta permanentemente? Seus dados serão removidos do sistema:",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 12.sp
+                            )
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("Nome: $passengerName", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("WhatsApp/Telefone: $passengerPhone", color = Color(0xFF10B981), fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                isDeleteAccountDialogOpen = false
+                                ApiService.deletePassenger(
+                                    id = passengerPhone,
+                                    onSuccess = {
+                                        SecurityUtils.logoutPassenger(context)
+                                        message = "Sua conta foi excluída com sucesso."
+                                        passengerName = ""
+                                        passengerPhone = ""
+                                    },
+                                    onError = {
+                                        message = "Erro ao excluir conta: ${it.message}"
+                                    }
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                        ) {
+                            Text("Confirmar Exclusão", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { isDeleteAccountDialogOpen = false }) {
+                            Text("Cancelar", color = Color(0xFF94A3B8))
+                        }
+                    }
                 )
             }
 

@@ -24,6 +24,7 @@ fun AdminScreen(metrics: PlatformMetrics, onBack: () -> Unit) {
     var passengersList by remember { mutableStateOf<List<Passenger>>(listOf()) }
     var isFetchingDrivers by remember { mutableStateOf(true) }
     var isFetchingPassengers by remember { mutableStateOf(true) }
+    var deletingPassenger by remember { mutableStateOf<Passenger?>(null) }
     var message by remember { mutableStateOf("") }
     var selectedTab by remember { mutableStateOf(0) } // 0 = Motoristas, 1 = Passageiros
 
@@ -390,7 +391,8 @@ fun AdminScreen(metrics: PlatformMetrics, onBack: () -> Unit) {
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Button(
                                         onClick = {
@@ -415,8 +417,22 @@ fun AdminScreen(metrics: PlatformMetrics, onBack: () -> Unit) {
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                                     ) {
                                         Text(
-                                            if (passenger.isBlocked) "Desbloquear" else "Bloquear Passageiro",
+                                            if (passenger.isBlocked) "Desbloquear" else "Bloquear",
                                             color = if (passenger.isBlocked) Color.Black else Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+
+                                    Button(
+                                        onClick = { deletingPassenger = passenger },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7F1D1D)),
+                                        shape = RoundedCornerShape(6.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            "Delete Passenger",
+                                            color = Color(0xFFFCA5A5),
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 11.sp
                                         )
@@ -427,6 +443,83 @@ fun AdminScreen(metrics: PlatformMetrics, onBack: () -> Unit) {
                     }
                 }
             }
+        }
+
+        // Delete Passenger Confirmation Dialog
+        deletingPassenger?.let { p ->
+            AlertDialog(
+                onDismissRequest = { deletingPassenger = null },
+                containerColor = Color(0xFF0F172A),
+                title = {
+                    Text(
+                        "Excluir Conta de Passageiro",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Are you sure you want to delete this passenger account?",
+                            color = Color(0xFFF87171),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            "Confirme os dados antes de prosseguir com a exclusão definitiva do banco de dados:",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 12.sp
+                        )
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Nome: ${p.name}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("WhatsApp/Telefone: ${p.phone}", color = Color(0xFF10B981), fontSize = 12.sp)
+                                Text("E-mail: ${if (p.email.isNotBlank()) p.email else "Não informado"}", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                                Text("ID: ${p.id}", color = Color(0xFF64748B), fontSize = 10.sp)
+                            }
+                        }
+                        Text(
+                            "Apenas este passageiro será excluído. Motoristas e dados de outros usuários não serão afetados.",
+                            color = Color(0xFFFBBF24),
+                            fontSize = 11.sp
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val targetId = p.id
+                            val targetName = p.name
+                            deletingPassenger = null
+                            isFetchingPassengers = true
+                            ApiService.deletePassenger(
+                                id = targetId,
+                                onSuccess = { successMsg ->
+                                    passengersList = passengersList.filter { it.id != targetId }
+                                    isFetchingPassengers = false
+                                    message = "Conta de $targetName excluída com sucesso!"
+                                },
+                                onError = { err ->
+                                    isFetchingPassengers = false
+                                    message = "Erro ao excluir passageiro: ${err.message}"
+                                }
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                    ) {
+                        Text("Confirmar Exclusão", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { deletingPassenger = null }) {
+                        Text("Cancelar", color = Color(0xFF94A3B8))
+                    }
+                }
+            )
         }
 
         if (message.isNotEmpty()) {

@@ -29,19 +29,10 @@ import {
   Navigation,
   Sparkles,
   Package,
-  FileText,
-  Download,
-  Compass,
-  User,
-  CheckCircle2,
-  X,
-  Loader2,
 } from 'lucide-react';
 import { Driver, Zone, Ride, RegulatoryRequirement, PaymentMethod, PlatformFareSettings } from '../types.ts';
 import { realtimeSync, broadcastLocalRideUpdate } from '../lib/realtimeSync.ts';
 import { LegalModal } from './LegalModal.tsx';
-import { RideReceiptModal } from './RideReceiptModal.tsx';
-import { VaiCarMobilityMap } from './VaiCarMobilityMap.tsx';
 import {
   updateDriverAvailability,
   updateDriverPricing,
@@ -50,9 +41,9 @@ import {
   getWhatsAppContact,
   updateDriverPaymentSettings,
   updateRidePaymentStatus,
+  confirmRidePayment,
   fetchFareSettings,
   createZone,
-  updateDriverProfile,
 } from '../lib/api.ts';
 
 export function parseDeliveryDetails(originLandmark?: string) {
@@ -112,95 +103,9 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     );
   }
 
-  const [activeTab, setActiveTab] = useState<'PANEL' | 'MAPA' | 'PRICING' | 'PAYMENTS' | 'ZONES' | 'DOCS' | 'PERFIL'>('PANEL');
+  const [activeTab, setActiveTab] = useState<'PANEL' | 'PRICING' | 'PAYMENTS' | 'ZONES' | 'DOCS'>('PANEL');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isSafetyModalOpen, setIsSafetyModalOpen] = useState(false);
-  const [selectedReceiptRideId, setSelectedReceiptRideId] = useState<string | null>(null);
-
-  // Driver Profile editing state
-  const [profileName, setProfileName] = useState(driver.name || '');
-  const [profilePhone, setProfilePhone] = useState(driver.phone || '');
-  const [profileEmail, setProfileEmail] = useState(driver.email || '');
-  const [profileAvatarUrl, setProfileAvatarUrl] = useState(driver.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150');
-  const [vehicleBrand, setVehicleBrand] = useState(driver.vehicle?.brand || '');
-  const [vehicleModel, setVehicleModel] = useState(driver.vehicle?.model || '');
-  const [vehicleYear, setVehicleYear] = useState(driver.vehicle?.year || 2022);
-  const [vehicleColor, setVehicleColor] = useState(driver.vehicle?.color || '');
-  const [vehiclePlate, setVehiclePlate] = useState(driver.vehicle?.licensePlate || '');
-  const [vehicleCategory, setVehicleCategory] = useState(driver.vehicle?.category || 'SEDAN');
-  const [profileSaveSuccess, setProfileSaveSuccess] = useState<string | null>(null);
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
-
-  const handleDriverAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const maxDim = 320;
-          let width = img.width;
-          let height = img.height;
-          if (width > height) {
-            if (width > maxDim) {
-              height = Math.round((height * maxDim) / width);
-              width = maxDim;
-            }
-          } else {
-            if (height > maxDim) {
-              width = Math.round((width * maxDim) / height);
-              height = maxDim;
-            }
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, width, height);
-            const compressed = canvas.toDataURL('image/jpeg', 0.85);
-            setProfileAvatarUrl(compressed);
-          } else {
-            setProfileAvatarUrl(event.target?.result as string);
-          }
-        };
-        img.src = event.target?.result as string;
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleSaveDriverProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSavingProfile(true);
-    setProfileSaveSuccess(null);
-    try {
-      const res = await updateDriverProfile(driver.id, {
-        name: profileName,
-        phone: profilePhone,
-        email: profileEmail,
-        avatarUrl: profileAvatarUrl,
-        vehicle: {
-          ...driver.vehicle,
-          brand: vehicleBrand,
-          model: vehicleModel,
-          year: Number(vehicleYear),
-          color: vehicleColor,
-          licensePlate: vehiclePlate.toUpperCase(),
-          category: vehicleCategory as any,
-        },
-      });
-      if (res.driver) {
-        onRefreshDriver(res.driver);
-      }
-      setProfileSaveSuccess('Perfil do motorista atualizado com sucesso!');
-      setTimeout(() => setProfileSaveSuccess(null), 4000);
-    } catch (err: any) {
-      alert(err.message || 'Erro ao salvar perfil');
-    } finally {
-      setIsSavingProfile(false);
-    }
-  };
 
   // Payment settings state
   const [pixKey, setPixKey] = useState(driver.pixKey || driver.phone || '');
@@ -251,6 +156,14 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
   );
 
+  // Payment confirmation modal states for active ride completion
+  const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
+  const [paymentChoice, setPaymentChoice] = useState<'RECEIVED' | 'NOT_RECEIVED'>('RECEIVED');
+  const [paymentMethodChoice, setPaymentMethodChoice] = useState<PaymentMethod>('PIX');
+  const [paymentPendingReasonText, setPaymentPendingReasonText] = useState<string>('');
+  const [quickConfirmRide, setQuickConfirmRide] = useState<Ride | null>(null);
+  const [quickConfirmMethod, setQuickConfirmMethod] = useState<PaymentMethod>('PIX');
+
   // Synthesized Web Audio chime (pleasant 4-tone bell)
   const playRideChime = () => {
     try {
@@ -299,8 +212,6 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
   const activeRide = driverRides.find((r) =>
     ['ACCEPTED', 'DRIVER_ARRIVING', 'PASSENGER_PICKED_UP', 'IN_PROGRESS'].includes(r.status),
   );
-  const queuedRide = driverRides.find((r) => r.status === 'QUEUED');
-  const allPendingRequests = rides.filter((r) => r.status === 'REQUESTED');
 
   const prevPendingCountRef = useRef<number>(pendingRequests.length);
 
@@ -555,19 +466,6 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     }
   };
 
-  const handleAcceptNextRide = async (rideId: string) => {
-    try {
-      setIsUpdating(true);
-      const updated = await updateRideStatus(rideId, 'QUEUED', undefined, { driverId: driver.id });
-      broadcastLocalRideUpdate(updated);
-      await onRefreshRides();
-    } catch (err: any) {
-      alert(err.message || 'Erro ao aceitar próxima corrida');
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
   const handleDeclineRide = async (rideId: string) => {
     try {
       setIsUpdating(true);
@@ -581,8 +479,63 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     }
   };
 
+  const handleOpenPaymentModal = () => {
+    if (!activeRide) return;
+    setPaymentChoice('RECEIVED');
+    setPaymentMethodChoice((activeRide.paymentMethod as PaymentMethod) || 'PIX');
+    setPaymentPendingReasonText('');
+    setShowPaymentModal(true);
+  };
+
+  const handleFinishRideWithPayment = async () => {
+    if (!activeRide) return;
+    try {
+      setIsUpdating(true);
+      const isReceived = paymentChoice === 'RECEIVED';
+      const updated = await updateRideStatus(
+        activeRide.id,
+        'COMPLETED',
+        undefined,
+        {
+          paymentReceived: isReceived,
+          paymentStatus: isReceived ? 'PAID' : 'PAYMENT_PENDING',
+          paymentMethod: isReceived ? paymentMethodChoice : undefined,
+          paymentPendingReason: !isReceived ? (paymentPendingReasonText.trim() || 'Pagamento não recebido pelo motorista ao término da viagem') : undefined,
+          driverId: driver.id,
+        }
+      );
+      broadcastLocalRideUpdate(updated);
+      setShowPaymentModal(false);
+      await onRefreshRides();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao finalizar corrida');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleQuickConfirmPayment = async (rideId: string, method: PaymentMethod) => {
+    try {
+      setIsUpdating(true);
+      const res = await confirmRidePayment(rideId, method, driver.id);
+      if (res && res.ride) {
+        broadcastLocalRideUpdate(res.ride);
+      }
+      setQuickConfirmRide(null);
+      await onRefreshRides();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao confirmar recebimento');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const handleAdvanceActiveRide = async (nextStatus: any) => {
     if (!activeRide) return;
+    if (nextStatus === 'COMPLETED') {
+      handleOpenPaymentModal();
+      return;
+    }
     try {
       setIsUpdating(true);
       const updated = await updateRideStatus(activeRide.id, nextStatus);
@@ -614,88 +567,23 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
     }
   };
 
-  const [uploadingDocId, setUploadingDocId] = useState<string | null>(null);
-
-  const handleRealDocUpload = async (reqId: string, file: File) => {
-    if (!file) return;
-    if (file.size > 8 * 1024 * 1024) {
-      alert('O arquivo selecionado é muito grande. O limite máximo é 8MB.');
-      return;
-    }
-
+  const handleSimulateDocUpload = async (reqId: string) => {
     try {
-      setUploadingDocId(reqId);
       setIsUpdating(true);
-
-      const toBase64 = (f: File): Promise<string> =>
-        new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            if (f.type.startsWith('image/')) {
-              const img = new Image();
-              img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const maxDim = 1200;
-                let width = img.width;
-                let height = img.height;
-                if (width > height) {
-                  if (width > maxDim) {
-                    height = Math.round((height * maxDim) / width);
-                    width = maxDim;
-                  }
-                } else {
-                  if (height > maxDim) {
-                    width = Math.round((width * maxDim) / height);
-                    height = maxDim;
-                  }
-                }
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                  ctx.drawImage(img, 0, 0, width, height);
-                  resolve(canvas.toDataURL('image/jpeg', 0.88));
-                } else {
-                  resolve(e.target?.result as string);
-                }
-              };
-              img.onerror = () => resolve(e.target?.result as string);
-              img.src = e.target?.result as string;
-            } else {
-              resolve(e.target?.result as string);
-            }
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(f);
-        });
-
-      const base64Data = await toBase64(file);
-      const updatedDoc = await submitDriverDocument(driver.id, {
+      await submitDriverDocument(driver.id, {
         requirementId: reqId,
-        documentNumber: `DOC-${Math.floor(100000 + Math.random() * 900000)}`,
-        expiryDate: '2028-12-31',
-        fileUrl: base64Data,
+        documentNumber: `REG-${Math.floor(100000 + Math.random() * 900000)}`,
+        expiryDate: '2027-12-31',
+        fileUrl: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=600&q=80',
       });
-
-      // Update local driver documents state
-      const existingDocIdx = driver.documents.findIndex((d) => d.requirementId === reqId);
-      if (existingDocIdx >= 0) {
-        driver.documents[existingDocIdx] = {
-          ...driver.documents[existingDocIdx],
-          fileUrl: base64Data,
-          status: 'IN_REVIEW',
-          rejectionReason: undefined,
-        };
-      } else {
-        driver.documents.push(updatedDoc);
-      }
-
-      onRefreshDriver({ ...driver, regulatoryStatus: driver.regulatoryStatus === 'APPROVED' ? 'APPROVED' : 'IN_REVIEW' });
-      alert('Documento enviado com sucesso! Está em análise pela auditoria municipal.');
+      alert('Documento enviado para análise administrativa!');
+      // Update local state
+      const doc = driver.documents.find((d) => d.requirementId === reqId);
+      if (doc) doc.status = 'IN_REVIEW';
+      onRefreshDriver({ ...driver });
     } catch (err: any) {
-      alert(err.message || 'Erro ao enviar documento');
+      alert(err.message || 'Erro no envio');
     } finally {
-      setUploadingDocId(null);
       setIsUpdating(false);
     }
   };
@@ -876,18 +764,6 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
         </button>
 
         <button
-          onClick={() => setActiveTab('MAPA')}
-          className={`px-4 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-            activeTab === 'MAPA'
-              ? 'bg-emerald-500 text-slate-950 shadow'
-              : 'text-slate-400 hover:text-white bg-slate-900'
-          }`}
-        >
-          <Compass className="w-3.5 h-3.5" />
-          <span>Mapa de Demanda</span>
-        </button>
-
-        <button
           onClick={() => setActiveTab('PRICING')}
           className={`px-4 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap ${
             activeTab === 'PRICING'
@@ -930,18 +806,6 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
           }`}
         >
           Documentos & Requisitos
-        </button>
-
-        <button
-          onClick={() => setActiveTab('PERFIL')}
-          className={`px-4 py-2 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-            activeTab === 'PERFIL'
-              ? 'bg-emerald-500 text-slate-950 shadow'
-              : 'text-slate-400 hover:text-white bg-slate-900'
-          }`}
-        >
-          <User className="w-3.5 h-3.5" />
-          <span>Meu Perfil</span>
         </button>
 
         <button
@@ -1391,11 +1255,11 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                   )}
                   {activeRide.status === 'IN_PROGRESS' && (
                     <button
-                      onClick={() => handleAdvanceActiveRide('COMPLETED')}
+                      onClick={handleOpenPaymentModal}
                       disabled={isUpdating}
                       className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm py-3.5 rounded-xl cursor-pointer shadow-lg"
                     >
-                      FINALIZAR CORRIDA E CONFIRMAR RECEBIMENTO ✔
+                      FINALIZAR CORRIDA E CONFIRMAR PAGAMENTO ✔
                     </button>
                   )}
 
@@ -1409,141 +1273,6 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                   </button>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* PRÓXIMA CORRIDA / SEQUENTIAL RIDE SECTION */}
-          {(activeRide || queuedRide || driver.isOnline) && (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-amber-400" />
-                  <h3 className="text-base font-black text-amber-400 uppercase tracking-wider">
-                    PRÓXIMA CORRIDA (SEQUENCIAL)
-                  </h3>
-                </div>
-                <span className="text-xs bg-slate-800 text-slate-300 font-bold px-3 py-1 rounded-full border border-slate-700">
-                  {queuedRide ? '1 Corrida Agendada em Fila' : 'Nenhuma próxima corrida agendada'}
-                </span>
-              </div>
-
-              {queuedRide ? (
-                <div className="bg-gradient-to-br from-slate-950 to-emerald-950/30 border-2 border-emerald-500/50 rounded-2xl p-5 space-y-4 shadow-lg">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={queuedRide.passengerAvatarUrl || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80"}
-                        alt={queuedRide.passengerName}
-                        className="w-12 h-12 rounded-xl object-cover border border-slate-700 shrink-0"
-                        referrerPolicy="no-referrer"
-                      />
-                      <div>
-                        <span className="text-[10px] font-extrabold text-emerald-400 bg-emerald-950/90 border border-emerald-500/30 px-2 py-0.5 rounded uppercase">
-                          Nova corrida após a atual
-                        </span>
-                        <h4 className="text-lg font-black text-white mt-0.5">
-                          Passageiro(a): {queuedRide.passengerName}
-                        </h4>
-                        <p className="text-xs text-slate-300 font-medium">
-                          Tel: {queuedRide.passengerPhone} • Distância ~{queuedRide.estimatedDistanceKm} km
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="text-left sm:text-right shrink-0">
-                      <span className="text-[10px] text-slate-400 uppercase font-bold block">
-                        Valor Estimado
-                      </span>
-                      <span className="text-2xl font-black text-emerald-400">
-                        R$ {queuedRide.estimatedPrice}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2 text-xs">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span className="text-slate-400">Embarque (Pickup):</span>
-                      <span className="text-white font-bold">{queuedRide.originAddress}</span>
-                    </div>
-                    <div className="flex items-center gap-2 border-t border-slate-800/60 pt-2">
-                      <Navigation className="w-4 h-4 text-cyan-400 shrink-0" />
-                      <span className="text-slate-400">Destino Final:</span>
-                      <span className="text-white font-bold">{queuedRide.destinationAddress}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1 border-t border-slate-800">
-                    <span className="text-xs text-emerald-400 font-bold flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      Status: CONFIRMADA EM FILA (Iniciará automaticamente após finalizar a viagem atual)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleDeclineRide(queuedRide.id)}
-                      disabled={isUpdating}
-                      className="px-4 py-2 bg-slate-800 hover:bg-rose-950/60 text-rose-400 font-bold text-xs rounded-xl cursor-pointer transition-all"
-                    >
-                      Recusar Próxima Corrida
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Nenhuma próxima corrida disponível no momento. Assim que outro passageiro solicitar uma viagem compatível com o seu trajeto em São Sebastião, você poderá aceitá-la como sua próxima corrida em fila.
-                  </p>
-
-                  {allPendingRequests.length > 0 && (
-                    <div className="space-y-3 pt-2">
-                      <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">
-                        ⚡ Solicitações Compatíveis Disponíveis para Próxima Viagem
-                      </span>
-                      {allPendingRequests.map((req) => (
-                        <div
-                          key={req.id}
-                          className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                        >
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-white text-sm">{req.passengerName}</span>
-                              <span className="text-[10px] text-amber-400 bg-amber-950/80 px-2 py-0.5 rounded font-bold">
-                                Solicitação Aberta
-                              </span>
-                            </div>
-                            <p className="text-slate-300">
-                              Origem: <strong>{req.originAddress}</strong> ➔ Destino: <strong>{req.destinationAddress}</strong>
-                            </p>
-                            <span className="text-emerald-400 font-black text-sm block">
-                              R$ {req.estimatedPrice}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleAcceptNextRide(req.id)}
-                              disabled={isUpdating}
-                              className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl shadow cursor-pointer transition-all flex items-center gap-1.5"
-                            >
-                              <CheckCircle className="w-4 h-4" />
-                              <span>Aceitar como Próxima</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeclineRide(req.id)}
-                              disabled={isUpdating}
-                              className="px-3 py-2.5 bg-slate-800 text-slate-400 hover:text-white font-bold text-xs rounded-xl cursor-pointer transition-all"
-                            >
-                              Recusar
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           )}
 
@@ -1561,39 +1290,67 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                 {driverRides.map((ride) => (
                   <div
                     key={ride.id}
-                    className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-4 text-xs"
+                    className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs"
                   >
                     <div>
-                      <span className="font-bold text-white text-sm">{ride.passengerName}</span>
-                      <p className="text-slate-400 mt-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-white text-sm">{ride.passengerName}</span>
+                        {ride.paymentStatus === 'PAYMENT_PENDING' && (
+                          <span className="bg-rose-950/90 text-rose-300 border border-rose-500/40 text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">
+                            PAGAMENTO PENDENTE
+                          </span>
+                        )}
+                        {ride.paymentStatus === 'PAYMENT_CONTESTED' && (
+                          <span className="bg-amber-950/90 text-amber-300 border border-amber-500/40 text-[10px] font-black px-2 py-0.5 rounded-full">
+                            CONTESTADO PELO PASSAGEIRO
+                          </span>
+                        )}
+                        {(ride.paymentStatus === 'PAID' || (!ride.paymentStatus && ride.status === 'COMPLETED')) && (
+                          <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            PAGO • {ride.paymentMethod || 'DIRETO'}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-slate-400 mt-1">
                         {ride.originAddress} ➔ {ride.destinationAddress}
                       </p>
-                      <span className="text-[10px] text-slate-500">{ride.createdAt.split('T')[0]}</span>
+                      <div className="flex items-center gap-3 text-[10px] text-slate-500 mt-1">
+                        <span>{ride.createdAt.split('T')[0]}</span>
+                        <span>•</span>
+                        <span>#{ride.id}</span>
+                        {ride.paymentPendingReason && (
+                          <span className="text-rose-400">Motivo: {ride.paymentPendingReason}</span>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="text-right space-y-1">
-                      <span className="text-base font-extrabold text-emerald-400 block">
-                        R$ {ride.estimatedPrice}
-                      </span>
-                      <span
-                        className={`block text-[10px] font-bold ${
-                          ride.status === 'COMPLETED'
-                            ? 'text-emerald-400'
-                            : ride.status.startsWith('CANCELLED')
-                            ? 'text-rose-400'
-                            : 'text-amber-400'
-                        }`}
-                      >
-                        {ride.status}
-                      </span>
-                      {ride.status === 'COMPLETED' && (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedReceiptRideId(ride.id)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-[10px] font-bold text-emerald-300 transition-all cursor-pointer"
+                    <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-2">
+                      <div className="text-right">
+                        <span className="text-base font-extrabold text-emerald-400">
+                          R$ {(ride.fareBrl !== undefined ? ride.fareBrl : ride.estimatedPrice).toFixed(2)}
+                        </span>
+                        <span
+                          className={`block text-[10px] font-bold ${
+                            ride.status === 'COMPLETED'
+                              ? 'text-emerald-400'
+                              : ride.status.startsWith('CANCELLED')
+                              ? 'text-rose-400'
+                              : 'text-amber-400'
+                          }`}
                         >
-                          <FileText className="w-3 h-3 text-emerald-400" />
-                          <span>Comprovante PDF</span>
+                          {ride.status}
+                        </span>
+                      </div>
+
+                      {(ride.paymentStatus === 'PAYMENT_PENDING' || ride.paymentStatus === 'PAYMENT_CONTESTED') && (
+                        <button
+                          onClick={() => {
+                            setQuickConfirmRide(ride);
+                            setQuickConfirmMethod((ride.paymentMethod as PaymentMethod) || 'PIX');
+                          }}
+                          className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-black px-3 py-1.5 rounded-lg transition-all cursor-pointer shadow"
+                        >
+                          ✔ Confirmar que Recebi
                         </button>
                       )}
                     </div>
@@ -2213,18 +1970,6 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                   </div>
 
                   <div className="flex items-center gap-3 self-end sm:self-auto">
-                    {doc?.fileUrl && (
-                      <div className="flex items-center gap-2">
-                        <img
-                          src={doc.fileUrl}
-                          alt={req.name}
-                          className="w-10 h-10 rounded-lg object-cover border border-slate-700 cursor-pointer hover:opacity-80"
-                          onClick={() => window.open(doc.fileUrl, '_blank')}
-                          title="Clique para visualizar em tela cheia"
-                        />
-                      </div>
-                    )}
-
                     <span
                       className={`text-xs font-bold px-2.5 py-1 rounded-lg border ${
                         status === 'APPROVED'
@@ -2242,267 +1987,19 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                     </span>
 
                     {status !== 'APPROVED' && (
-                      <div>
-                        <input
-                          type="file"
-                          id={`doc-input-${req.id}`}
-                          accept="image/*,application/pdf"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handleRealDocUpload(req.id, file);
-                          }}
-                        />
-                        <label
-                          htmlFor={`doc-input-${req.id}`}
-                          className={`bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-3 py-2 rounded-xl border border-slate-700 transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
-                            uploadingDocId === req.id ? 'opacity-50 pointer-events-none' : ''
-                          }`}
-                        >
-                          {uploadingDocId === req.id ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              <span>Enviando...</span>
-                            </>
-                          ) : (
-                            <span>{doc?.fileUrl ? 'Reenviar Arquivo' : 'Enviar Arquivo'}</span>
-                          )}
-                        </label>
-                      </div>
+                      <button
+                        onClick={() => handleSimulateDocUpload(req.id)}
+                        disabled={isUpdating}
+                        className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-3 py-2 rounded-xl border border-slate-700 transition-colors cursor-pointer"
+                      >
+                        Enviar Documento
+                      </button>
                     )}
                   </div>
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
-
-      {/* TAB: MOBILITY & DEMAND MAP */}
-      {activeTab === 'MAPA' && (
-        <div className="space-y-4">
-          <VaiCarMobilityMap
-            mode="DRIVER"
-            zones={allZones}
-          />
-        </div>
-      )}
-
-      {/* TAB: DRIVER PROFILE MANAGEMENT */}
-      {activeTab === 'PERFIL' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
-            <div>
-              <h2 className="text-xl font-black text-white flex items-center gap-2">
-                <User className="w-5 h-5 text-emerald-400" />
-                <span>Perfil do Motorista Parceiro</span>
-              </h2>
-              <p className="text-xs text-slate-400">
-                Gerencie seus dados pessoais, foto de perfil, informações do veículo e preferências de contato.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider border ${
-                driver.regulatoryStatus === 'APPROVED'
-                  ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
-                  : 'bg-amber-950/80 border-amber-500/40 text-amber-300'
-              }`}>
-                {driver.regulatoryStatus === 'APPROVED' ? 'Cadastro Aprovado' : 'Documentação em Análise'}
-              </span>
-            </div>
-          </div>
-
-          <form onSubmit={handleSaveDriverProfile} className="space-y-6 max-w-2xl">
-            {/* Foto de Perfil */}
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
-              <label className="text-xs font-bold text-slate-300 block">Foto de Perfil do Motorista *</label>
-              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                <img
-                  src={profileAvatarUrl}
-                  alt={profileName}
-                  className="w-16 h-16 rounded-2xl object-cover border-2 border-slate-700 shadow-md"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="space-y-1.5">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleDriverAvatarChange}
-                    className="hidden"
-                    id="driver-avatar-upload"
-                  />
-                  <label
-                    htmlFor="driver-avatar-upload"
-                    className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-3.5 py-2 rounded-lg cursor-pointer transition-all border border-slate-700"
-                  >
-                    Alterar Foto de Perfil
-                  </label>
-                  <p className="text-[10px] text-slate-400">Sua foto é exibida aos passageiros durante a solicitação e viagem.</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Dados Pessoais */}
-            <div className="space-y-3">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Dados Pessoais & Contato</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-300">Nome Completo</label>
-                  <input
-                    type="text"
-                    value={profileName}
-                    onChange={(e) => setProfileName(e.target.value)}
-                    required
-                    className="w-full bg-slate-950 text-white text-xs px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-300">WhatsApp / Telefone</label>
-                  <input
-                    type="text"
-                    value={profilePhone}
-                    onChange={(e) => setProfilePhone(e.target.value)}
-                    required
-                    className="w-full bg-slate-950 text-white text-xs px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div className="space-y-1 sm:col-span-2">
-                  <label className="text-xs font-bold text-slate-300">E-mail Cadastrado</label>
-                  <input
-                    type="email"
-                    value={profileEmail}
-                    onChange={(e) => setProfileEmail(e.target.value)}
-                    className="w-full bg-slate-950 text-white text-xs px-3.5 py-2.5 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Dados do Veículo */}
-            <div className="space-y-3 border-t border-slate-800 pt-4">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Dados do Veículo</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-300">Marca</label>
-                  <input
-                    type="text"
-                    value={vehicleBrand}
-                    onChange={(e) => setVehicleBrand(e.target.value)}
-                    placeholder="Ex: Chevrolet"
-                    required
-                    className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-300">Modelo</label>
-                  <input
-                    type="text"
-                    value={vehicleModel}
-                    onChange={(e) => setVehicleModel(e.target.value)}
-                    placeholder="Ex: Onix Plus"
-                    required
-                    className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-300">Ano</label>
-                  <input
-                    type="number"
-                    value={vehicleYear}
-                    onChange={(e) => setVehicleYear(Number(e.target.value))}
-                    min={2010}
-                    max={2027}
-                    required
-                    className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-300">Cor do Veículo</label>
-                  <input
-                    type="text"
-                    value={vehicleColor}
-                    onChange={(e) => setVehicleColor(e.target.value)}
-                    placeholder="Ex: Prata"
-                    required
-                    className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-300">Placa</label>
-                  <input
-                    type="text"
-                    value={vehiclePlate}
-                    onChange={(e) => setVehiclePlate(e.target.value.toUpperCase())}
-                    placeholder="Ex: BRA2E19"
-                    required
-                    className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-xl border border-slate-700 outline-none focus:border-emerald-500 font-mono uppercase"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-300">Categoria</label>
-                  <select
-                    value={vehicleCategory}
-                    onChange={(e) => setVehicleCategory(e.target.value as any)}
-                    className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
-                  >
-                    <option value="HATCH">Hatch Econômico</option>
-                    <option value="SEDAN">Sedan Conforto</option>
-                    <option value="SUV">SUV Espaçoso</option>
-                    <option value="MINIVAN">Minivan 7 Lugares</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {profileSaveSuccess && (
-              <div className="p-3.5 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-xs font-bold text-emerald-300 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>{profileSaveSuccess}</span>
-              </div>
-            )}
-
-            <div className="flex items-center gap-3 pt-2">
-              <button
-                type="submit"
-                disabled={isSavingProfile}
-                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs px-6 py-3 rounded-xl transition-all shadow-md cursor-pointer disabled:opacity-50 flex items-center gap-2"
-              >
-                {isSavingProfile ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Salvando Alterações...</span>
-                  </>
-                ) : (
-                  <span>Salvar Dados do Perfil</span>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setProfileName(driver.name || '');
-                  setProfilePhone(driver.phone || '');
-                  setProfileEmail(driver.email || '');
-                  setProfileAvatarUrl(driver.avatarUrl || '');
-                  setVehicleBrand(driver.vehicle?.brand || '');
-                  setVehicleModel(driver.vehicle?.model || '');
-                  setVehicleYear(driver.vehicle?.year || 2022);
-                  setVehicleColor(driver.vehicle?.color || '');
-                  setVehiclePlate(driver.vehicle?.licensePlate || '');
-                }}
-                className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold px-4 py-3 rounded-xl transition-all cursor-pointer"
-              >
-                Cancelar
-              </button>
-            </div>
-          </form>
         </div>
       )}
 
@@ -2515,12 +2012,255 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
         />
       )}
 
-      {/* Ride Receipt Modal (Comprovante da Corrida) */}
-      {selectedReceiptRideId && (
-        <RideReceiptModal
-          rideId={selectedReceiptRideId}
-          onClose={() => setSelectedReceiptRideId(null)}
-        />
+      {/* Driver Finish Ride Payment Confirmation Modal */}
+      {showPaymentModal && activeRide && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl relative my-6">
+            <div className="text-center space-y-1">
+              <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/80 border border-emerald-500/30 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                Encerramento de Viagem
+              </span>
+              <h3 className="text-xl font-black text-white mt-1">Pagamento da Corrida</h3>
+              <p className="text-xs text-slate-400">
+                Passageiro(a): <strong className="text-white">{activeRide.passengerName}</strong>
+              </p>
+            </div>
+
+            {/* Total Fare Display */}
+            <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 text-center space-y-1">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Valor Total a Receber
+              </span>
+              <div className="text-3xl font-black text-emerald-400">
+                R$ {(activeRide.fareBrl !== undefined ? activeRide.fareBrl : activeRide.estimatedPrice).toFixed(2).replace('.', ',')}
+              </div>
+              <p className="text-[10px] text-slate-500">
+                {activeRide.originAddress} ➔ {activeRide.destinationAddress}
+              </p>
+            </div>
+
+            {/* Question */}
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-slate-200 text-center">
+                Você recebeu este pagamento do passageiro?
+              </label>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setPaymentChoice('RECEIVED')}
+                  className={`p-3 rounded-xl border text-xs font-black flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                    paymentChoice === 'RECEIVED'
+                      ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-lg shadow-emerald-500/20'
+                      : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <CheckCircle className="w-5 h-5" />
+                  <span>SIM, RECEBI</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPaymentChoice('NOT_RECEIVED')}
+                  className={`p-3 rounded-xl border text-xs font-black flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                    paymentChoice === 'NOT_RECEIVED'
+                      ? 'bg-rose-500 text-white border-rose-400 shadow-lg shadow-rose-500/20'
+                      : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <AlertCircle className="w-5 h-5" />
+                  <span>NÃO RECEBI</span>
+                </button>
+              </div>
+            </div>
+
+            {/* If Received -> Select Method */}
+            {paymentChoice === 'RECEIVED' && (
+              <div className="space-y-2 bg-slate-950/60 border border-slate-800 p-3.5 rounded-2xl">
+                <span className="block text-[11px] font-bold text-slate-300">
+                  Forma em que o passageiro pagou:
+                </span>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethodChoice('PIX')}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                      paymentMethodChoice === 'PIX'
+                        ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Zap className="w-4 h-4 text-emerald-400" />
+                    <span>Pix</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethodChoice('CASH')}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                      paymentMethodChoice === 'CASH'
+                        ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Banknote className="w-4 h-4 text-emerald-400" />
+                    <span>Dinheiro</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethodChoice('CARD_CREDIT')}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                      paymentMethodChoice === 'CARD_CREDIT' || paymentMethodChoice === 'CARD_DEBIT'
+                        ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <CreditCard className="w-4 h-4 text-emerald-400" />
+                    <span>Maquininha</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* If NOT Received -> Optional Reason */}
+            {paymentChoice === 'NOT_RECEIVED' && (
+              <div className="space-y-2 bg-rose-950/30 border border-rose-500/30 p-3.5 rounded-2xl">
+                <span className="block text-[11px] font-bold text-rose-300">
+                  Motivo do não recebimento (opcional):
+                </span>
+                <input
+                  type="text"
+                  value={paymentPendingReasonText}
+                  onChange={(e) => setPaymentPendingReasonText(e.target.value)}
+                  placeholder="Ex: Passageiro desceu sem pagar / prometeu transferir depois"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-400"
+                />
+                <p className="text-[10px] text-slate-400">
+                  ⚠️ Ao registrar como não recebido, a corrida será finalizada e o passageiro ficará temporariamente bloqueado para solicitar novas viagens até regularizar a pendência.
+                </p>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowPaymentModal(false)}
+                disabled={isUpdating}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold py-3 rounded-xl transition-colors cursor-pointer"
+              >
+                Voltar
+              </button>
+
+              <button
+                type="button"
+                onClick={handleFinishRideWithPayment}
+                disabled={isUpdating}
+                className={`flex-1 text-xs font-black py-3 rounded-xl transition-all cursor-pointer shadow-lg ${
+                  paymentChoice === 'RECEIVED'
+                    ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20'
+                    : 'bg-rose-500 hover:bg-rose-400 text-white shadow-rose-500/20'
+                }`}
+              >
+                {isUpdating
+                  ? 'Processando...'
+                  : paymentChoice === 'RECEIVED'
+                  ? 'Confirmar e Finalizar ✔'
+                  : 'Registrar Débito e Finalizar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Driver Quick Confirm Payment for Previously Pending Ride */}
+      {quickConfirmRide && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl relative my-6">
+            <div className="text-center space-y-1">
+              <span className="text-[10px] font-black text-emerald-400 bg-emerald-950/80 border border-emerald-500/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                Baixa de Débito
+              </span>
+              <h3 className="text-lg font-black text-white mt-1">Confirmar Recebimento</h3>
+              <p className="text-xs text-slate-400">
+                Passageiro: <strong className="text-white">{quickConfirmRide.passengerName}</strong>
+              </p>
+              <div className="text-2xl font-black text-emerald-400 pt-1">
+                R$ {(quickConfirmRide.fareBrl !== undefined ? quickConfirmRide.fareBrl : quickConfirmRide.estimatedPrice).toFixed(2).replace('.', ',')}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-[11px] font-bold text-slate-300">
+                Como você recebeu o pagamento?
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setQuickConfirmMethod('PIX')}
+                  className={`p-2 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 cursor-pointer ${
+                    quickConfirmMethod === 'PIX'
+                      ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
+                      : 'bg-slate-950 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  <Zap className="w-4 h-4 text-emerald-400" />
+                  <span>Pix</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setQuickConfirmMethod('CASH')}
+                  className={`p-2 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 cursor-pointer ${
+                    quickConfirmMethod === 'CASH'
+                      ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
+                      : 'bg-slate-950 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  <Banknote className="w-4 h-4 text-emerald-400" />
+                  <span>Dinheiro</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setQuickConfirmMethod('CARD_CREDIT')}
+                  className={`p-2 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 cursor-pointer ${
+                    quickConfirmMethod === 'CARD_CREDIT' || quickConfirmMethod === 'CARD_DEBIT'
+                      ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300'
+                      : 'bg-slate-950 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  <CreditCard className="w-4 h-4 text-emerald-400" />
+                  <span>Cartão</span>
+                </button>
+              </div>
+            </div>
+
+            <p className="text-[10px] text-slate-400 text-center">
+              Ao confirmar, a dívida será encerrada e o passageiro será desbloqueado imediatamente.
+            </p>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setQuickConfirmRide(null)}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold py-2.5 rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleQuickConfirmPayment(quickConfirmRide.id, quickConfirmMethod)}
+                disabled={isUpdating}
+                className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black py-2.5 rounded-xl cursor-pointer"
+              >
+                {isUpdating ? 'Salvando...' : 'Confirmar Baixa ✔'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

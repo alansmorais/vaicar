@@ -10,38 +10,21 @@ const currentDir = typeof import.meta.dirname !== 'undefined'
   : path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(() => {
-  // Determine if web frontend is placed in app/web or at root
-  const hasAppWebMain = fs.existsSync(path.resolve(currentDir, 'app/web/src/main.tsx'));
-  const hasRootMain = fs.existsSync(path.resolve(currentDir, 'src/main.tsx'));
-
-  let root = 'app/web';
-  let aliasTarget = './app/web';
-  let outDir = '../../dist';
-
-  if (!hasAppWebMain && hasRootMain) {
-    root = '.';
-    aliasTarget = './src';
-    outDir = 'dist';
-  } else if (!hasAppWebMain && !hasRootMain) {
-    // If the frontend source files were not committed to git, ensure a graceful fallback so Render server build succeeds
-    const fallbackDir = path.resolve(currentDir, 'app/web/src');
-    fs.mkdirSync(fallbackDir, { recursive: true });
-    const fallbackMain = path.resolve(fallbackDir, 'main.tsx');
-    if (!fs.existsSync(fallbackMain)) {
-      fs.writeFileSync(fallbackMain, 'import React from "react"; import { createRoot } from "react-dom/client"; const root = document.getElementById("root"); if (root) createRoot(root).render(<div>VaiCar Platform API & Web Services</div>);');
-    }
-  }
+  const mapsApiKey = process.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyAqF4zL02-t-Im_cItTvUj-gPeDs4mmGK4';
 
   return {
-    root,
+    root: '.',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
-        '@': path.resolve(currentDir, aliasTarget),
+        '@': path.resolve(currentDir, './src'),
       },
     },
+    define: {
+      'import.meta.env.VITE_GOOGLE_MAPS_API_KEY': JSON.stringify(mapsApiKey),
+    },
     build: {
-      outDir,
+      outDir: 'dist',
       emptyOutDir: true,
     },
     server: {

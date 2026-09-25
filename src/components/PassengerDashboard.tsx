@@ -36,6 +36,9 @@ import {
   FileText,
   Download,
   Compass,
+  Trash2,
+  Flag,
+  RefreshCw,
 } from 'lucide-react';
 import { Zone, Ride, Driver, PaymentMethod, SearchDriversResponse } from '../types.ts';
 import {
@@ -51,12 +54,32 @@ import {
   getWhatsAppContact,
   fetchUnpaidRides,
   contestRidePayment,
+  deleteOwnPassengerAccount,
+  searchPlaces,
+  PlaceSearchResult,
+  reverseGeocode,
+  computeRouteDirections,
 } from '../lib/api.ts';
 import { LiveRideTracker } from './LiveRideTracker.tsx';
 import { ReportModal } from './ReportModal.tsx';
 import { RideReceiptModal } from './RideReceiptModal.tsx';
 import { VaiCarMobilityMap } from './VaiCarMobilityMap.tsx';
+import { PassengerInteractiveMap } from './PassengerInteractiveMap.tsx';
 import { realtimeSync, broadcastLocalRideCreated, broadcastLocalRideUpdate } from '../lib/realtimeSync.ts';
+
+function findNearestZone(lat: number, lng: number, zoneList: Zone[]): Zone | null {
+  if (!zoneList || zoneList.length === 0) return null;
+  let closest = zoneList[0];
+  let minDistance = Infinity;
+  for (const z of zoneList) {
+    const d = Math.hypot(z.lat - lat, z.lng - lng);
+    if (d < minDistance) {
+      minDistance = d;
+      closest = z;
+    }
+  }
+  return closest;
+}
 
 export function parseDeliveryDetails(originLandmark?: string) {
   if (!originLandmark || !originLandmark.startsWith('📦 [DELIVERY')) {
@@ -143,6 +166,38 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [isLoginMode, setIsLoginMode] = useState(false);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [emailSentSuccessfully, setEmailSentSuccessfully] = useState<boolean>(false);
+  const [isDeleteAccountModalOpen, setIsDeleteAccountModalOpen] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
+
+  const handleDeleteOwnAccount = async () => {
+    try {
+      setIsDeletingAccount(true);
+      setDeleteAccountError(null);
+      const identifier = passengerPhone || passengerEmail;
+      if (!identifier) {
+        throw new Error('Nenhum identificador de passageiro encontrado.');
+      }
+      await deleteOwnPassengerAccount(identifier);
+      localStorage.removeItem('vaicar_passenger_name');
+      localStorage.removeItem('vaicar_passenger_phone');
+      localStorage.removeItem('vaicar_passenger_email');
+      localStorage.removeItem('vaicar_passenger_avatar');
+      localStorage.removeItem('vaicar_passenger_verified');
+      setIsVerified(false);
+      setPassengerName('');
+      setPassengerPhone('');
+      setPassengerEmail('');
+      setIsDeleteAccountModalOpen(false);
+      if (onLogout) {
+        onLogout();
+      }
+    } catch (err: any) {
+      setDeleteAccountError(err.message || 'Erro ao excluir conta.');
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
 
   const handlePassengerAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -186,6 +241,64 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   // Search State
   const [originZoneId, setOriginZoneId] = useState<string>(zones[0]?.id || 'z-centro');
   const [destinationZoneId, setDestinationZoneId] = useState<string>(zones[1]?.id || 'z-maresias');
+
+  // Google Maps Coordinates & Addresses (matching native Android)
+  const initialOrigin = zones.find((z) => z.id === (zones[0]?.id || 'z-centro')) || zones[0];
+  const [pickupLat, setPickupLat] = useState<number>(initialOrigin?.lat || -23.8078);
+  const [pickupLng, setPickupLng] = useState<number>(initialOrigin?.lng || -45.4058);
+  const [pickupAddress, setPickupAddress] = useState<string>(
+    initialOrigin ? `${initialOrigin.name}, São Sebastião - SP` : 'Centro, São Sebastião - SP'
+  );
+  const [destLat, setDestLat] = useState<number | null>(null);
+  const [destLng, setDestLng] = useState<number | null>(null);
+  const [destAddress, setDestAddress] = useState<string | null>(null);
+
+  // Address Search State ("Para onde vamos?")
+  const [destSearchInput, setDestSearchInput] = useState<string>('');
+  const [destSuggestions, setDestSuggestions] = useState<PlaceSearchResult[]>([]);
+  const [isSearchingDest, setIsSearchingDest] = useState<boolean>(false);
+  const [isDestSuggestionsOpen, setIsDestSuggestionsOpen] = useState<boolean>(false);
+  const [routeDistanceKm, setRouteDistanceKm] = useState<number | null>(null);
+  const [routeDurationMin, setRouteDurationMin] = useState<number | null>(null);
+
+  // Real-time Places & Address Search
+  useEffect(() => {
+    if (!destSearchInput.trim() || destSearchInput.trim().length < 2) {
+      setDestSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearchingDest(true);
+      try {
+        const results = await searchPlaces(destSearchInput.trim());
+        setDestSuggestions(results);
+      } catch (err) {
+        console.warn('Place search error:', err);
+      } finally {
+        setIsSearchingDest(false);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [destSearchInput]);
+
+  // Route calculation when both pickup and destination exist
+  useEffect(() => {
+    if (pickupLat && pickupLng && destLat && destLng) {
+      computeRouteDirections(pickupLat, pickupLng, destLat, destLng)
+        .then((res) => {
+          setRouteDistanceKm(res.distanceKm);
+          setRouteDurationMin(res.durationMin);
+        })
+        .catch(() => {
+          setRouteDistanceKm(null);
+          setRouteDurationMin(null);
+        });
+    } else {
+      setRouteDistanceKm(null);
+      setRouteDurationMin(null);
+    }
+  }, [pickupLat, pickupLng, destLat, destLng]);
+
   const [passengers, setPassengers] = useState<number>(1);
   const [scheduleType, setScheduleType] = useState<'NOW' | 'LATER'>('NOW');
   const [scheduledTime, setScheduledTime] = useState<string>('14:00');
@@ -372,17 +485,29 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
 
   const handlePerformSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!originZoneId || !destinationZoneId) return;
+
+    if (!destAddress || destLat === null || destLng === null) {
+      alert('Por favor, defina o local de destino ("Para onde vamos?") antes de buscar motoristas.');
+      return;
+    }
 
     if (serviceType === 'DELIVERY' && !deliveryRulesAccepted) {
       alert('Você precisa marcar a caixa confirmando que aceita as Normas de Segurança e regras da plataforma.');
       return;
     }
 
+    const effOriginZone = zones.find((z) => z.id === originZoneId) || findNearestZone(pickupLat, pickupLng, zones) || zones[0];
+    const effDestZone = zones.find((z) => z.id === destinationZoneId) || (destLat !== null && destLng !== null ? findNearestZone(destLat, destLng, zones) : null) || zones[1] || zones[0];
+
+    if (!effOriginZone || !effDestZone) {
+      alert('Localidades não identificadas.');
+      return;
+    }
+
     try {
       setIsSearching(true);
       setSearchConcluded(false);
-      const res = await searchDrivers(originZoneId, destinationZoneId, serviceType === 'DELIVERY' ? 1 : passengers);
+      const res = await searchDrivers(effOriginZone.id, effDestZone.id, serviceType === 'DELIVERY' ? 1 : passengers);
       
       // If delivery, let's tag and adjust prices (e.g. 25% discount for bike delivery)
       if (serviceType === 'DELIVERY' && res?.results) {
@@ -418,7 +543,20 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         const accuracy = Math.round(pos.coords.accuracy || 10);
         const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
         setPickupMapsLink(mapsUrl);
+        setPickupLat(lat);
+        setPickupLng(lng);
         setGpsCaptureSuccess(`Sinal GPS obtido! Precisão de ~${accuracy}m`);
+        
+        reverseGeocode(lat, lng)
+          .then((geo) => {
+            setPickupAddress(geo.address);
+            const nearest = findNearestZone(lat, lng, zones);
+            if (nearest) setOriginZoneId(nearest.id);
+          })
+          .catch(() => {
+            setPickupAddress(`GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+          });
+
         if (!pickupLandmark) {
           setPickupLandmark(`Localização GPS exata (${lat.toFixed(5)}, ${lng.toFixed(5)})`);
         }
@@ -451,8 +589,12 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         passengerCount: serviceType === 'DELIVERY' ? 1 : passengers,
         originZoneId: originZone.id,
         destinationZoneId: destinationZone.id,
-        originAddress: `${originZone.name}, São Sebastião - SP`,
-        destinationAddress: `${destinationZone.name}, São Sebastião - SP`,
+        originAddress: pickupAddress || `${originZone.name}, São Sebastião - SP`,
+        destinationAddress: destAddress || `${destinationZone.name}, São Sebastião - SP`,
+        originLat: pickupLat,
+        originLng: pickupLng,
+        destinationLat: destLat ?? undefined,
+        destinationLng: destLng ?? undefined,
         originLandmark: finalOriginLandmark, // <--- Pass exact landmark / delivery info
         originMapsLink: pickupMapsLink, // <--- Pass maps link
         estimatedDistanceKm: searchResults?.distanceKm || 12,
@@ -1016,81 +1158,246 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               </div>
             </div>
 
-            {/* Form */}
-            <form onSubmit={handlePerformSearch} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Origin */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <MapPin className="w-4 h-4 text-emerald-400" />
-                    {serviceType === 'RIDE' ? 'De onde? (Origem)' : 'Endereço de Coleta'}
-                  </label>
-                  <select
-                    value={originZoneId}
-                    onChange={(e) => setOriginZoneId(e.target.value)}
-                    className="w-full bg-slate-950 text-white font-medium px-4 py-3 rounded-xl border border-slate-700/80 focus:border-emerald-500 outline-none cursor-pointer text-sm"
-                  >
-                    {zones.map((zone) => (
-                      <option key={`orig-${zone.id}`} value={zone.id}>
-                        📍 {zone.name}
-                      </option>
-                    ))}
-                  </select>
+            {/* Split View: Left Column (Map) & Right Column (Android-matched Ride Booking Panel) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start mb-6">
+              {/* Left Column: Real Interactive Google Map */}
+              <div className="lg:col-span-7 xl:col-span-7 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                      Google Maps Interativo • Embarque & Destino
+                    </h3>
+                  </div>
+                  <span className="text-[11px] text-slate-400 hidden sm:inline">
+                    Arraste o mapa sob o pino central para definir o embarque
+                  </span>
                 </div>
 
-                {/* Destination */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <MapPin className="w-4 h-4 text-cyan-400" />
-                    {serviceType === 'RIDE' ? 'Para onde? (Destino)' : 'Endereço de Entrega'}
-                  </label>
-                  <select
-                    value={destinationZoneId}
-                    onChange={(e) => setDestinationZoneId(e.target.value)}
-                    className="w-full bg-slate-950 text-white font-medium px-4 py-3 rounded-xl border border-slate-700/80 focus:border-emerald-500 outline-none cursor-pointer text-sm"
-                  >
-                    {zones.map((zone) => (
-                      <option key={`dest-${zone.id}`} value={zone.id}>
-                        🏁 {zone.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <PassengerInteractiveMap
+                  zones={zones}
+                  pickupLat={pickupLat}
+                  pickupLng={pickupLng}
+                  pickupAddress={pickupAddress}
+                  destLat={destLat}
+                  destLng={destLng}
+                  destAddress={destAddress}
+                  availableDrivers={searchResults?.results || []}
+                  selectedDriver={selectedDriverForRequest}
+                  activeRide={activeRide}
+                  className="w-full h-[460px] lg:h-[620px] rounded-2xl"
+                  onUpdatePickup={(lat, lng, addr) => {
+                    setPickupLat(lat);
+                    setPickupLng(lng);
+                    setPickupAddress(addr);
+                    const nearest = findNearestZone(lat, lng, zones);
+                    if (nearest) setOriginZoneId(nearest.id);
+                  }}
+                  onSelectDestination={(lat, lng, addr, zoneId) => {
+                    setDestLat(lat);
+                    setDestLng(lng);
+                    setDestAddress(addr);
+                    setDestSearchInput(addr);
+                    setIsDestSuggestionsOpen(false);
+                    if (zoneId) {
+                      setDestinationZoneId(zoneId);
+                    } else {
+                      const nearest = findNearestZone(lat, lng, zones);
+                      if (nearest) setDestinationZoneId(nearest.id);
+                    }
+                  }}
+                />
               </div>
 
-              {/* Delivery fields (Conditional) */}
-              {serviceType === 'DELIVERY' && (
-                <div className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 space-y-4 animate-fade-in text-xs">
-                  <div className="border-b border-slate-800 pb-2 mb-2 flex items-center justify-between">
-                    <div>
-                      <h3 className="font-bold text-white text-xs uppercase text-emerald-400">Detalhes do Envio</h3>
-                      <p className="text-[10px] text-slate-500">Insira as especificações exatas do seu pacote.</p>
-                    </div>
-                    <span className="text-[10px] bg-slate-900 border border-slate-800 px-2 py-1 rounded text-slate-400 font-bold">
-                      {deliveryVehicle === 'MOTO' ? '🏍️ Motocicleta (Plano R$79 ou 10%)' : '🚲 Bicicleta (Plano R$49 ou 10%)'}
+              {/* Right Column: Ride Request Card (Web version of Android Passenger Flow) */}
+              <div className="lg:col-span-5 xl:col-span-5 space-y-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+                <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                      <Car className="w-4 h-4 text-emerald-400" />
+                      <span>{serviceType === 'RIDE' ? 'Solicitar Viagem' : 'Solicitar Envio'}</span>
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      {serviceType === 'RIDE' ? 'Mesmo fluxo e transparência do app VaiCar' : 'Entrega rápida por motocicletas ou bicicletas'}
+                    </p>
+                  </div>
+                  {activeRide && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      Corrida Ativa
                     </span>
+                  )}
+                </div>
+
+                <form onSubmit={handlePerformSearch} className="space-y-4">
+                  {/* 1. Local de Embarque Card */}
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+                        Local de Embarque
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCapturePickupGps}
+                        disabled={isLocatingGps}
+                        className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-500/30 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                        title="Usar minha localização GPS atual"
+                      >
+                        <Navigation className={`w-3 h-3 ${isLocatingGps ? 'animate-spin' : ''}`} />
+                        <span>{isLocatingGps ? 'Obtendo GPS...' : 'Usar GPS'}</span>
+                      </button>
+                    </div>
+
+                    <div className="text-xs font-semibold text-white bg-slate-900/80 p-2.5 rounded-lg border border-slate-800/80 break-words flex items-start gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 mt-1 animate-pulse" />
+                      <span>{pickupAddress || 'São Sebastião - SP'}</span>
+                    </div>
+
+                    <p className="text-[10px] text-slate-500">
+                      💡 O pino de embarque fica fixo no centro do mapa. Arraste o mapa para posicionar com precisão.
+                    </p>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Veículo da Entrega */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-300 uppercase">Selecione o Veículo de Entrega</label>
+                  {/* 2. Destino ("Para onde vamos?") */}
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2.5 relative">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <Flag className="w-3.5 h-3.5 text-sky-400" />
+                        Para onde vamos?
+                      </span>
+                      {destAddress && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDestAddress(null);
+                            setDestLat(null);
+                            setDestLng(null);
+                            setDestSearchInput('');
+                          }}
+                          className="text-[10px] text-slate-400 hover:text-rose-400 font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                          <span>Alterar Destino</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {destAddress ? (
+                      <div className="space-y-2">
+                        <div className="text-xs font-semibold text-white bg-slate-900/80 p-2.5 rounded-lg border border-sky-500/40 break-words flex items-start gap-2">
+                          <Flag className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <span className="block truncate">{destAddress}</span>
+                            {routeDistanceKm !== null && (
+                              <span className="text-[10px] text-emerald-400 font-bold block mt-0.5">
+                                Trajeto estimado: {routeDistanceKm} km • ~{routeDurationMin} min de viagem
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <div className="relative">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                          <input
+                            type="text"
+                            value={destSearchInput}
+                            onChange={(e) => {
+                              setDestSearchInput(e.target.value);
+                              setIsDestSuggestionsOpen(true);
+                            }}
+                            onFocus={() => setIsDestSuggestionsOpen(true)}
+                            placeholder="Digite o endereço, praia ou ponto de interesse..."
+                            className="w-full bg-slate-900 text-white text-xs pl-9 pr-8 py-2.5 rounded-xl border border-slate-800 focus:border-sky-500 outline-none transition-colors"
+                          />
+                          {isSearchingDest && (
+                            <RefreshCw className="w-3.5 h-3.5 text-sky-400 animate-spin absolute right-3 top-3" />
+                          )}
+                        </div>
+
+                        {/* Dropdown Suggestions */}
+                        {isDestSuggestionsOpen && (
+                          <div className="absolute left-0 right-0 mt-1 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl z-40 max-h-56 overflow-y-auto p-1.5 space-y-1">
+                            {destSuggestions.length > 0 ? (
+                              destSuggestions.map((place, idx) => (
+                                <button
+                                  key={`sugg-${idx}-${place.lat}-${place.lng}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setDestLat(place.lat);
+                                    setDestLng(place.lng);
+                                    setDestAddress(`${place.title} - ${place.subtitle}`);
+                                    setDestSearchInput(`${place.title} - ${place.subtitle}`);
+                                    setIsDestSuggestionsOpen(false);
+                                    const nearest = findNearestZone(place.lat, place.lng, zones);
+                                    if (nearest) setDestinationZoneId(nearest.id);
+                                  }}
+                                  className="w-full text-left p-2 rounded-lg hover:bg-sky-500/20 transition-colors flex items-start gap-2 cursor-pointer"
+                                >
+                                  <MapPin className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+                                  <div className="min-w-0 flex-1">
+                                    <span className="text-xs font-bold text-white block truncate">{place.title}</span>
+                                    <span className="text-[10px] text-slate-400 block truncate">{place.subtitle}</span>
+                                  </div>
+                                </button>
+                              ))
+                            ) : destSearchInput.trim().length >= 2 ? (
+                              <div className="p-3 text-center text-xs text-slate-400">
+                                Nenhum endereço encontrado para "{destSearchInput}".
+                              </div>
+                            ) : (
+                              <div className="p-2 space-y-1.5">
+                                <span className="text-[10px] font-bold uppercase text-slate-500 block">
+                                  Sugestões Rápidas de Destino:
+                                </span>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {zones.slice(0, 6).map((z) => (
+                                    <button
+                                      key={`quick-zone-${z.id}`}
+                                      type="button"
+                                      onClick={() => {
+                                        setDestLat(z.lat);
+                                        setDestLng(z.lng);
+                                        setDestAddress(`${z.name}, São Sebastião - SP`);
+                                        setDestSearchInput(`${z.name}, São Sebastião - SP`);
+                                        setDestinationZoneId(z.id);
+                                        setIsDestSuggestionsOpen(false);
+                                      }}
+                                      className="p-1.5 rounded-lg bg-slate-950 hover:bg-sky-500/20 border border-slate-800 text-left cursor-pointer"
+                                    >
+                                      <span className="text-[11px] font-bold text-white block truncate">{z.name}</span>
+                                      <span className="text-[9px] text-slate-500 block">Praia / Bairro</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3. Delivery Details (If DELIVERY mode) */}
+                  {serviceType === 'DELIVERY' && (
+                    <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-3 text-xs">
                       <div className="flex gap-2">
                         <button
                           type="button"
                           onClick={() => setDeliveryVehicle('MOTO')}
-                          className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all flex items-center justify-center gap-1.5 ${
+                          className={`flex-1 py-1.5 px-2 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
                             deliveryVehicle === 'MOTO'
                               ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
                               : 'bg-slate-900 border-slate-800 text-slate-400'
                           }`}
                         >
-                          🏍️ Motocicleta
+                          🏍️ Moto
                         </button>
                         <button
                           type="button"
                           onClick={() => setDeliveryVehicle('BIKE')}
-                          className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all flex items-center justify-center gap-1.5 ${
+                          className={`flex-1 py-1.5 px-2 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
                             deliveryVehicle === 'BIKE'
                               ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
                               : 'bg-slate-900 border-slate-800 text-slate-400'
@@ -1099,194 +1406,116 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                           🚲 Bicicleta
                         </button>
                       </div>
-                    </div>
 
-                    {/* Categoria do Item */}
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Descrição do Pacote</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Documentos, Pizza, Encomenda..."
+                          value={deliveryDescription}
+                          onChange={(e) => setDeliveryDescription(e.target.value)}
+                          required={serviceType === 'DELIVERY'}
+                          className="w-full bg-slate-900 text-white px-3 py-2 rounded-lg border border-slate-800 outline-none text-xs"
+                        />
+                      </div>
+
+                      <label className="flex items-start gap-2 text-[10px] text-slate-300 cursor-pointer pt-1">
+                        <input
+                          type="checkbox"
+                          checked={deliveryRulesAccepted}
+                          onChange={(e) => setDeliveryRulesAccepted(e.target.checked)}
+                          className="mt-0.5 rounded border-slate-800 text-emerald-500"
+                        />
+                        <span>Concordo com as regras de segurança e transporte de itens.</span>
+                      </label>
+                    </div>
+                  )}
+
+                  {/* 4. Passengers Quantity (When RIDE) */}
+                  {serviceType === 'RIDE' && (
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-300 uppercase">Categoria do Item</label>
-                      <select
-                        value={deliveryCategory}
-                        onChange={(e) => setDeliveryCategory(e.target.value)}
-                        className="w-full bg-slate-900 text-white font-medium px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs cursor-pointer"
-                      >
-                        <option value="ALIMENTOS">🍔 Alimentos / Refeições</option>
-                        <option value="DOCUMENTOS">📄 Documentos / Papéis</option>
-                        <option value="ELETRONICOS">⚡ Eletrônicos / Acessórios</option>
-                        <option value="VESTUARIO">👕 Vestuário / Roupas</option>
-                        <option value="MEDICAMENTOS">💊 Farmácia / Medicamentos</option>
-                        <option value="OUTROS">📦 Outros Objetos</option>
-                      </select>
+                      <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Users className="w-4 h-4 text-emerald-400" />
+                        Passageiros
+                      </label>
+                      <div className="grid grid-cols-4 gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                        {[1, 2, 3, 4].map((num) => (
+                          <button
+                            key={num}
+                            type="button"
+                            onClick={() => setPassengers(num)}
+                            className={`py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                              passengers === num
+                                ? 'bg-emerald-500 text-slate-950 shadow-md font-black'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {num} {num === 1 ? 'pessoa' : 'pessoas'}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {/* Descrição do Item */}
-                    <div className="space-y-1.5 sm:col-span-2">
-                      <label className="text-xs font-bold text-slate-300 uppercase">Descrição Completa</label>
-                      <input
-                        type="text"
-                        placeholder="Ex: Pizza Grande, Chave do Escritório, Documento Azul, etc."
-                        value={deliveryDescription}
-                        onChange={(e) => setDeliveryDescription(e.target.value)}
-                        required={serviceType === 'DELIVERY'}
-                        className="w-full bg-slate-900 text-white px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs"
-                      />
-                    </div>
-
-                    {/* Peso aproximado */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-300 uppercase">Peso Aproximado (kg)</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0.1"
-                        placeholder="Ex: 1.5"
-                        value={deliveryWeight}
-                        onChange={(e) => setDeliveryWeight(e.target.value)}
-                        required={serviceType === 'DELIVERY'}
-                        className="w-full bg-slate-900 text-white px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Tamanho / Dimensões */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-300 uppercase">Tamanho do Item</label>
-                      <select
-                        value={deliverySize}
-                        onChange={(e) => setDeliverySize(e.target.value)}
-                        className="w-full bg-slate-900 text-white font-medium px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs cursor-pointer"
-                      >
-                        <option value="PEQUENO">🎒 Pequeno (Cabe em mochila convencional)</option>
-                        <option value="MEDIO">📦 Médio (Exige baú de motocicleta)</option>
-                        <option value="GRANDE">⚠️ Grande (Limite de carga do entregador)</option>
-                      </select>
-                    </div>
-
-                    {/* Valor Declarado */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-300 uppercase">Valor Declarado (R$)</label>
-                      <input
-                        type="number"
-                        placeholder="Ex: 50.00"
-                        value={deliveryDeclaredValue}
-                        onChange={(e) => setDeliveryDeclaredValue(e.target.value)}
-                        required={serviceType === 'DELIVERY'}
-                        className="w-full bg-slate-900 text-white px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Safety and Regulations Checkbox */}
-                  <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-2">
-                    <span className="font-black text-rose-400 block text-[10px] uppercase tracking-wider">🔒 Normas de Segurança Obrigatórias</span>
-                    <ul className="text-[10px] text-slate-400 list-disc pl-3.5 space-y-1">
-                      <li>Não é permitido enviar inflamáveis, armas, entorpecentes ou itens ilícitos.</li>
-                      <li>O item real deve condizer perfeitamente com a descrição informada acima.</li>
-                      <li>O entregador tem autonomia para recusar caso o item seja inseguro ou diferente do descrito.</li>
-                    </ul>
-                    <label className="flex items-start gap-2 pt-2 text-[11px] text-white font-bold cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={deliveryRulesAccepted}
-                        onChange={(e) => setDeliveryRulesAccepted(e.target.checked)}
-                        className="mt-0.5 rounded border-slate-800 text-emerald-500 focus:ring-0"
-                      />
-                      <span>Declaro que li e concordo com todas as regras de segurança e os Termos de Uso.</span>
-                    </label>
-                  </div>
-                </div>
-              )}
-
-              {/* Schedule & Passenger Count (Only when RIDE) */}
-              {serviceType === 'RIDE' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                  {/* Passengers */}
+                  {/* 5. Schedule (Agora vs Agendar) */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                      <Users className="w-4 h-4 text-emerald-400" />
-                      Quantidade de Passageiros
+                      <Clock className="w-4 h-4 text-emerald-400" />
+                      Horário da Corrida
                     </label>
-                  <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-700/80">
-                    {[1, 2, 3, 4].map((num) => (
+                    <div className="flex items-center gap-2">
                       <button
-                        key={num}
                         type="button"
-                        onClick={() => setPassengers(num)}
-                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                          passengers === num
-                            ? 'bg-emerald-500 text-slate-950'
-                            : 'text-slate-400 hover:text-white'
+                        onClick={() => setScheduleType('NOW')}
+                        className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                          scheduleType === 'NOW'
+                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                            : 'bg-slate-950 border-slate-800 text-slate-400'
                         }`}
                       >
-                        {num} {num === 1 ? 'pessoa' : 'pessoas'}
+                        Agora (Imediato)
                       </button>
-                    ))}
+                      <button
+                        type="button"
+                        onClick={() => setScheduleType('LATER')}
+                        className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                          scheduleType === 'LATER'
+                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                            : 'bg-slate-950 border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        Agendar
+                      </button>
+                    </div>
                   </div>
-                </div>
 
-                {/* Schedule */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <Clock className="w-4 h-4 text-emerald-400" />
-                    Horário da Corrida
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setScheduleType('NOW')}
-                      className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
-                        scheduleType === 'NOW'
-                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
-                          : 'bg-slate-950 border-slate-700 text-slate-400'
-                      }`}
-                    >
-                      Agora (Imediato)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setScheduleType('LATER')}
-                      className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
-                        scheduleType === 'LATER'
-                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
-                          : 'bg-slate-950 border-slate-700 text-slate-400'
-                      }`}
-                    >
-                      Agendar
-                    </button>
+                  {/* Map notice */}
+                  <div className="text-[11px] text-emerald-400 bg-emerald-950/30 p-2.5 rounded-xl border border-emerald-500/30 flex items-center gap-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>Google Maps ativo • Coordenadas GPS em tempo real e cálculo de rotas pela SP-055.</span>
                   </div>
-                </div>
-              </div>
-            )}
 
-              {/* Map Service Notice */}
-              <div className="text-[11px] text-slate-500 bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/80 flex items-center justify-between">
-                <span>ℹ️ Serviço de mapas não configurado. Distâncias estimadas pela malha viária municipal (SP-055).</span>
-                <span className="text-emerald-400 font-semibold cursor-pointer" onClick={() => onOpenLegal('regulacao')}>
-                  Ver Regulação
-                </span>
+                  {/* Primary Action Button */}
+                  <button
+                    type="submit"
+                    disabled={isSearching}
+                    className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-black py-3.5 px-6 rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer text-sm"
+                  >
+                    {isSearching ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                        <span>Buscando motoristas cadastrados...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" />
+                        <span>Pesquisar Motoristas Disponíveis</span>
+                      </>
+                    )}
+                  </button>
+                </form>
               </div>
-
-              {/* Submit Button */}
-              <button
-                type="submit"
-                disabled={isSearching}
-                className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3.5 px-6 rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer text-sm"
-              >
-                {isSearching ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                    <span>Buscando motoristas cadastrados...</span>
-                  </>
-                ) : (
-                  <>
-                    <Search className="w-4 h-4" />
-                    <span>Pesquisar Motoristas Disponíveis</span>
-                  </>
-                )}
-              </button>
-            </form>
+            </div>
           </div>
 
           {/* Search Results Area */}
@@ -2251,6 +2480,31 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               </button>
             </div>
           </form>
+
+          {/* Danger Zone: Account Deletion */}
+          <div className="pt-6 border-t border-slate-800 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider">
+                  Exclusão Definitiva de Conta
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  Excluir permanentemente seus dados de cadastro de passageiro do sistema VaiCar.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteAccountError(null);
+                  setIsDeleteAccountModalOpen(true);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-rose-950/40 hover:bg-rose-900 border border-rose-800/80 text-rose-300 hover:text-white font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Excluir Minha Conta</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2492,6 +2746,62 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                 className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer"
               >
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Own Account Confirmation Modal */}
+      {isDeleteAccountModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-rose-500/30 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0 border border-rose-500/30">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-base font-bold text-white">Excluir Conta de Passageiro</h4>
+                <p className="text-[11px] text-slate-400">Esta ação é irreversível</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 text-xs">
+              <p className="font-semibold text-rose-300">
+                Are you sure you want to delete this passenger account?
+              </p>
+              <p className="text-slate-400 text-[11px]">
+                Tem certeza que deseja excluir sua conta de passageiro? Todos os seus dados de cadastro serão permanentemente removidos:
+              </p>
+              <div className="pt-2 border-t border-slate-900 space-y-1">
+                <div><span className="text-slate-500 font-bold">Nome:</span> <span className="text-white font-bold">{passengerName || 'Passageiro'}</span></div>
+                <div><span className="text-slate-500 font-bold">WhatsApp:</span> <span className="text-emerald-400 font-mono font-bold">{passengerPhone}</span></div>
+                {passengerEmail && <div><span className="text-slate-500 font-bold">E-mail:</span> <span className="text-slate-300">{passengerEmail}</span></div>}
+              </div>
+            </div>
+
+            {deleteAccountError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-400">
+                {deleteAccountError}
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsDeleteAccountModalOpen(false)}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteOwnAccount}
+                disabled={isDeletingAccount}
+                className="flex-1 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer shadow-lg flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isDeletingAccount ? 'Excluindo...' : 'Confirmar Exclusão'}</span>
               </button>
             </div>
           </div>

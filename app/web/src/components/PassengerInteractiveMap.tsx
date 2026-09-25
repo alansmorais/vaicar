@@ -1,4 +1,13 @@
+// Source: Google Maps Platform Code Assist
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  Map,
+  AdvancedMarker,
+  Polyline,
+  useMap,
+  MapControl,
+  ControlPosition,
+} from '@vis.gl/react-google-maps';
 import {
   MapPin,
   Navigation,
@@ -9,14 +18,18 @@ import {
   Flag,
   Crosshair,
   RefreshCw,
-  Layers,
+  Compass,
+  Clock,
+  ShieldCheck,
   ArrowRight,
   Check,
-  AlertCircle
+  AlertCircle,
+  X,
 } from 'lucide-react';
-import { Zone, Driver } from '../types.ts';
+import { Zone, Driver, Ride } from '../types.ts';
+import { reverseGeocode, computeRouteDirections, decodePolyline } from '../lib/api.ts';
 
-interface PassengerInteractiveMapProps {
+export interface PassengerInteractiveMapProps {
   zones: Zone[];
   pickupLat: number;
   pickupLng: number;
@@ -24,35 +37,44 @@ interface PassengerInteractiveMapProps {
   destLat: number | null;
   destLng: number | null;
   destAddress: string | null;
-  availableDrivers: any[];
-  selectedDriver: any | null;
+  availableDrivers?: any[];
+  selectedDriver?: any | null;
+  activeRide?: Ride | null;
   onUpdatePickup: (lat: number, lng: number, address: string) => void;
   onSelectDestination: (lat: number, lng: number, address: string, zoneId?: string) => void;
-  onSelectDriver: (driver: any) => void;
-  onRequestRide: () => void;
+  onSelectDriver?: (driver: any) => void;
+  onRequestRide?: () => void;
   isSubmittingRide?: boolean;
+  className?: string;
 }
 
-// Convert Lat/Lng to Slippy Map Tile Coordinates
-function lon2tile(lon: number, zoom: number): number {
-  return ((lon + 180) / 360) * Math.pow(2, zoom);
-}
+// Controller component to programmatically pan/zoom the Google Map instance
+function MapController({
+  targetCenter,
+  targetZoom,
+  routeBounds,
+}: {
+  targetCenter: { lat: number; lng: number } | null;
+  targetZoom?: number;
+  routeBounds?: { minLat: number; maxLat: number; minLng: number; maxLng: number } | null;
+}) {
+  const map = useMap('vaicar-passenger-map');
 
-function lat2tile(lat: number, zoom: number): number {
-  const rad = (lat * Math.PI) / 180;
-  return (
-    ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) *
-    Math.pow(2, zoom)
-  );
-}
+  useEffect(() => {
+    if (!map) return;
+    if (routeBounds && typeof google !== 'undefined' && google.maps?.LatLngBounds) {
+      const bounds = new google.maps.LatLngBounds(
+        { lat: routeBounds.minLat, lng: routeBounds.minLng },
+        { lat: routeBounds.maxLat, lng: routeBounds.maxLng }
+      );
+      map.fitBounds(bounds, { top: 70, right: 50, bottom: 90, left: 50 });
+    } else if (targetCenter) {
+      map.panTo(targetCenter);
+      if (targetZoom) map.setZoom(targetZoom);
+    }
+  }, [map, targetCenter, targetZoom, routeBounds]);
 
-function tile2lon(x: number, z: number): number {
-  return (x / Math.pow(2, z)) * 360 - 180;
-}
-
-function tile2lat(y: number, z: number): number {
-  const n = Math.PI - (2 * Math.PI * y) / Math.pow(2, z);
-  return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+  return null;
 }
 
 export const PassengerInteractiveMap: React.FC<PassengerInteractiveMapProps> = ({
@@ -63,55 +85,89 @@ export const PassengerInteractiveMap: React.FC<PassengerInteractiveMapProps> = (
   destLat,
   destLng,
   destAddress,
-  availableDrivers,
+  availableDrivers = [],
   selectedDriver,
+  activeRide,
   onUpdatePickup,
   onSelectDestination,
   onSelectDriver,
   onRequestRide,
   isSubmittingRide = false,
+  className = '',
 }) => {
-  // Map View State
-  const [centerLat, setCenterLat] = useState<number>(pickupLat || -23.8078);
-  const [centerLng, setCenterLng] = useState<number>(pickupLng || -45.4058);
-  const [zoom, setZoom] = useState<number>(14);
-
-  // Interaction State
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
-  const [isMovablePickupMode, setIsMovablePickupMode] = useState<boolean>(false);
+  // Map center state (Defaults to São Sebastião - SP)
+  const defaultCenter = { lat: pickupLat || -23.8078, lng: pickupLng || -45.4058 };
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number }>(defaultCenter);
+  const [isMapMoving, setIsMapMoving] = useState<boolean>(false);
   const [isLocatingUser, setIsLocatingUser] = useState<boolean>(false);
   const [gpsError, setGpsError] = useState<string>('');
+  const [isReverseGeocoding, setIsReverseGeocoding] = useState<boolean>(false);
 
-  // Destination Search Modal State
+  // Programmatic pan target
+  const [panTarget, setPanTarget] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Destination search modal
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState<{ width: number; height: number }>({
-    width: 800,
-    height: 520,
-  });
+  // Route calculation state
+  const [routePath, setRoutePath] = useState<{ lat: number; lng: number }[]>([]);
+  const [routeDistanceKm, setRouteDistanceKm] = useState<number | null>(null);
+  const [routeDurationMin, setRouteDurationMin] = useState<number | null>(null);
 
-  // Track Container Dimensions
+  // Live driver tracking state for active ride
+  const [liveDriverPos, setLiveDriverPos] = useState<{
+    lat: number;
+    lng: number;
+    heading?: number;
+    speedKmh?: number;
+  } | null>(null);
+
+  // Debounced geocoding timer ref
+  const geocodeTimerRef = useRef<any>(null);
+
+  // Keep internal state aligned with props when pickup changes externally
   useEffect(() => {
-    const updateSize = () => {
-      if (mapContainerRef.current) {
-        setDimensions({
-          width: mapContainerRef.current.clientWidth,
-          height: mapContainerRef.current.clientHeight || 520,
-        });
-      }
-    };
-    updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, []);
+    if (pickupLat && pickupLng && !isMapMoving) {
+      setMapCenter({ lat: pickupLat, lng: pickupLng });
+    }
+  }, [pickupLat, pickupLng]);
 
-  // Request Real Browser GPS Geolocation
-  const handleGetCurrentLocation = useCallback(() => {
+  // Handle User Center Movement (Fixed Pin Pickup Logic)
+  // When map camera changes, if destLat == null, user is choosing pickup location
+  const handleCameraChange = useCallback(
+    (ev: any) => {
+      if (!ev.detail.center) return;
+      const { lat, lng } = ev.detail.center;
+      setMapCenter({ lat, lng });
+      setIsMapMoving(true);
+
+      // Debounce reverse geocoding after user finishes dragging
+      if (geocodeTimerRef.current) clearTimeout(geocodeTimerRef.current);
+      geocodeTimerRef.current = setTimeout(async () => {
+        setIsMapMoving(false);
+        // Only update pickup if destination is not yet fixed or in pickup mode
+        if (!destLat) {
+          setIsReverseGeocoding(true);
+          try {
+            const res = await reverseGeocode(lat, lng);
+            onUpdatePickup(lat, lng, res.address);
+          } catch (e) {
+            console.warn('Geocode error:', e);
+            onUpdatePickup(lat, lng, `Localização (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+          } finally {
+            setIsReverseGeocoding(false);
+          }
+        }
+      }, 450);
+    },
+    [destLat, onUpdatePickup]
+  );
+
+  // Current GPS Location Handler
+  const handleGetCurrentLocation = () => {
     if (!navigator.geolocation) {
-      setGpsError('Geolocalização não é suportada pelo seu navegador.');
+      setGpsError('Geolocalização não suportada pelo navegador.');
       return;
     }
 
@@ -120,507 +176,488 @@ export const PassengerInteractiveMap: React.FC<PassengerInteractiveMapProps> = (
 
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setPanTarget({ lat, lng });
+        setMapCenter({ lat, lng });
         setIsLocatingUser(false);
-        const { latitude, longitude } = pos.coords;
-        setCenterLat(latitude);
-        setCenterLng(longitude);
 
-        // Find nearest zone
-        let nearestZone = zones[0];
-        let minD = Infinity;
-        zones.forEach((z) => {
-          const d = Math.hypot(z.lat - latitude, z.lng - longitude);
-          if (d < minD) {
-            minD = d;
-            nearestZone = z;
-          }
-        });
-
-        // Try reverse geocode via Nominatim
-        let resolvedAddress = `${nearestZone?.name || 'Localização Atual'}, São Sebastião - SP`;
+        // Reverse geocode user GPS position
+        setIsReverseGeocoding(true);
         try {
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`
-          );
-          if (res.ok) {
-            const data = await res.json();
-            if (data?.display_name) {
-              const road = data.address?.road || '';
-              const houseNumber = data.address?.house_number || '';
-              const suburb = data.address?.suburb || data.address?.neighbourhood || nearestZone?.name || '';
-              resolvedAddress = [road ? (houseNumber ? `${road}, ${houseNumber}` : road) : '', suburb, 'São Sebastião - SP']
-                .filter(Boolean)
-                .join(', ');
-            }
-          }
-        } catch {
-          // fallback to nearest zone
+          const res = await reverseGeocode(lat, lng);
+          onUpdatePickup(lat, lng, res.address);
+        } catch (e) {
+          onUpdatePickup(lat, lng, `Meu GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+        } finally {
+          setIsReverseGeocoding(false);
         }
-
-        onUpdatePickup(latitude, longitude, resolvedAddress);
       },
       (err) => {
+        console.warn('GPS error:', err);
         setIsLocatingUser(false);
-        setGpsError('Não foi possível obter sua localização exata. Usando centro de São Sebastião.');
-        setTimeout(() => setGpsError(''), 4000);
+        setGpsError('Não foi possível obter sua localização exata. Permita o acesso ao GPS.');
       },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
     );
-  }, [zones, onUpdatePickup]);
+  };
 
-  // Initial Geolocation load on mount
+  // Calculate Route when both Pickup and Destination exist
   useEffect(() => {
-    handleGetCurrentLocation();
-  }, []);
+    let isCancelled = false;
 
-  // Convert (Lat, Lng) to Screen Coordinates relative to container center
-  const projectToScreen = useCallback(
-    (lat: number, lng: number) => {
-      const centerTileX = lon2tile(centerLng, zoom);
-      const centerTileY = lat2tile(centerLat, zoom);
-      const targetTileX = lon2tile(lng, zoom);
-      const targetTileY = lat2tile(lat, zoom);
+    if (pickupLat && pickupLng && destLat && destLng) {
+      computeRouteDirections(pickupLat, pickupLng, destLat, destLng)
+        .then((result) => {
+          if (isCancelled) return;
+          setRouteDistanceKm(result.distanceKm);
+          setRouteDurationMin(result.durationMin);
 
-      const x = dimensions.width / 2 + (targetTileX - centerTileX) * 256;
-      const y = dimensions.height / 2 + (targetTileY - centerTileY) * 256;
-      return { x, y };
-    },
-    [centerLat, centerLng, zoom, dimensions]
-  );
-
-  // Convert Screen Coordinates back to (Lat, Lng)
-  const screenToCoord = useCallback(
-    (x: number, y: number) => {
-      const centerTileX = lon2tile(centerLng, zoom);
-      const centerTileY = lat2tile(centerLat, zoom);
-      const targetTileX = centerTileX + (x - dimensions.width / 2) / 256;
-      const targetTileY = centerTileY + (y - dimensions.height / 2) / 256;
-      return {
-        lat: tile2lat(targetTileY, zoom),
-        lng: tile2lon(targetTileX, zoom),
-      };
-    },
-    [centerLat, centerLng, zoom, dimensions]
-  );
-
-  // Mouse / Touch Dragging
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !dragStart) return;
-    const dx = e.clientX - dragStart.x;
-    const dy = e.clientY - dragStart.y;
-    setDragStart({ x: e.clientX, y: e.clientY });
-
-    const centerTileX = lon2tile(centerLng, zoom) - dx / 256;
-    const centerTileY = lat2tile(centerLat, zoom) - dy / 256;
-
-    const newLng = tile2lon(centerTileX, zoom);
-    const newLat = tile2lat(centerTileY, zoom);
-
-    setCenterLat(newLat);
-    setCenterLng(newLng);
-
-    if (isMovablePickupMode) {
-      onUpdatePickup(newLat, newLng, `Coordenadas: ${newLat.toFixed(4)}, ${newLng.toFixed(4)}`);
+          if (result.encodedPolyline) {
+            const points = decodePolyline(result.encodedPolyline);
+            setRoutePath(points);
+          } else {
+            // Direct connecting route fallback
+            setRoutePath([
+              { lat: pickupLat, lng: pickupLng },
+              { lat: destLat, lng: destLng },
+            ]);
+          }
+        })
+        .catch((err) => {
+          console.warn('Route computation error:', err);
+          if (!isCancelled) {
+            setRoutePath([
+              { lat: pickupLat, lng: pickupLng },
+              { lat: destLat, lng: destLng },
+            ]);
+          }
+        });
+    } else {
+      setRoutePath([]);
+      setRouteDistanceKm(null);
+      setRouteDurationMin(null);
     }
-  };
 
-  const handleMouseUp = () => {
-    setIsDragging(false);
-    setDragStart(null);
-  };
+    return () => {
+      isCancelled = true;
+    };
+  }, [pickupLat, pickupLng, destLat, destLng]);
 
-  // Calculate Tiles to Render around Center
-  const tileGrid = React.useMemo(() => {
-    const centerTileX = Math.floor(lon2tile(centerLng, zoom));
-    const centerTileY = Math.floor(lat2tile(centerLat, zoom));
-    const rangeX = Math.ceil(dimensions.width / 512) + 1;
-    const rangeY = Math.ceil(dimensions.height / 512) + 1;
+  // Real-time Driver GPS polling for active ride
+  useEffect(() => {
+    if (!activeRide || !activeRide.id) {
+      setLiveDriverPos(null);
+      return;
+    }
 
-    const tiles: { x: number; y: number; key: string; left: number; top: number; url: string }[] = [];
-    const centerFracX = lon2tile(centerLng, zoom) - centerTileX;
-    const centerFracY = lat2tile(centerLat, zoom) - centerTileY;
-
-    for (let dx = -rangeX; dx <= rangeX; dx++) {
-      for (let dy = -rangeY; dy <= rangeY; dy++) {
-        const tx = centerTileX + dx;
-        const ty = centerTileY + dy;
-        const maxTile = Math.pow(2, zoom);
-        if (ty >= 0 && ty < maxTile) {
-          const normX = ((tx % maxTile) + maxTile) % maxTile;
-          const left = dimensions.width / 2 + (dx - centerFracX) * 256;
-          const top = dimensions.height / 2 + (dy - centerFracY) * 256;
-          tiles.push({
-            x: normX,
-            y: ty,
-            key: `${zoom}-${normX}-${ty}`,
-            left,
-            top,
-            url: `https://basemaps.cartocdn.com/dark_all/${zoom}/${normX}/${ty}.png`,
-          });
+    const pollDriverLocation = async () => {
+      try {
+        const res = await fetch(`/api/v1/rides/${activeRide.id}/driver-location`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.driverLocation && data.driverLocation.lat) {
+            setLiveDriverPos({
+              lat: Number(data.driverLocation.lat),
+              lng: Number(data.driverLocation.lng),
+              heading: data.driverLocation.heading || 0,
+              speedKmh: data.driverLocation.speedKmh,
+            });
+          }
         }
+      } catch (err) {
+        console.warn('Failed to poll driver location:', err);
       }
+    };
+
+    pollDriverLocation();
+    const interval = setInterval(pollDriverLocation, 4000);
+    return () => clearInterval(interval);
+  }, [activeRide?.id, activeRide?.status]);
+
+  // Click on Map to Select Destination
+  const handleMapClick = (ev: any) => {
+    if (ev.detail && ev.detail.latLng) {
+      const lat = ev.detail.latLng.lat;
+      const lng = ev.detail.latLng.lng;
+      reverseGeocode(lat, lng).then((res) => {
+        onSelectDestination(lat, lng, res.address);
+      });
     }
-    return tiles;
-  }, [centerLat, centerLng, zoom, dimensions]);
+  };
 
-  // Projected Points
-  const pickupPos = projectToScreen(pickupLat, pickupLng);
-  const destPos = destLat !== null && destLng !== null ? projectToScreen(destLat, destLng) : null;
-
-  // Search Filter
+  // Destination Search Filter
   const filteredZones = zones.filter((z) =>
-    z.name.toLowerCase().includes(searchQuery.toLowerCase().trim())
+    z.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
-    <div className="relative w-full h-[520px] sm:h-[580px] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 shadow-2xl select-none">
-      {/* Map Interactive Viewport */}
-      <div
-        ref={mapContainerRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        className={`w-full h-full relative overflow-hidden ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-      >
-        {/* Render Map Tiles */}
-        {tileGrid.map((tile) => (
-          <img
-            key={tile.key}
-            src={tile.url}
-            alt=""
-            loading="lazy"
-            draggable={false}
-            style={{
-              position: 'absolute',
-              left: `${tile.left}px`,
-              top: `${tile.top}px`,
-              width: '256px',
-              height: '256px',
-              userSelect: 'none',
-              pointerEvents: 'none',
-            }}
+    <div
+      className={`relative w-full rounded-2xl overflow-hidden border border-slate-800 shadow-2xl bg-slate-950 flex flex-col ${className}`}
+      style={{ minHeight: '440px', height: '520px' }}
+    >
+      {/* Real Google Maps Container */}
+      <div className="relative w-full h-full">
+        <Map
+          id="vaicar-passenger-map"
+          mapId="DEMO_MAP_ID"
+          defaultCenter={defaultCenter}
+          defaultZoom={14}
+          gestureHandling="greedy"
+          disableDefaultUI={false}
+          zoomControl={true}
+          mapTypeControl={false}
+          streetViewControl={false}
+          fullscreenControl={false}
+          onCameraChanged={handleCameraChange}
+          onClick={handleMapClick}
+          internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
+          className="w-full h-full"
+        >
+          <MapController
+            targetCenter={panTarget}
+            routeBounds={
+              destLat && destLng
+                ? {
+                    minLat: Math.min(pickupLat, destLat) - 0.01,
+                    maxLat: Math.max(pickupLat, destLat) + 0.01,
+                    minLng: Math.min(pickupLng, destLng) - 0.01,
+                    maxLng: Math.max(pickupLng, destLng) + 0.01,
+                  }
+                : null
+            }
           />
-        ))}
 
-        {/* SVG Overlay for Route Line */}
-        {destPos && (
-          <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
-            <line
-              x1={pickupPos.x}
-              y1={pickupPos.y}
-              x2={destPos.x}
-              y2={destPos.y}
-              stroke="#10B981"
-              strokeWidth="4"
-              strokeDasharray="8 6"
-              className="animate-pulse"
+          {/* 1. Pickup Marker (Shown when destination is set) */}
+          {destLat && (
+            <AdvancedMarker position={{ lat: pickupLat, lng: pickupLng }} title="Local de Embarque">
+              <div className="flex flex-col items-center">
+                <span className="bg-emerald-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded shadow-md border border-emerald-300 whitespace-nowrap mb-1">
+                  📍 Embarque
+                </span>
+                <div className="w-8 h-8 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-lg border-2 border-white">
+                  <MapPin className="w-5 h-5 fill-current" />
+                </div>
+              </div>
+            </AdvancedMarker>
+          )}
+
+          {/* 2. Destination Marker */}
+          {destLat && destLng && (
+            <AdvancedMarker position={{ lat: destLat, lng: destLng }} title="Destino">
+              <div className="flex flex-col items-center">
+                <span className="bg-sky-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded shadow-md border border-sky-300 whitespace-nowrap mb-1">
+                  🏁 Destino
+                </span>
+                <div className="w-8 h-8 rounded-full bg-sky-500 text-slate-950 flex items-center justify-center shadow-lg border-2 border-white">
+                  <Flag className="w-4 h-4 fill-current" />
+                </div>
+              </div>
+            </AdvancedMarker>
+          )}
+
+          {/* 3. Nearby Online Drivers Markers */}
+          {availableDrivers &&
+            availableDrivers.map((drv: any) => {
+              const dLat = drv.lat || drv.currentLat || (drv.zone ? drv.zone.lat : -23.805);
+              const dLng = drv.lng || drv.currentLng || (drv.zone ? drv.zone.lng : -45.402);
+              if (!dLat || !dLng) return null;
+
+              return (
+                <AdvancedMarker
+                  key={`driver-${drv.id || drv.driverId}`}
+                  position={{ lat: dLat, lng: dLng }}
+                  title={`${drv.name} (${drv.vehicle?.brand || 'Carro'})`}
+                  onClick={() => onSelectDriver && onSelectDriver(drv)}
+                >
+                  <div className="group cursor-pointer flex flex-col items-center">
+                    <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/90 text-white text-[10px] font-bold px-2 py-0.5 rounded border border-slate-700 shadow whitespace-nowrap mb-1">
+                      {drv.name}
+                    </span>
+                    <div className="w-7 h-7 rounded-full bg-slate-900 text-emerald-400 border-2 border-emerald-400 flex items-center justify-center shadow-md hover:scale-110 transition-transform">
+                      <Car className="w-4 h-4" />
+                    </div>
+                  </div>
+                </AdvancedMarker>
+              );
+            })}
+
+          {/* 4. Live Driver Marker for Active Ride */}
+          {liveDriverPos && (
+            <AdvancedMarker
+              position={{ lat: liveDriverPos.lat, lng: liveDriverPos.lng }}
+              title={`Motorista: ${activeRide?.driverName || 'VaiCar'}`}
+            >
+              <div className="flex flex-col items-center animate-pulse">
+                <span className="bg-emerald-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded shadow-lg border border-emerald-200 whitespace-nowrap mb-1">
+                  🚗 {activeRide?.driverName?.split(' ')[0] || 'Motorista'}
+                </span>
+                <div
+                  className="w-9 h-9 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-2xl border-2 border-white transform transition-transform"
+                  style={{
+                    transform: `rotate(${liveDriverPos.heading || 0}deg)`,
+                  }}
+                >
+                  <Navigation className="w-5 h-5 fill-current" />
+                </div>
+              </div>
+            </AdvancedMarker>
+          )}
+
+          {/* 5. Route Polyline on Roads */}
+          {routePath.length > 0 && (
+            <Polyline
+              path={routePath}
+              strokeColor="#10B981"
+              strokeOpacity={0.85}
+              strokeWeight={5}
             />
-          </svg>
-        )}
+          )}
+        </Map>
 
-        {/* Pickup Pin 📍 */}
-        {!isMovablePickupMode && (
-          <div
-            style={{
-              position: 'absolute',
-              left: `${pickupPos.x}px`,
-              top: `${pickupPos.y}px`,
-              transform: 'translate(-50%, -100%)',
-            }}
-            className="z-20 pointer-events-none flex flex-col items-center animate-in zoom-in-50"
-          >
-            <div className="bg-emerald-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded-full shadow-lg whitespace-nowrap mb-1">
-              📍 Embarque
-            </div>
-            <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center animate-ping absolute -bottom-1" />
-            <div className="w-8 h-8 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center shadow-xl text-slate-950">
-              <MapPin className="w-5 h-5 fill-slate-950" />
-            </div>
-          </div>
-        )}
-
-        {/* Destination Pin 🏁 */}
-        {destPos && (
-          <div
-            style={{
-              position: 'absolute',
-              left: `${destPos.x}px`,
-              top: `${destPos.y}px`,
-              transform: 'translate(-50%, -100%)',
-            }}
-            className="z-20 pointer-events-none flex flex-col items-center animate-in zoom-in-50"
-          >
-            <div className="bg-cyan-500 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded-full shadow-lg whitespace-nowrap mb-1">
-              🏁 Destino
-            </div>
-            <div className="w-8 h-8 rounded-full bg-cyan-500 border-2 border-white flex items-center justify-center shadow-xl text-slate-950">
-              <Flag className="w-4 h-4 fill-slate-950" />
-            </div>
-          </div>
-        )}
-
-        {/* Available Drivers Markers 🚗 */}
-        {availableDrivers.map((driver, idx) => {
-          const angle = (idx * (360 / Math.max(1, availableDrivers.length))) * (Math.PI / 180);
-          const dLat = pickupLat + 0.007 * Math.sin(angle);
-          const dLng = pickupLng + 0.007 * Math.cos(angle);
-          const dPos = projectToScreen(dLat, dLng);
-          const isSelected = selectedDriver?.driverId === driver.driverId;
-
-          return (
+        {/* 6. Fixed Center Pickup Pin (Active when destination is not yet chosen) */}
+        {!destLat && (
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pb-8 z-20">
+            {/* Top Badge */}
             <div
-              key={driver.driverId || idx}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelectDriver(driver);
-              }}
-              style={{
-                position: 'absolute',
-                left: `${dPos.x}px`,
-                top: `${dPos.y}px`,
-                transform: 'translate(-50%, -50%)',
-              }}
-              className={`z-20 cursor-pointer p-1 rounded-full transition-transform hover:scale-125 ${
-                isSelected ? 'scale-125' : ''
+              className={`px-3 py-1.5 rounded-full text-xs font-black shadow-xl border flex items-center gap-1.5 transition-all duration-200 transform ${
+                isMapMoving
+                  ? 'bg-slate-900/90 text-amber-300 border-amber-400/80 scale-105 -translate-y-2'
+                  : 'bg-slate-900/95 text-emerald-400 border-emerald-500/80'
               }`}
             >
-              <div
-                className={`w-7 h-7 rounded-full flex items-center justify-center shadow-lg border-2 ${
-                  isSelected
-                    ? 'bg-amber-500 border-white text-slate-950 ring-4 ring-amber-500/30'
-                    : 'bg-slate-900 border-sky-400 text-sky-400'
-                }`}
-              >
-                <Car className="w-4 h-4" />
+              {isMapMoving ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                  <span>Definindo ponto de embarque...</span>
+                </>
+              ) : (
+                <>
+                  <MapPin className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400" />
+                  <span>Local de Embarque</span>
+                </>
+              )}
+            </div>
+
+            {/* Central Pin Icon */}
+            <div
+              className={`transform transition-transform duration-200 my-1 ${
+                isMapMoving ? '-translate-y-2 scale-110' : 'translate-y-0'
+              }`}
+            >
+              <div className="w-10 h-10 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center shadow-2xl border-2 border-white">
+                <MapPin className="w-6 h-6 fill-current" />
               </div>
             </div>
-          );
-        })}
 
-        {/* Movable Pin at Dead Center */}
-        {isMovablePickupMode && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
-            <div className="flex flex-col items-center -translate-y-4">
-              <div className="bg-emerald-500 text-slate-950 text-[11px] font-black px-3 py-1 rounded-full shadow-2xl mb-1">
-                📍 Arraste para escolher o local de embarque
+            {/* Ground Anchor Shadow */}
+            <div
+              className={`w-3.5 h-1.5 rounded-full bg-slate-950/80 blur-[1px] transition-all duration-200 ${
+                isMapMoving ? 'scale-75 opacity-40' : 'scale-100 opacity-90'
+              }`}
+            />
+          </div>
+        )}
+
+        {/* 7. Floating Top Map Controls */}
+        <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-2 pointer-events-auto z-30">
+          {/* Pickup address summary pill */}
+          <div className="bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-xl px-3.5 py-2 text-xs flex items-center gap-2 max-w-[70%] sm:max-w-[75%] shadow-lg">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0 animate-pulse" />
+            <div className="truncate">
+              <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">
+                {destLat ? 'Origem' : 'Arraste o mapa para posicionar o embarque'}
+              </span>
+              <span className="text-white font-semibold truncate block">
+                {isReverseGeocoding ? 'Buscando endereço...' : pickupAddress || 'São Sebastião - SP'}
+              </span>
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="flex items-center gap-2">
+            {/* GPS Button */}
+            <button
+              type="button"
+              onClick={handleGetCurrentLocation}
+              disabled={isLocatingUser}
+              title="Centralizar na minha localização GPS"
+              className="bg-slate-950/90 hover:bg-slate-900 border border-slate-800 text-emerald-400 p-2.5 rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center"
+            >
+              <Navigation className={`w-4 h-4 ${isLocatingUser ? 'animate-spin' : ''}`} />
+            </button>
+
+            {/* Destination Search Button */}
+            <button
+              type="button"
+              onClick={() => setIsSearchOpen(true)}
+              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-3 py-2 rounded-xl text-xs shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <Flag className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">
+                {destAddress ? 'Alterar Destino' : 'Definir Destino'}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* 8. Active Trip Status Overlay (When active ride exists) */}
+        {activeRide && (
+          <div className="absolute bottom-3 left-3 right-3 bg-slate-950/95 backdrop-blur-md border border-emerald-500/40 rounded-2xl p-4 shadow-2xl z-30 text-xs space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                <span className="font-black text-white uppercase tracking-wider">
+                  {activeRide.status === 'REQUESTED' && 'Chamada enviada ao motorista'}
+                  {activeRide.status === 'ACCEPTED' && 'Motorista aceitou a corrida'}
+                  {activeRide.status === 'DRIVER_ARRIVING' && 'Motorista a caminho do embarque'}
+                  {activeRide.status === 'PASSENGER_PICKED_UP' && 'Embarque realizado'}
+                  {activeRide.status === 'IN_PROGRESS' && 'Viagem em andamento'}
+                  {activeRide.status === 'COMPLETED' && 'Viagem finalizada'}
+                </span>
               </div>
-              <div className="w-10 h-10 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center shadow-2xl text-slate-950">
-                <MapPin className="w-6 h-6 fill-slate-950" />
+              <span className="bg-emerald-950 border border-emerald-500/30 text-emerald-400 font-bold px-2 py-0.5 rounded-full text-[10px]">
+                {activeRide.estimatedPrice ? `R$ ${activeRide.estimatedPrice.toFixed(2)}` : 'Preço Direto'}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-slate-300">
+              <div className="flex items-center gap-2">
+                <Car className="w-4 h-4 text-emerald-400" />
+                <span>
+                  <strong>{activeRide.driverName}</strong> • {activeRide.driverVehicle}
+                </span>
               </div>
-              <div className="w-2 h-2 rounded-full bg-white shadow" />
+              {liveDriverPos?.speedKmh !== undefined && liveDriverPos.speedKmh > 0 && (
+                <span className="text-[10px] text-slate-400 font-mono">
+                  {Math.round(liveDriverPos.speedKmh)} km/h
+                </span>
+              )}
             </div>
           </div>
         )}
-      </div>
 
-      {/* Floating Map Controls (Top Right) */}
-      <div className="absolute top-4 right-4 z-30 flex flex-col gap-2">
-        {/* GPS Geolocation Button */}
-        <button
-          onClick={handleGetCurrentLocation}
-          title="Minha Localização Atual"
-          className="w-10 h-10 bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-emerald-400 rounded-xl flex items-center justify-center shadow-xl backdrop-blur-md cursor-pointer transition-all active:scale-95"
-        >
-          <Crosshair className={`w-5 h-5 ${isLocatingUser ? 'animate-spin' : ''}`} />
-        </button>
-
-        {/* Zoom In */}
-        <button
-          onClick={() => setZoom((z) => Math.min(18, z + 1))}
-          title="Aumentar Zoom"
-          className="w-10 h-10 bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-white rounded-xl flex items-center justify-center shadow-xl backdrop-blur-md cursor-pointer transition-all active:scale-95"
-        >
-          <Plus className="w-5 h-5" />
-        </button>
-
-        {/* Zoom Out */}
-        <button
-          onClick={() => setZoom((z) => Math.max(10, z - 1))}
-          title="Diminuir Zoom"
-          className="w-10 h-10 bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-white rounded-xl flex items-center justify-center shadow-xl backdrop-blur-md cursor-pointer transition-all active:scale-95"
-        >
-          <Minus className="w-5 h-5" />
-        </button>
-      </div>
-
-      {/* GPS Error Toast */}
-      {gpsError && (
-        <div className="absolute top-4 left-4 right-16 z-30 bg-rose-950/90 border border-rose-800/80 text-rose-300 text-xs px-3 py-2 rounded-xl backdrop-blur-md shadow-xl flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{gpsError}</span>
-        </div>
-      )}
-
-      {/* Bottom Floating Control Panel */}
-      <div className="absolute bottom-4 left-4 right-4 z-30 space-y-3 pointer-events-auto">
-        <div className="bg-slate-900/95 border border-slate-800/90 backdrop-blur-md p-4 rounded-2xl shadow-2xl space-y-3">
-          {/* Pickup Address Display & Change Toggle */}
-          <div className="flex items-center justify-between gap-3 bg-slate-950/80 border border-slate-800 p-2.5 rounded-xl">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0" />
-              <div className="min-w-0">
-                <span className="text-[10px] text-slate-400 font-semibold block uppercase">Embarque</span>
-                <span className="text-xs text-white font-bold truncate block">{pickupAddress}</span>
+        {/* 9. Route Distance & ETA Pill (When Route is Calculated and No Active Ride) */}
+        {!activeRide && routeDistanceKm !== null && (
+          <div className="absolute bottom-3 left-3 right-3 bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-xl p-3 shadow-xl z-30 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                <Compass className="w-4 h-4" />
+                <span>{routeDistanceKm} km</span>
+              </div>
+              <span className="text-slate-600">•</span>
+              <div className="flex items-center gap-1.5 text-sky-400 font-bold">
+                <Clock className="w-4 h-4" />
+                <span>~{routeDurationMin} min de trajeto</span>
               </div>
             </div>
 
-            <button
-              onClick={() => setIsMovablePickupMode(!isMovablePickupMode)}
-              className="text-[11px] text-emerald-400 hover:text-emerald-300 font-bold px-2 py-1 rounded-lg hover:bg-emerald-950/50 cursor-pointer transition-colors shrink-0"
-            >
-              {isMovablePickupMode ? 'Confirmar' : 'Ajustar Pino'}
-            </button>
-          </div>
-
-          {/* Destination Search Bar */}
-          {!destAddress ? (
-            <button
-              onClick={() => setIsSearchOpen(true)}
-              className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/40 text-left px-4 py-3 rounded-xl flex items-center gap-3 cursor-pointer transition-all"
-            >
-              <Search className="w-5 h-5 text-emerald-400 shrink-0" />
-              <div>
-                <span className="text-xs font-bold text-white block">Para onde vamos?</span>
-                <span className="text-[11px] text-slate-400 block">Escolha praia, bairro ou centro de São Sebastião</span>
-              </div>
-            </button>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3 bg-cyan-950/40 border border-cyan-500/30 p-2.5 rounded-xl">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shrink-0" />
-                  <div className="min-w-0">
-                    <span className="text-[10px] text-cyan-300 font-semibold block uppercase">Destino</span>
-                    <span className="text-xs text-white font-bold truncate block">{destAddress}</span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setIsSearchOpen(true)}
-                  className="text-[11px] text-cyan-400 hover:text-cyan-300 font-bold px-2 py-1 rounded-lg hover:bg-cyan-950/50 cursor-pointer transition-colors shrink-0"
-                >
-                  Trocar
-                </button>
-              </div>
-
-              {/* Selected Driver Compact Sheet */}
-              {selectedDriver && (
-                <div className="bg-slate-950/90 border border-slate-800 p-3.5 rounded-xl flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-white font-bold text-sm">
-                      {selectedDriver.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-black text-white">{selectedDriver.name}</span>
-                        <span className="text-[10px] text-amber-400 font-bold">★ {selectedDriver.ratingAverage || 5.0}</span>
-                      </div>
-                      <span className="text-[11px] text-slate-400 block">
-                        {selectedDriver.vehicle?.brand} {selectedDriver.vehicle?.model} • {selectedDriver.vehicle?.color}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <span className="text-base font-black text-emerald-400 block">
-                      R$ {(selectedDriver.fare || 25).toFixed(2).replace('.', ',')}
-                    </span>
-                    <span className="text-[10px] text-sky-400 font-medium block">
-                      ~{selectedDriver.arrivalTimeMin || 4} min
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Request Ride Action */}
+            {onRequestRide && (
               <button
+                type="button"
                 onClick={onRequestRide}
-                disabled={isSubmittingRide || !selectedDriver}
-                className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-black py-3 rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/20 cursor-pointer flex items-center justify-center gap-2"
+                disabled={isSubmittingRide}
+                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-4 py-2 rounded-lg text-xs shadow-md transition-all cursor-pointer flex items-center gap-1.5"
               >
                 {isSubmittingRide ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Solicitando corrida...</span>
-                  </>
+                  <span>Enviando...</span>
                 ) : (
                   <>
-                    <Car className="w-4 h-4" />
-                    <span>Confirmar e Solicitar Corrida</span>
+                    <span>Confirmar Rota</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
                   </>
                 )}
               </button>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Destination Search Modal Overlay */}
+      {/* 10. Destination Selection Modal / Drawer */}
       {isSearchOpen && (
-        <div className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-md p-4 flex flex-col gap-3 animate-in fade-in">
-          <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
-            <div className="flex items-center gap-2 text-white font-bold text-sm">
-              <Search className="w-4 h-4 text-emerald-400" />
-              <span>Para Onde Vamos?</span>
+        <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-md z-40 p-4 sm:p-6 flex flex-col justify-between overflow-y-auto">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Flag className="w-5 h-5 text-sky-400" />
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Para onde você deseja ir?
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSearchOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-900 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
+
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Buscar praia, bairro ou ponto turístico em São Sebastião..."
+                className="w-full bg-slate-900 text-white text-xs pl-10 pr-4 py-3 rounded-xl border border-slate-800 focus:border-sky-500 outline-none"
+                autoFocus
+              />
+            </div>
+
+            {/* Quick Beach & Zone Selector */}
+            <div className="space-y-2">
+              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
+                Praias e Bairros de São Sebastião (SP-055):
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[220px] overflow-y-auto pr-1">
+                {filteredZones.map((z) => (
+                  <button
+                    key={`zone-dest-${z.id}`}
+                    type="button"
+                    onClick={() => {
+                      onSelectDestination(z.lat, z.lng, `${z.name}, São Sebastião - SP`, z.id);
+                      setIsSearchOpen(false);
+                    }}
+                    className="p-2.5 rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-sky-500/20 hover:border-sky-500/50 text-left transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <span className="text-xs font-bold text-white block truncate">{z.name}</span>
+                    <span className="text-[10px] text-slate-400">
+                      {z.distanceFromCenterKm ? `~${z.distanceFromCenterKm} km do Centro` : 'Litoral'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+            <span>Dica: Você também pode clicar diretamente em qualquer ponto do mapa!</span>
             <button
+              type="button"
               onClick={() => setIsSearchOpen(false)}
-              className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded-lg hover:bg-slate-800 cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold cursor-pointer"
             >
               Fechar
             </button>
           </div>
+        </div>
+      )}
 
-          <div className="relative">
-            <input
-              type="text"
-              autoFocus
-              placeholder="Digite o nome da praia ou bairro..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-900 text-white text-sm px-4 py-3 rounded-xl border border-slate-700 outline-none focus:border-emerald-500 pr-10"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-3 text-slate-400 hover:text-white text-xs cursor-pointer"
-              >
-                ✕
-              </button>
-            )}
+      {/* GPS Error Toast */}
+      {gpsError && (
+        <div className="absolute bottom-16 left-4 right-4 bg-rose-950/90 border border-rose-500/50 text-rose-200 text-xs p-3 rounded-xl flex items-center justify-between z-30 shadow-xl">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{gpsError}</span>
           </div>
-
-          <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin">
-            {filteredZones.map((z) => (
-              <button
-                key={z.id}
-                onClick={() => {
-                  onSelectDestination(z.lat, z.lng, `${z.name}, São Sebastião - SP`, z.id);
-                  setCenterLat((pickupLat + z.lat) / 2);
-                  setCenterLng((pickupLng + z.lng) / 2);
-                  setIsSearchOpen(false);
-                }}
-                className="w-full text-left p-3 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800/80 flex items-center justify-between gap-3 transition-colors cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
-                    <MapPin className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-white block">{z.name}</span>
-                    <span className="text-[10px] text-slate-400 block">{z.distanceFromCenterKm} km do Centro Histórico</span>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-500" />
-              </button>
-            ))}
-          </div>
+          <button
+            onClick={() => setGpsError('')}
+            className="text-rose-400 hover:text-white font-bold text-xs"
+          >
+            OK
+          </button>
         </div>
       )}
     </div>

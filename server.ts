@@ -5,7 +5,7 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import nodemailer from 'nodemailer';
-import { db } from './app/web/src/lib/firebaseAdmin.ts';
+import { db } from './src/lib/firebaseAdmin.ts';
 import admin from 'firebase-admin';
 
 // Initialize firebase-admin for FCM if not already initialized
@@ -40,8 +40,8 @@ import {
   PlatformFareSettings,
   DynamicPricingSettings,
   RideReceipt,
-} from './app/web/src/types.ts';
-import { generateRideReceiptPdf } from './app/web/src/lib/receiptGenerator.ts';
+} from './src/types.ts';
+import { generateRideReceiptPdf } from './src/lib/receiptGenerator.ts';
 
 async function createMailer(cleanPass: string, user: string, port = 587, secure = false) {
   return nodemailer.createTransport({
@@ -266,6 +266,8 @@ type LiveEventType =
   | 'RIDE_UPDATED'
   | 'RIDE_DELETED'
   | 'DRIVER_UPDATED'
+  | 'PASSENGER_DELETED'
+  | 'PASSENGER_UPDATED'
   | 'SYSTEM_PING'
   | 'CONNECTED';
 
@@ -2212,6 +2214,203 @@ app.get('/api/v1/rides/:id/driver-location', async (req, res) => {
   }
 });
 
+// --- GOOGLE MAPS PROXY ENDPOINTS (Reverse Geocode & Directions) ---
+
+// Public maps configuration (API key)
+app.get('/api/v1/maps/config', (_req, res) => {
+  const mapsKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyAqF4zL02-t-Im_cItTvUj-gPeDs4mmGK4';
+  res.json({ apiKey: mapsKey });
+});
+
+// Reverse geocoding endpoint for passenger & driver pickup positioning
+app.get('/api/v1/maps/reverse-geocode', async (req, res) => {
+  try {
+    const lat = parseFloat(req.query.lat as string);
+    const lng = parseFloat(req.query.lng as string);
+    if (isNaN(lat) || isNaN(lng)) {
+      return res.status(400).json({ error: 'Parâmetros lat e lng são obrigatórios.' });
+    }
+
+    const mapsKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    if (mapsKey) {
+      try {
+        const response = await fetch(
+          `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&language=pt-BR&key=${mapsKey}`
+        );
+        if (response.ok) {
+          const data: any = await response.json();
+          if (data.status === 'OK' && data.results && data.results.length > 0) {
+            const first = data.results[0];
+            const neighborhood = first.address_components?.find((c: any) =>
+              c.types.includes('sublocality') || c.types.includes('neighborhood')
+            )?.long_name || '';
+            return res.json({
+              address: first.formatted_address,
+              neighborhood,
+              placeId: first.place_id
+            });
+          }
+        }
+      } catch (apiErr) {
+        console.warn('Google Maps reverse geocoding API error:', apiErr);
+      }
+    }
+
+    // Geographic fallback for São Sebastião based on nearest zone
+    const zones = await getZones();
+    let closestZone = zones[0];
+    let minDistance = Infinity;
+    for (const z of zones) {
+      const d = Math.hypot(z.lat - lat, z.lng - lng);
+      if (d < minDistance) {
+        minDistance = d;
+        closestZone = z;
+      }
+    }
+    const zoneName = closestZone ? closestZone.name : 'São Sebastião';
+    return res.json({
+      address: `${zoneName}, São Sebastião - SP`,
+      neighborhood: zoneName,
+      fallback: true
+    });
+  } catch (err: any) {
+    console.error('Reverse geocode handler error:', err);
+    res.status(500).json({ error: 'Erro no serviço de geocodificação' });
+  }
+});
+
+// Address and Places Search Endpoint
+app.get('/api/v1/maps/places-search', async (req, res) => {
+  try {
+    const rawQuery = (req.query.query as string || '').trim();
+    if (!rawQuery) {
+      return res.json({ results: [] });
+    }
+
+    const cleanQuery = rawQuery.toLowerCase();
+    const zones = await getZones();
+    const results: Array<{
+      title: string;
+      subtitle: string;
+      lat: number;
+      lng: number;
+      placeId?: string;
+      isZone?: boolean;
+    }> = [];
+
+    // 1. Check official São Sebastião zones & beaches matching query
+    zones.filter(z => 
+      z.name.toLowerCase().includes(cleanQuery) || 
+      z.slug.toLowerCase().includes(cleanQuery)
+    ).forEach(z => {
+      results.push({
+        title: z.name,
+        subtitle: 'Bairro / Praia de São Sebastião • SP',
+        lat: z.lat,
+        lng: z.lng,
+        isZone: true
+      });
+    });
+
+    // 2. Query Google Geocoding API if key available
+    const mapsKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    if (mapsKey) {
+      try {
+        const fullQuery = (!cleanQuery.includes('são sebastião') && !cleanQuery.includes('sao sebastiao'))
+          ? `${rawQuery}, São Sebastião, SP`
+          : rawQuery;
+        
+        const response = await fetch(
+          `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(fullQuery)}&language=pt-BR&key=${mapsKey}`
+        );
+        if (response.ok) {
+          const data: any = await response.json();
+          if (data.status === 'OK' && data.results) {
+            data.results.slice(0, 6).forEach((r: any) => {
+              const rLat = r.geometry?.location?.lat;
+              const rLng = r.geometry?.location?.lng;
+              if (rLat && rLng && !results.some(existing => Math.abs(existing.lat - rLat) < 0.001 && Math.abs(existing.lng - rLng) < 0.001)) {
+                const formatted = r.formatted_address || '';
+                const mainName = r.address_components?.[0]?.long_name || formatted.split(',')[0];
+                results.push({
+                  title: mainName,
+                  subtitle: formatted || 'São Sebastião - SP',
+                  lat: rLat,
+                  lng: rLng,
+                  placeId: r.place_id,
+                  isZone: false
+                });
+              }
+            });
+          }
+        }
+      } catch (geoErr) {
+        console.warn('Geocoding search API error:', geoErr);
+      }
+    }
+
+    res.json({ results });
+  } catch (err: any) {
+    console.error('Places search handler error:', err);
+    res.status(500).json({ error: 'Erro na busca de locais' });
+  }
+});
+
+// Directions / Route calculation endpoint
+app.get('/api/v1/maps/directions', async (req, res) => {
+  try {
+    const originLat = parseFloat(req.query.originLat as string);
+    const originLng = parseFloat(req.query.originLng as string);
+    const destLat = parseFloat(req.query.destLat as string);
+    const destLng = parseFloat(req.query.destLng as string);
+
+    if (isNaN(originLat) || isNaN(originLng) || isNaN(destLat) || isNaN(destLng)) {
+      return res.status(400).json({ error: 'Coordenadas de origem e destino são obrigatórias.' });
+    }
+
+    const mapsKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    if (mapsKey) {
+      try {
+        const response = await fetch(
+          `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLng}&destination=${destLat},${destLng}&mode=driving&language=pt-BR&key=${mapsKey}`
+        );
+        if (response.ok) {
+          const data: any = await response.json();
+          if (data.status === 'OK' && data.routes && data.routes.length > 0) {
+            const route = data.routes[0];
+            const leg = route.legs?.[0];
+            const distanceKm = leg?.distance?.value ? Number((leg.distance.value / 1000).toFixed(1)) : 5.0;
+            const durationMin = leg?.duration?.value ? Math.round(leg.duration.value / 60) : 10;
+            const points = route.overview_polyline?.points || '';
+            return res.json({
+              distanceKm,
+              durationMin,
+              encodedPolyline: points,
+              summary: route.summary || 'SP-055 Rodovia Rio-Santos'
+            });
+          }
+        }
+      } catch (routeErr) {
+        console.warn('Google Maps directions API error:', routeErr);
+      }
+    }
+
+    // Fallback: Haversine distance along coastal highway (multiplier ~1.35 for winding coastal roads)
+    const directKm = calculateHaversineDistanceKm(originLat, originLng, destLat, destLng);
+    const distanceKm = Number((Math.max(1.5, directKm * 1.35)).toFixed(1));
+    const durationMin = Math.max(4, Math.round(distanceKm * 1.5));
+    return res.json({
+      distanceKm,
+      durationMin,
+      encodedPolyline: '',
+      fallback: true
+    });
+  } catch (err: any) {
+    console.error('Directions handler error:', err);
+    res.status(500).json({ error: 'Erro no cálculo de rota' });
+  }
+});
+
 // --- RIDE RECEIPT ENDPOINTS (COMPROVANTE DA CORRIDA) ---
 
 // Get Receipt JSON for a Ride
@@ -3476,20 +3675,99 @@ app.patch('/api/v1/admin/passengers/:id', async (req, res) => {
 app.delete('/api/v1/admin/passengers/:id', async (req, res) => {
   try {
     const id = req.params.id;
+    if (!id) {
+      return res.status(400).json({ error: 'ID do passageiro é obrigatório' });
+    }
     
     // Check if passenger exists
-    const docRef = db.collection('passengers').doc(id);
-    const doc = await docRef.get();
+    let docRef = db.collection('passengers').doc(id);
+    let doc = await docRef.get();
     if (!doc.exists) {
-      return res.status(404).json({ error: 'Passageiro não encontrado' });
+      const snap = await db.collection('passengers').where('phone', '==', id).get();
+      if (!snap.empty) {
+        doc = snap.docs[0];
+        docRef = snap.docs[0].ref;
+      } else {
+        return res.status(404).json({ error: 'Passageiro não encontrado no banco de dados' });
+      }
     }
 
-    // Delete
+    const pData = doc.data() || {};
+    const passengerName = pData.name || 'Passageiro';
+    const passengerPhone = (pData.phone || '').trim();
+    const phoneDigits = passengerPhone.replace(/\D/g, '');
+    const passengerEmail = (pData.email || '').trim().toLowerCase();
+
+    // Delete ONLY that selected passenger account document
     await docRef.delete();
-    
-    res.json({ success: true });
+
+    // Clean up any pending authentication PINs for this passenger
+    const pinDeletions: Promise<any>[] = [];
+    if (phoneDigits) pinDeletions.push(db.collection('pendingPins').doc(phoneDigits).delete().catch(() => {}));
+    if (passengerPhone && passengerPhone !== phoneDigits) pinDeletions.push(db.collection('pendingPins').doc(passengerPhone).delete().catch(() => {}));
+    if (passengerEmail) pinDeletions.push(db.collection('pendingPins').doc(passengerEmail).delete().catch(() => {}));
+    await Promise.all(pinDeletions);
+
+    // If Firebase Auth is used, safely delete the auth user record if it exists
+    if ((admin as any).apps?.length > 0) {
+      try {
+        if (pData.firebaseUid) {
+          await (admin as any).auth().deleteUser(pData.firebaseUid);
+        } else if (passengerEmail) {
+          const authUser = await (admin as any).auth().getUserByEmail(passengerEmail).catch(() => null);
+          if (authUser?.uid) {
+            await (admin as any).auth().deleteUser(authUser.uid);
+          }
+        }
+      } catch (authErr) {
+        console.warn('Firebase Auth cleanup notice:', authErr);
+      }
+    }
+
+    broadcastLiveEvent('PASSENGER_DELETED', { deletedId: id, passengerPhone });
+
+    res.json({
+      success: true,
+      message: `Passageiro ${passengerName} excluído com sucesso do banco de dados`,
+      deletedId: id
+    });
   } catch (err: any) {
-    res.status(500).json({ error: 'Falha ao excluir passageiro', details: err.message });
+    console.error('Falha ao excluir passageiro:', err);
+    res.status(500).json({ error: 'Falha ao excluir passageiro: ' + err.message });
+  }
+});
+
+// Passenger Self-Deletion (Account deletion in profile / settings)
+app.delete('/api/v1/passengers/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    let docRef = db.collection('passengers').doc(id);
+    let doc = await docRef.get();
+    if (!doc.exists) {
+      const snap = await db.collection('passengers').where('phone', '==', id).get();
+      if (!snap.empty) {
+        doc = snap.docs[0];
+        docRef = snap.docs[0].ref;
+      } else {
+        return res.status(404).json({ error: 'Passageiro não encontrado' });
+      }
+    }
+    const pData = doc.data() || {};
+    const passengerPhone = (pData.phone || '').trim();
+    const phoneDigits = passengerPhone.replace(/\D/g, '');
+    const passengerEmail = (pData.email || '').trim().toLowerCase();
+
+    await docRef.delete();
+
+    const pinDeletions: Promise<any>[] = [];
+    if (phoneDigits) pinDeletions.push(db.collection('pendingPins').doc(phoneDigits).delete().catch(() => {}));
+    if (passengerPhone && passengerPhone !== phoneDigits) pinDeletions.push(db.collection('pendingPins').doc(passengerPhone).delete().catch(() => {}));
+    if (passengerEmail) pinDeletions.push(db.collection('pendingPins').doc(passengerEmail).delete().catch(() => {}));
+    await Promise.all(pinDeletions);
+
+    res.json({ success: true, message: 'Conta de passageiro excluída com sucesso.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Falha ao excluir conta: ' + err.message });
   }
 });
 
