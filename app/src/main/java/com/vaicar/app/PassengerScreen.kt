@@ -211,12 +211,24 @@ fun NativeInteractivePassengerMap(
     modifier: Modifier = Modifier
 ) {
     val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(LatLng(centerLat, centerLng), 14f)
+        position = CameraPosition.fromLatLngZoom(LatLng(centerLat, centerLng), 15f)
     }
 
-    // Update camera when center changes
+    // Track when user stops dragging to update center coordinates
+    LaunchedEffect(cameraPositionState.isMoving) {
+        if (!cameraPositionState.isMoving) {
+            val target = cameraPositionState.position.target
+            onMapCenterChanged(target.latitude, target.longitude)
+        }
+    }
+
+    // Reposition camera only when external center changes significantly (e.g., GPS button or initial load)
     LaunchedEffect(centerLat, centerLng) {
-        cameraPositionState.position = CameraPosition.fromLatLngZoom(LatLng(centerLat, centerLng), cameraPositionState.position.zoom)
+        val currentTarget = cameraPositionState.position.target
+        val distance = abs(currentTarget.latitude - centerLat) + abs(currentTarget.longitude - centerLng)
+        if (distance > 0.0001) {
+            cameraPositionState.position = CameraPosition.fromLatLngZoom(LatLng(centerLat, centerLng), cameraPositionState.position.zoom)
+        }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -224,29 +236,31 @@ fun NativeInteractivePassengerMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
             properties = MapProperties(
-                mapStyleOptions = MapStyleOptions(
-                    """[{"elementType":"geometry","stylers":[{"color":"#212121"}]},{"elementType":"labels.icon","stylers":[{"visibility":"off"}]},{"elementType":"labels.text.fill","stylers":[{"color":"#757575"}]},{"elementType":"labels.text.stroke","stylers":[{"color":"#212121"}]},{"featureType":"administrative","elementType":"geometry","stylers":[{"color":"#757575"}]},{"featureType":"administrative.country","elementType":"labels.text.fill","stylers":[{"color":"#9e9e9e"}]},{"featureType":"administrative.land_parcel","stylers":[{"visibility":"off"}]},{"featureType":"administrative.locality","elementType":"labels.text.fill","stylers":[{"color":"#bdbdbd"}]},{"featureType":"poi","elementType":"labels.text.fill","stylers":[{"color":"#757575"}]},{"featureType":"poi.park","elementType":"geometry","stylers":[{"color":"#181818"}]},{"featureType":"poi.park","elementType":"labels.text.fill","stylers":[{"color":"#616161"}]},{"featureType":"poi.park","elementType":"labels.text.stroke","stylers":[{"color":"#1b1b1b"}]},{"featureType":"road","elementType":"geometry.fill","stylers":[{"color":"#2c2c2c"}]},{"featureType":"road","elementType":"labels.text.fill","stylers":[{"color":"#8a8a8a"}]},{"featureType":"road.arterial","elementType":"geometry","stylers":[{"color":"#373737"}]},{"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#3c3c3c"}]},{"featureType":"road.highway.controlled_access","elementType":"geometry","stylers":[{"color":"#4e4e4e"}]},{"featureType":"road.local","elementType":"labels.text.fill","stylers":[{"color":"#616161"}]},{"featureType":"transit","elementType":"labels.text.fill","stylers":[{"color":"#757575"}]},{"featureType":"water","elementType":"geometry","stylers":[{"color":"#000000"}]},{"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#3d3d3d"}]}]"""
-                ),
                 isMyLocationEnabled = true
             ),
             uiSettings = MapUiSettings(
                 zoomControlsEnabled = false,
-                myLocationButtonEnabled = false
-            ),
-            onMapLoaded = {
-                onMapCenterChanged(cameraPositionState.position.target.latitude, cameraPositionState.position.target.longitude)
-            }
+                myLocationButtonEnabled = false,
+                scrollGesturesEnabled = true,
+                zoomGesturesEnabled = true,
+                rotateGesturesEnabled = true,
+                tiltGesturesEnabled = true
+            )
         ) {
-            // Draw markers here
-            if (pickupLat != 0.0 && pickupLng != 0.0) {
-                 Marker(
+            if (pickupLat != 0.0 && pickupLng != 0.0 && destLat != null) {
+                Marker(
                     state = MarkerState(position = LatLng(pickupLat, pickupLng)),
                     title = "Embarque"
                 )
             }
+            if (destLat != null && destLng != null) {
+                Marker(
+                    state = MarkerState(position = LatLng(destLat, destLng)),
+                    title = "Destino"
+                )
+            }
         }
-        
-        
+
         // Centered Pickup Pin Overlay (Active when user is adjusting pickup location)
         if (destLat == null) {
             Box(

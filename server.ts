@@ -3249,13 +3249,9 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
     ]);
 
     const snap = await db.collection('passengers').where('phone', '==', cleanPhone).get();
-    const emailCheckSnap = cleanEmail ? await db.collection('passengers').where('email', '==', cleanEmail).get() : null;
     let passenger: any;
 
     if (snap.empty) {
-      if (emailCheckSnap && !emailCheckSnap.empty) {
-        return res.status(409).json({ error: 'EMAIL_ALREADY_REGISTERED' });
-      }
       console.log('DEBUG: Creating new passenger');
       const id = `pass-${Date.now()}`;
       passenger = {
@@ -3273,15 +3269,6 @@ app.post('/api/v1/passengers/auth', async (req, res) => {
       console.log('DEBUG: Updating existing passenger');
       const doc = snap.docs[0];
       passenger = doc.data() as any;
-      
-      // Check if another passenger already uses this email
-      if (cleanEmail && passenger.email !== cleanEmail) {
-        const dupEmailSnap = await db.collection('passengers').where('email', '==', cleanEmail).get();
-        if (!dupEmailSnap.empty && dupEmailSnap.docs[0].id !== doc.id) {
-          return res.status(409).json({ error: 'EMAIL_ALREADY_REGISTERED' });
-        }
-      }
-
       const updates: any = { isVerified: true };
       if (name) updates.name = name.trim();
       if (cleanEmail) updates.email = cleanEmail;
