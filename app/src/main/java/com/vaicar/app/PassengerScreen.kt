@@ -242,9 +242,7 @@ fun NativeInteractivePassengerMap(
                 zoomControlsEnabled = false,
                 myLocationButtonEnabled = false,
                 scrollGesturesEnabled = true,
-                zoomGesturesEnabled = true,
-                rotateGesturesEnabled = true,
-                tiltGesturesEnabled = true
+                zoomGesturesEnabled = true
             )
         ) {
             if (pickupLat != 0.0 && pickupLng != 0.0 && destLat != null) {
