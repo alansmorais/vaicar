@@ -493,6 +493,7 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
     var destZone by remember { mutableStateOf<Zone?>(null) }
 
     // Dialogs & Modals
+    var isOriginSearchOpen by remember { mutableStateOf(false) }
     var isDestinationSearchOpen by remember { mutableStateOf(false) }
     var rideErrorDialogMessage by remember { mutableStateOf<String?>(null) }
 
@@ -772,56 +773,52 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                             // -------------------------------------------------------------
                             if (destAddress == null || rideBookingStep == 1) {
                                 // Pickup location display card
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0xFF1E293B))
-                                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                Surface(
+                                    onClick = { isOriginSearchOpen = true },
+                                    color = Color(0xFF1E293B),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
+                                        modifier = Modifier
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f)
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.LocationOn,
-                                            contentDescription = null,
-                                            tint = Color(0xFF10B981),
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Column {
-                                            Text(
-                                                text = "Local de Embarque",
-                                                color = Color(0xFF94A3B8),
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.SemiBold
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.LocationOn,
+                                                contentDescription = null,
+                                                tint = Color(0xFF10B981),
+                                                modifier = Modifier.size(22.dp)
                                             )
-                                            Text(
-                                                text = pickupAddress,
-                                                color = Color.White,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(
+                                                    text = "Local de Embarque",
+                                                    color = Color(0xFF94A3B8),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                                Text(
+                                                    text = pickupAddress,
+                                                    color = Color.White,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
                                         }
-                                    }
 
-                                    IconButton(onClick = {
-                                        val loc = DriverLocationManager.getLastKnownLocation(context)
-                                        if (loc != null) {
-                                            updateWithRealGps(loc)
-                                            message = "Localização redefinida para o seu GPS."
-                                        }
-                                    }) {
                                         Icon(
-                                            imageVector = Icons.Default.MyLocation,
-                                            contentDescription = "Usar GPS",
-                                            tint = Color(0xFF10B981),
-                                            modifier = Modifier.size(20.dp)
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "Editar local de embarque",
+                                            tint = Color(0xFF94A3B8),
+                                            modifier = Modifier.size(18.dp)
                                         )
                                     }
                                 }
@@ -858,6 +855,26 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
+                                }
+
+                                // Usar Minha Localização
+                                TextButton(
+                                    onClick = {
+                                        val loc = DriverLocationManager.getLastKnownLocation(context)
+                                        if (loc != null) {
+                                            updateWithRealGps(loc)
+                                            message = "Localização redefinida para o seu GPS."
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.MyLocation, contentDescription = null, tint = Color(0xFF10B981))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Usar minha localização",
+                                        color = Color(0xFF10B981),
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
 
                                 // Availability representation
@@ -1445,6 +1462,159 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text("Salvar Perfil", color = Color.Black, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ==============================================================================
+            // ORIGIN SEARCH MODAL ("DE ONDE VOCÊ VAI?")
+            // ==============================================================================
+            if (isOriginSearchOpen) {
+                Dialog(
+                    onDismissRequest = { isOriginSearchOpen = false },
+                    properties = DialogProperties(usePlatformDefaultWidth = false)
+                ) {
+                    var query by remember { mutableStateOf("") }
+                    var searchResults by remember { mutableStateOf<List<PlaceSearchResult>>(emptyList()) }
+                    var isSearchingPlaces by remember { mutableStateOf(false) }
+
+                    LaunchedEffect(query) {
+                        if (query.isNotBlank()) {
+                            isSearchingPlaces = true
+                            val res = geocodePlaceQuery(context, query, zones)
+                            searchResults = res
+                            isSearchingPlaces = false
+                        } else {
+                            searchResults = emptyList()
+                        }
+                    }
+
+                    Surface(
+                        color = Color(0xFF0F172A),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(16.dp)
+                        ) {
+                            // Header
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                IconButton(onClick = { isOriginSearchOpen = false }) {
+                                    Icon(Icons.Default.ArrowBack, contentDescription = "Voltar", tint = Color.White)
+                                }
+                                Text(
+                                    text = "De onde você vai?",
+                                    color = Color.White,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Search Input Field
+                            OutlinedTextField(
+                                value = query,
+                                onValueChange = { query = it },
+                                placeholder = { Text("Digite endereço, rua ou local...", color = Color(0xFF64748B)) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF10B981))
+                                },
+                                trailingIcon = {
+                                    if (query.isNotBlank()) {
+                                        IconButton(onClick = { query = "" }) {
+                                            Icon(Icons.Default.Close, contentDescription = "Limpar", tint = Color.White)
+                                        }
+                                    }
+                                },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color(0xFF10B981),
+                                    unfocusedBorderColor = Color(0xFF334155),
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            if (isSearchingPlaces) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(color = Color(0xFF10B981))
+                                }
+                            } else {
+                                LazyColumn(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    if (searchResults.isNotEmpty()) {
+                                        items(searchResults) { place ->
+                                            Surface(
+                                                onClick = {
+                                                    pickupLat = place.lat
+                                                    pickupLng = place.lng
+                                                    pickupAddress = "${place.title}, São Sebastião - SP"
+                                                    originZone = place.zone ?: findClosestZone(place.lat, place.lng, zones)
+                                                    mapCenterLat = place.lat
+                                                    mapCenterLng = place.lng
+                                                    isOriginSearchOpen = false
+                                                    refreshRouteAndDrivers()
+                                                },
+                                                color = Color(0xFF1E293B),
+                                                shape = RoundedCornerShape(12.dp),
+                                                border = BorderStroke(1.dp, Color(0xFF334155)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.padding(14.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (place.isZone) Icons.Default.Place else Icons.Default.LocationOn,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFF06B6D4),
+                                                        modifier = Modifier.size(24.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(12.dp))
+                                                    Column {
+                                                        Text(
+                                                            text = place.title,
+                                                            color = Color.White,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 14.sp
+                                                        )
+                                                        Text(
+                                                            text = place.subtitle,
+                                                            color = Color(0xFF94A3B8),
+                                                            fontSize = 12.sp
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else if (query.isNotBlank()) {
+                                        item {
+                                            Text(
+                                                text = "Nenhum local encontrado para \"$query\".",
+                                                color = Color(0xFF94A3B8),
+                                                fontSize = 13.sp,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.fillMaxWidth().padding(top = 24.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
