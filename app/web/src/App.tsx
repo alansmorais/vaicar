@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { APIProvider } from '@vis.gl/react-google-maps';
+import { AlertTriangle, ExternalLink, X } from 'lucide-react';
 import { Header } from './components/Header.tsx';
 import { RoleSelector } from './components/RoleSelector.tsx';
 import { PassengerDashboard } from './components/PassengerDashboard.tsx';
@@ -9,6 +10,7 @@ import { DriverSubscription } from './components/DriverSubscription.tsx';
 import { AdminDashboard } from './components/AdminDashboard.tsx';
 import { DevDashboard } from './components/DevDashboard.tsx';
 import { LegalModal } from './components/LegalModal.tsx';
+import { UserProfileModal } from './components/UserProfileModal.tsx';
 import {
   Zone,
   Driver,
@@ -98,6 +100,15 @@ export default function App() {
   // Legal Modal
   const [legalModalOpen, setLegalModalOpen] = useState<boolean>(false);
   const [legalModalTab, setLegalModalTab] = useState<'termos' | 'privacidade' | 'regulacao' | 'seguranca'>('regulacao');
+
+  // User Profile Modal State
+  const [userProfileModalOpen, setUserProfileModalOpen] = useState<boolean>(false);
+  const [passengerProfileData, setPassengerProfileData] = useState({
+    name: localStorage.getItem('vaicar_passenger_name') || 'Passageiro VaiCar',
+    phone: localStorage.getItem('vaicar_passenger_phone') || '',
+    email: localStorage.getItem('vaicar_passenger_email') || '',
+    avatarUrl: localStorage.getItem('vaicar_passenger_avatar') || 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80',
+  });
 
   // Load Initial Data
   const loadData = async () => {
@@ -194,9 +205,41 @@ export default function App() {
 
   const currentDriver = drivers.find((d) => d.id === currentDriverId) || drivers[0];
   const mapsApiKey = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyAqF4zL02-t-Im_cItTvUj-gPeDs4mmGK4';
+  const [mapsAuthError, setMapsAuthError] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Listen for Google Maps JS auth / activation failures (ApiNotActivatedMapError)
+    (window as any).gm_authFailure = () => {
+      console.warn('[Google Maps] Authentication failure or API not activated on key.');
+      setMapsAuthError(true);
+    };
+
+    const handleWindowError = (event: ErrorEvent) => {
+      if (
+        (event.message && (event.message.includes('ApiNotActivatedMapError') || event.message.includes('Google Maps JavaScript API error'))) ||
+        (event.error && String(event.error).includes('ApiNotActivatedMapError'))
+      ) {
+        console.warn('[Google Maps] Caught ApiNotActivatedMapError event.');
+        setMapsAuthError(true);
+      }
+    };
+
+    window.addEventListener('error', handleWindowError);
+    return () => {
+      window.removeEventListener('error', handleWindowError);
+    };
+  }, []);
 
   return (
-    <APIProvider apiKey={mapsApiKey} language="pt-BR" region="BR">
+    <APIProvider
+      apiKey={mapsApiKey}
+      language="pt-BR"
+      region="BR"
+      onError={(err) => {
+        console.warn('[APIProvider] Maps error:', err);
+        setMapsAuthError(true);
+      }}
+    >
       <div className="min-h-screen w-full overflow-x-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
       <Header
         currentRole={role}
@@ -209,8 +252,9 @@ export default function App() {
           handleSelectRole(r);
         }}
         onLogout={() => handleSelectRole(null)}
-        passengerName={localStorage.getItem('vaicar_passenger_name') || ''}
-        passengerAvatar={localStorage.getItem('vaicar_passenger_avatar') || ''}
+        onOpenProfile={() => setUserProfileModalOpen(true)}
+        passengerName={passengerProfileData.name}
+        passengerAvatar={passengerProfileData.avatarUrl}
         activeDriverId={currentDriverId}
         onSelectDriverId={(id) => {
           if (id === 'new') {
@@ -227,6 +271,36 @@ export default function App() {
         }))}
         onOpenLegal={handleOpenLegal}
       />
+
+      {/* Google Maps Activation Advisory Banner */}
+      {mapsAuthError && (
+        <div className="bg-amber-950/80 border-b border-amber-500/40 px-4 py-2.5 text-xs text-amber-200 flex items-center justify-between gap-3 z-50">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>
+              <strong>Aviso de Configuração do Google Maps:</strong> A chave de API requer a ativação da{' '}
+              <strong>"Maps JavaScript API"</strong> no Google Cloud Console.{' '}
+              <a
+                href="https://console.cloud.google.com/apis/library/maps-backend.googleapis.com"
+                target="_blank"
+                rel="noreferrer"
+                className="underline font-bold text-amber-300 hover:text-white inline-flex items-center gap-1"
+              >
+                <span>Ativar no Google Cloud</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              . O modo de navegação interativo do VaiCar permanece ativo e funcionando.
+            </span>
+          </div>
+          <button
+            onClick={() => setMapsAuthError(false)}
+            className="text-amber-400 hover:text-white p-1 cursor-pointer transition-colors"
+            title="Fechar aviso"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 pb-16">
@@ -391,6 +465,51 @@ export default function App() {
           isOpen={legalModalOpen}
           onClose={() => setLegalModalOpen(false)}
           initialTab={legalModalTab}
+        />
+      )}
+
+      {/* Universal User Profile & Receipts Modal */}
+      {userProfileModalOpen && (
+        <UserProfileModal
+          isOpen={userProfileModalOpen}
+          onClose={() => setUserProfileModalOpen(false)}
+          role={role === 'DRIVER' ? 'DRIVER' : 'PASSENGER'}
+          userId={role === 'DRIVER' ? currentDriver?.id : passengerProfileData.phone}
+          name={role === 'DRIVER' ? currentDriver?.name || 'Motorista' : passengerProfileData.name}
+          phone={role === 'DRIVER' ? currentDriver?.phone || '' : passengerProfileData.phone}
+          email={role === 'DRIVER' ? currentDriver?.email : passengerProfileData.email}
+          avatarUrl={role === 'DRIVER' ? currentDriver?.avatarUrl : passengerProfileData.avatarUrl}
+          driverData={currentDriver}
+          rides={rides}
+          onProfileUpdated={(updated) => {
+            if (role === 'PASSENGER') {
+              setPassengerProfileData((prev) => ({
+                ...prev,
+                ...updated,
+                email: updated.email !== undefined ? updated.email : prev.email,
+                avatarUrl: updated.avatarUrl !== undefined ? updated.avatarUrl : prev.avatarUrl,
+              }));
+            } else if (role === 'DRIVER' && currentDriver) {
+              const updatedDrv = { ...currentDriver, ...updated };
+              setDrivers(drivers.map((d) => (d.id === updatedDrv.id ? updatedDrv : d)));
+            }
+          }}
+          onDeleteAccount={() => {
+            if (role === 'PASSENGER') {
+              localStorage.removeItem('vaicar_passenger_name');
+              localStorage.removeItem('vaicar_passenger_phone');
+              localStorage.removeItem('vaicar_passenger_email');
+              localStorage.removeItem('vaicar_passenger_avatar');
+              localStorage.removeItem('vaicar_passenger_verified');
+              setPassengerProfileData({
+                name: 'Passageiro VaiCar',
+                phone: '',
+                email: '',
+                avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80',
+              });
+            }
+            handleSelectRole(null);
+          }}
         />
       )}
 

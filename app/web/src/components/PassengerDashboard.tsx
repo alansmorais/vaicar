@@ -37,6 +37,8 @@ import {
   Download,
   Compass,
   Trash2,
+  Flag,
+  RefreshCw,
 } from 'lucide-react';
 import { Zone, Ride, Driver, PaymentMethod, SearchDriversResponse } from '../types.ts';
 import {
@@ -53,12 +55,17 @@ import {
   fetchUnpaidRides,
   contestRidePayment,
   deleteOwnPassengerAccount,
+  searchPlaces,
+  PlaceSearchResult,
+  reverseGeocode,
+  computeRouteDirections,
 } from '../lib/api.ts';
 import { LiveRideTracker } from './LiveRideTracker.tsx';
 import { ReportModal } from './ReportModal.tsx';
 import { RideReceiptModal } from './RideReceiptModal.tsx';
 import { VaiCarMobilityMap } from './VaiCarMobilityMap.tsx';
 import { PassengerInteractiveMap } from './PassengerInteractiveMap.tsx';
+import { UserProfileModal } from './UserProfileModal.tsx';
 import { realtimeSync, broadcastLocalRideCreated, broadcastLocalRideUpdate } from '../lib/realtimeSync.ts';
 
 function findNearestZone(lat: number, lng: number, zoneList: Zone[]): Zone | null {
@@ -120,6 +127,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'SOLICITAR' | 'MAPA' | 'ATUAL' | 'HISTORICO' | 'AVALIACOES' | 'PERFIL' | 'AJUDA'>('SOLICITAR');
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [selectedReceiptRideId, setSelectedReceiptRideId] = useState<string | null>(null);
 
   // Service Type: Passenger Ride vs Item Delivery
@@ -238,17 +246,97 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
 
   // Google Maps Coordinates & Addresses (matching native Android)
   const initialOrigin = zones.find((z) => z.id === (zones[0]?.id || 'z-centro')) || zones[0];
-  const initialDest = zones.find((z) => z.id === (zones[1]?.id || 'z-maresias')) || zones[1];
   const [pickupLat, setPickupLat] = useState<number>(initialOrigin?.lat || -23.8078);
   const [pickupLng, setPickupLng] = useState<number>(initialOrigin?.lng || -45.4058);
   const [pickupAddress, setPickupAddress] = useState<string>(
     initialOrigin ? `${initialOrigin.name}, São Sebastião - SP` : 'Centro, São Sebastião - SP'
   );
-  const [destLat, setDestLat] = useState<number | null>(initialDest?.lat || -23.7915);
-  const [destLng, setDestLng] = useState<number | null>(initialDest?.lng || -45.4215);
-  const [destAddress, setDestAddress] = useState<string | null>(
-    initialDest ? `${initialDest.name}, São Sebastião - SP` : 'Maresias, São Sebastião - SP'
+  const [destLat, setDestLat] = useState<number | null>(null);
+  const [destLng, setDestLng] = useState<number | null>(null);
+  const [destAddress, setDestAddress] = useState<string | null>(null);
+
+  // Address Search State ("Local de Embarque" & "Para onde vamos?")
+  const [pickupSearchInput, setPickupSearchInput] = useState<string>(
+    initialOrigin ? `${initialOrigin.name}, São Sebastião - SP` : 'Centro, São Sebastião - SP'
   );
+  const [pickupSuggestions, setPickupSuggestions] = useState<PlaceSearchResult[]>([]);
+  const [isSearchingPickup, setIsSearchingPickup] = useState<boolean>(false);
+  const [isPickupSuggestionsOpen, setIsPickupSuggestionsOpen] = useState<boolean>(false);
+
+  const [destSearchInput, setDestSearchInput] = useState<string>('');
+  const [destSuggestions, setDestSuggestions] = useState<PlaceSearchResult[]>([]);
+  const [isSearchingDest, setIsSearchingDest] = useState<boolean>(false);
+  const [isDestSuggestionsOpen, setIsDestSuggestionsOpen] = useState<boolean>(false);
+  const [routeDistanceKm, setRouteDistanceKm] = useState<number | null>(null);
+  const [routeDurationMin, setRouteDurationMin] = useState<number | null>(null);
+
+  // Real-time Places & Address Search for Pickup
+  useEffect(() => {
+    if (!pickupSearchInput.trim() || pickupSearchInput.trim().length < 2) {
+      setPickupSuggestions([]);
+      return;
+    }
+    // Don't search if the input matches current selected address exactly
+    if (pickupSearchInput === pickupAddress) {
+      setPickupSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearchingPickup(true);
+      try {
+        const results = await searchPlaces(pickupSearchInput.trim());
+        setPickupSuggestions(results);
+      } catch (err) {
+        console.warn('Pickup search error:', err);
+      } finally {
+        setIsSearchingPickup(false);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [pickupSearchInput, pickupAddress]);
+
+  // Real-time Places & Address Search for Destination
+  useEffect(() => {
+    if (!destSearchInput.trim() || destSearchInput.trim().length < 2) {
+      setDestSuggestions([]);
+      return;
+    }
+    // Don't search if the input matches current selected address exactly
+    if (destSearchInput === destAddress) {
+      setDestSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearchingDest(true);
+      try {
+        const results = await searchPlaces(destSearchInput.trim());
+        setDestSuggestions(results);
+      } catch (err) {
+        console.warn('Place search error:', err);
+      } finally {
+        setIsSearchingDest(false);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [destSearchInput, destAddress]);
+
+  // Route calculation when both pickup and destination exist
+  useEffect(() => {
+    if (pickupLat && pickupLng && destLat && destLng) {
+      computeRouteDirections(pickupLat, pickupLng, destLat, destLng)
+        .then((res) => {
+          setRouteDistanceKm(res.distanceKm);
+          setRouteDurationMin(res.durationMin);
+        })
+        .catch(() => {
+          setRouteDistanceKm(null);
+          setRouteDurationMin(null);
+        });
+    } else {
+      setRouteDistanceKm(null);
+      setRouteDurationMin(null);
+    }
+  }, [pickupLat, pickupLng, destLat, destLng]);
 
   const [passengers, setPassengers] = useState<number>(1);
   const [scheduleType, setScheduleType] = useState<'NOW' | 'LATER'>('NOW');
@@ -256,6 +344,34 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [searchResults, setSearchResults] = useState<SearchDriversResponse | null>(null);
   const [searchConcluded, setSearchConcluded] = useState<boolean>(false);
+  const [showAllDrivers, setShowAllDrivers] = useState<boolean>(false);
+
+  // Auto-fetch available drivers when pickup and destination are selected
+  useEffect(() => {
+    if (destAddress && destLat !== null && destLng !== null && pickupLat && pickupLng) {
+      const effOriginZone = zones.find((z) => z.id === originZoneId) || findNearestZone(pickupLat, pickupLng, zones) || zones[0];
+      const effDestZone = zones.find((z) => z.id === destinationZoneId) || (destLat !== null && destLng !== null ? findNearestZone(destLat, destLng, zones) : null) || zones[1] || zones[0];
+
+      if (effOriginZone && effDestZone) {
+        searchDrivers(
+          effOriginZone.id,
+          effDestZone.id,
+          serviceType === 'DELIVERY' ? 1 : passengers,
+          pickupLat,
+          pickupLng,
+          destLat,
+          destLng
+        )
+          .then((res) => {
+            setSearchResults(res);
+            setSearchConcluded(true);
+          })
+          .catch((err) => {
+            console.warn('Auto search drivers error:', err);
+          });
+      }
+    }
+  }, [destAddress, destLat, destLng, pickupLat, pickupLng, originZoneId, destinationZoneId, passengers, serviceType, zones]);
 
   // Requesting Ride
   const [selectedDriverForRequest, setSelectedDriverForRequest] = useState<any | null>(null);
@@ -436,17 +552,29 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
 
   const handlePerformSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!originZoneId || !destinationZoneId) return;
+
+    if (!destAddress || destLat === null || destLng === null) {
+      alert('Por favor, defina o local de destino ("Para onde vamos?") antes de buscar motoristas.');
+      return;
+    }
 
     if (serviceType === 'DELIVERY' && !deliveryRulesAccepted) {
       alert('Você precisa marcar a caixa confirmando que aceita as Normas de Segurança e regras da plataforma.');
       return;
     }
 
+    const effOriginZone = zones.find((z) => z.id === originZoneId) || findNearestZone(pickupLat, pickupLng, zones) || zones[0];
+    const effDestZone = zones.find((z) => z.id === destinationZoneId) || (destLat !== null && destLng !== null ? findNearestZone(destLat, destLng, zones) : null) || zones[1] || zones[0];
+
+    if (!effOriginZone || !effDestZone) {
+      alert('Localidades não identificadas.');
+      return;
+    }
+
     try {
       setIsSearching(true);
       setSearchConcluded(false);
-      const res = await searchDrivers(originZoneId, destinationZoneId, serviceType === 'DELIVERY' ? 1 : passengers);
+      const res = await searchDrivers(effOriginZone.id, effDestZone.id, serviceType === 'DELIVERY' ? 1 : passengers);
       
       // If delivery, let's tag and adjust prices (e.g. 25% discount for bike delivery)
       if (serviceType === 'DELIVERY' && res?.results) {
@@ -482,7 +610,23 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         const accuracy = Math.round(pos.coords.accuracy || 10);
         const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
         setPickupMapsLink(mapsUrl);
+        setPickupLat(lat);
+        setPickupLng(lng);
         setGpsCaptureSuccess(`Sinal GPS obtido! Precisão de ~${accuracy}m`);
+        
+        reverseGeocode(lat, lng)
+          .then((geo) => {
+            setPickupAddress(geo.address);
+            setPickupSearchInput(geo.address);
+            const nearest = findNearestZone(lat, lng, zones);
+            if (nearest) setOriginZoneId(nearest.id);
+          })
+          .catch(() => {
+            const fallbackAddr = `GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+            setPickupAddress(fallbackAddr);
+            setPickupSearchInput(fallbackAddr);
+          });
+
         if (!pickupLandmark) {
           setPickupLandmark(`Localização GPS exata (${lat.toFixed(5)}, ${lng.toFixed(5)})`);
         }
@@ -498,6 +642,13 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
 
   const handleConfirmRequest = async () => {
     if (!selectedDriverForRequest || !originZone || !destinationZone) return;
+
+    // Check mandatory profile photo for passenger recognition
+    if (!passengerAvatarUrl || passengerAvatarUrl.trim() === '') {
+      alert('Foto de Perfil Obrigatória: Adicione uma selfie ou foto do seu rosto em "Meu Perfil" para que o motorista possa reconhecer você no embarque.');
+      setIsProfileModalOpen(true);
+      return;
+    }
 
     try {
       setIsSubmittingRide(true);
@@ -994,15 +1145,15 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         </button>
 
         <button
-          onClick={() => setActiveTab('PERFIL')}
+          onClick={() => setIsProfileModalOpen(true)}
           className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-            activeTab === 'PERFIL'
+            isProfileModalOpen
               ? 'bg-emerald-500 text-slate-950 shadow-md'
               : 'text-slate-300 hover:text-white hover:bg-slate-800'
           }`}
         >
           <User className="w-4 h-4" />
-          <span>Perfil</span>
+          <span>Meu Perfil & Recibos</span>
         </button>
 
         <button
@@ -1084,145 +1235,335 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
               </div>
             </div>
 
-            {/* Interactive Google Map with Fixed Pickup Pin & Destination */}
-            <div className="mb-6 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                    Mapa Interativo Google Maps • Embarque & Destino
-                  </h3>
+            {/* Split View: Left Column (Map) & Right Column (Android-matched Ride Booking Panel) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start mb-6">
+              {/* Left Column: Real Interactive Google Map */}
+              <div className="lg:col-span-7 xl:col-span-7 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                      Google Maps Interativo • Embarque & Destino
+                    </h3>
+                  </div>
+                  <span className="text-[11px] text-slate-400 hidden sm:inline">
+                    Arraste o mapa sob o pino central para definir o embarque
+                  </span>
                 </div>
-                <span className="text-[11px] text-slate-400 hidden sm:inline">
-                  Arraste o mapa sob o pino central para definir o embarque
-                </span>
-              </div>
 
-              <PassengerInteractiveMap
-                zones={zones}
-                pickupLat={pickupLat}
-                pickupLng={pickupLng}
-                pickupAddress={pickupAddress}
-                destLat={destLat}
-                destLng={destLng}
-                destAddress={destAddress}
-                availableDrivers={searchResults?.results || []}
-                selectedDriver={selectedDriverForRequest}
-                activeRide={activeRide}
-                onUpdatePickup={(lat, lng, addr) => {
-                  setPickupLat(lat);
-                  setPickupLng(lng);
-                  setPickupAddress(addr);
-                  const nearest = findNearestZone(lat, lng, zones);
-                  if (nearest) setOriginZoneId(nearest.id);
-                }}
-                onSelectDestination={(lat, lng, addr, zoneId) => {
-                  setDestLat(lat);
-                  setDestLng(lng);
-                  setDestAddress(addr);
-                  if (zoneId) {
-                    setDestinationZoneId(zoneId);
-                  } else {
+                <PassengerInteractiveMap
+                  zones={zones}
+                  pickupLat={pickupLat}
+                  pickupLng={pickupLng}
+                  pickupAddress={pickupAddress}
+                  destLat={destLat}
+                  destLng={destLng}
+                  destAddress={destAddress}
+                  availableDrivers={searchResults?.results || []}
+                  selectedDriver={selectedDriverForRequest}
+                  activeRide={activeRide}
+                  className="w-full h-[460px] lg:h-[620px] rounded-2xl"
+                  onUpdatePickup={(lat, lng, addr) => {
+                    setPickupLat(lat);
+                    setPickupLng(lng);
+                    setPickupAddress(addr);
+                    setPickupSearchInput(addr);
                     const nearest = findNearestZone(lat, lng, zones);
-                    if (nearest) setDestinationZoneId(nearest.id);
-                  }
-                }}
-              />
-            </div>
-
-            {/* Form */}
-            <form onSubmit={handlePerformSearch} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Origin */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <MapPin className="w-4 h-4 text-emerald-400" />
-                    {serviceType === 'RIDE' ? 'De onde? (Origem)' : 'Endereço de Coleta'}
-                  </label>
-                  <select
-                    value={originZoneId}
-                    onChange={(e) => {
-                      const newZoneId = e.target.value;
-                      setOriginZoneId(newZoneId);
-                      const z = zones.find((item) => item.id === newZoneId);
-                      if (z) {
-                        setPickupLat(z.lat);
-                        setPickupLng(z.lng);
-                        setPickupAddress(`${z.name}, São Sebastião - SP`);
-                      }
-                    }}
-                    className="w-full bg-slate-950 text-white font-medium px-4 py-3 rounded-xl border border-slate-700/80 focus:border-emerald-500 outline-none cursor-pointer text-sm"
-                  >
-                    {zones.map((zone) => (
-                      <option key={`orig-${zone.id}`} value={zone.id}>
-                        📍 {zone.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Destination */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <MapPin className="w-4 h-4 text-cyan-400" />
-                    {serviceType === 'RIDE' ? 'Para onde? (Destino)' : 'Endereço de Entrega'}
-                  </label>
-                  <select
-                    value={destinationZoneId}
-                    onChange={(e) => {
-                      const newZoneId = e.target.value;
-                      setDestinationZoneId(newZoneId);
-                      const z = zones.find((item) => item.id === newZoneId);
-                      if (z) {
-                        setDestLat(z.lat);
-                        setDestLng(z.lng);
-                        setDestAddress(`${z.name}, São Sebastião - SP`);
-                      }
-                    }}
-                    className="w-full bg-slate-950 text-white font-medium px-4 py-3 rounded-xl border border-slate-700/80 focus:border-emerald-500 outline-none cursor-pointer text-sm"
-                  >
-                    {zones.map((zone) => (
-                      <option key={`dest-${zone.id}`} value={zone.id}>
-                        🏁 {zone.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    if (nearest) setOriginZoneId(nearest.id);
+                  }}
+                  onSelectDestination={(lat, lng, addr, zoneId) => {
+                    setDestLat(lat);
+                    setDestLng(lng);
+                    setDestAddress(addr);
+                    setDestSearchInput(addr);
+                    setIsDestSuggestionsOpen(false);
+                    if (zoneId) {
+                      setDestinationZoneId(zoneId);
+                    } else {
+                      const nearest = findNearestZone(lat, lng, zones);
+                      if (nearest) setDestinationZoneId(nearest.id);
+                    }
+                  }}
+                />
               </div>
 
-              {/* Delivery fields (Conditional) */}
-              {serviceType === 'DELIVERY' && (
-                <div className="bg-slate-950/80 p-4 rounded-xl border border-slate-800 space-y-4 animate-fade-in text-xs">
-                  <div className="border-b border-slate-800 pb-2 mb-2 flex items-center justify-between">
-                    <div>
-                      <h3 className="font-bold text-white text-xs uppercase text-emerald-400">Detalhes do Envio</h3>
-                      <p className="text-[10px] text-slate-500">Insira as especificações exatas do seu pacote.</p>
-                    </div>
-                    <span className="text-[10px] bg-slate-900 border border-slate-800 px-2 py-1 rounded text-slate-400 font-bold">
-                      {deliveryVehicle === 'MOTO' ? '🏍️ Motocicleta (Plano R$79 ou 10%)' : '🚲 Bicicleta (Plano R$49 ou 10%)'}
+              {/* Right Column: Ride Request Card (Web version of Android Passenger Flow) */}
+              <div className="lg:col-span-5 xl:col-span-5 space-y-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+                <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                      <Car className="w-4 h-4 text-emerald-400" />
+                      <span>{serviceType === 'RIDE' ? 'Solicitar Viagem' : 'Solicitar Envio'}</span>
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      {serviceType === 'RIDE' ? 'Mesmo fluxo e transparência do app VaiCar' : 'Entrega rápida por motocicletas ou bicicletas'}
+                    </p>
+                  </div>
+                  {activeRide && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      Corrida Ativa
                     </span>
+                  )}
+                </div>
+
+                <form onSubmit={handlePerformSearch} className="space-y-4">
+                  {/* 1. Local de Embarque Card (Permite digitar endereço e/ou usar GPS e mapa) */}
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2.5 relative">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+                        Local de Embarque
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {pickupSearchInput && pickupSearchInput !== pickupAddress && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPickupSearchInput(pickupAddress);
+                              setIsPickupSuggestionsOpen(false);
+                            }}
+                            className="text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
+                            title="Restaurar endereço selecionado"
+                          >
+                            Restaurar
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleCapturePickupGps}
+                          disabled={isLocatingGps}
+                          className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-500/30 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                          title="Usar minha localização GPS atual"
+                        >
+                          <Navigation className={`w-3 h-3 ${isLocatingGps ? 'animate-spin' : ''}`} />
+                          <span>{isLocatingGps ? 'Obtendo GPS...' : 'Usar GPS'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Input de Digitação do Embarque com Autocomplete */}
+                    <div className="relative">
+                      <div className="relative flex items-center">
+                        <MapPin className="w-4 h-4 text-emerald-400 absolute left-3 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={pickupSearchInput}
+                          onChange={(e) => {
+                            setPickupSearchInput(e.target.value);
+                            setIsPickupSuggestionsOpen(true);
+                          }}
+                          onFocus={() => setIsPickupSuggestionsOpen(true)}
+                          placeholder="Digite seu local de embarque (rua, bairro, praia)..."
+                          className="w-full bg-slate-900 text-white text-xs pl-9 pr-14 py-2.5 rounded-xl border border-slate-800 focus:border-emerald-500 outline-none transition-colors"
+                        />
+                        <div className="absolute right-2 flex items-center gap-1">
+                          {isSearchingPickup && (
+                            <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin mr-1" />
+                          )}
+                          {pickupSearchInput && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPickupSearchInput('');
+                                setIsPickupSuggestionsOpen(true);
+                              }}
+                              className="text-slate-500 hover:text-slate-300 p-1 rounded-full transition-colors cursor-pointer"
+                              title="Limpar campo de embarque"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Dropdown de Sugestões de Embarque */}
+                      {isPickupSuggestionsOpen && (
+                        <div className="absolute left-0 right-0 mt-1 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl z-40 max-h-56 overflow-y-auto p-1.5 space-y-1">
+                          {pickupSuggestions.length > 0 ? (
+                            pickupSuggestions.map((place, idx) => (
+                              <button
+                                key={`pickup-sugg-${idx}-${place.lat}-${place.lng}`}
+                                type="button"
+                                onClick={() => {
+                                  setPickupLat(place.lat);
+                                  setPickupLng(place.lng);
+                                  const formatted = `${place.title}${place.subtitle ? ' - ' + place.subtitle : ''}`;
+                                  setPickupAddress(formatted);
+                                  setPickupSearchInput(formatted);
+                                  setIsPickupSuggestionsOpen(false);
+                                  const nearest = findNearestZone(place.lat, place.lng, zones);
+                                  if (nearest) setOriginZoneId(nearest.id);
+                                }}
+                                className="w-full text-left p-2 rounded-lg hover:bg-emerald-500/20 transition-colors flex items-start gap-2 cursor-pointer"
+                              >
+                                <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-xs font-bold text-white block truncate">{place.title}</span>
+                                  <span className="text-[10px] text-slate-400 block truncate">{place.subtitle}</span>
+                                </div>
+                                {place.isZone && (
+                                  <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-bold self-center">
+                                    Bairro
+                                  </span>
+                                )}
+                              </button>
+                            ))
+                          ) : (
+                            <div className="p-3 text-center text-xs text-slate-400">
+                              {isSearchingPickup
+                                ? 'Buscando locais em São Sebastião...'
+                                : 'Digite para ver sugestões de ruas, praias e bairros ou arraste o mapa.'}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <p className="text-[10px] text-slate-500 flex items-center justify-between">
+                      <span>💡 Você pode digitar o endereço acima ou arrastar o pino no mapa.</span>
+                    </p>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Veículo da Entrega */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-300 uppercase">Selecione o Veículo de Entrega</label>
+                  {/* 2. Destino ("Para onde vamos?") */}
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2.5 relative">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <Flag className="w-3.5 h-3.5 text-sky-400" />
+                        Para onde vamos?
+                      </span>
+                      {destAddress && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDestAddress(null);
+                            setDestLat(null);
+                            setDestLng(null);
+                            setDestSearchInput('');
+                          }}
+                          className="text-[10px] text-slate-400 hover:text-rose-400 font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                          <span>Alterar Destino</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {destAddress ? (
+                      <div className="space-y-2">
+                        <div className="text-xs font-semibold text-white bg-slate-900/80 p-2.5 rounded-lg border border-sky-500/40 break-words flex items-start gap-2">
+                          <Flag className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <span className="block truncate">{destAddress}</span>
+                            {routeDistanceKm !== null && (
+                              <span className="text-[10px] text-emerald-400 font-bold block mt-0.5">
+                                Trajeto estimado: {routeDistanceKm} km • ~{routeDurationMin} min de viagem
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <div className="relative">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                          <input
+                            type="text"
+                            value={destSearchInput}
+                            onChange={(e) => {
+                              setDestSearchInput(e.target.value);
+                              setIsDestSuggestionsOpen(true);
+                            }}
+                            onFocus={() => setIsDestSuggestionsOpen(true)}
+                            placeholder="Digite o endereço, praia ou ponto de interesse..."
+                            className="w-full bg-slate-900 text-white text-xs pl-9 pr-8 py-2.5 rounded-xl border border-slate-800 focus:border-sky-500 outline-none transition-colors"
+                          />
+                          {isSearchingDest && (
+                            <RefreshCw className="w-3.5 h-3.5 text-sky-400 animate-spin absolute right-3 top-3" />
+                          )}
+                        </div>
+
+                        {/* Dropdown Suggestions */}
+                        {isDestSuggestionsOpen && (
+                          <div className="absolute left-0 right-0 mt-1 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl z-40 max-h-56 overflow-y-auto p-1.5 space-y-1">
+                            {destSuggestions.length > 0 ? (
+                              destSuggestions.map((place, idx) => (
+                                <button
+                                  key={`sugg-${idx}-${place.lat}-${place.lng}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setDestLat(place.lat);
+                                    setDestLng(place.lng);
+                                    setDestAddress(`${place.title} - ${place.subtitle}`);
+                                    setDestSearchInput(`${place.title} - ${place.subtitle}`);
+                                    setIsDestSuggestionsOpen(false);
+                                    const nearest = findNearestZone(place.lat, place.lng, zones);
+                                    if (nearest) setDestinationZoneId(nearest.id);
+                                  }}
+                                  className="w-full text-left p-2 rounded-lg hover:bg-sky-500/20 transition-colors flex items-start gap-2 cursor-pointer"
+                                >
+                                  <MapPin className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+                                  <div className="min-w-0 flex-1">
+                                    <span className="text-xs font-bold text-white block truncate">{place.title}</span>
+                                    <span className="text-[10px] text-slate-400 block truncate">{place.subtitle}</span>
+                                  </div>
+                                </button>
+                              ))
+                            ) : destSearchInput.trim().length >= 2 ? (
+                              <div className="p-3 text-center text-xs text-slate-400">
+                                Nenhum endereço encontrado para "{destSearchInput}".
+                              </div>
+                            ) : (
+                              <div className="p-2 space-y-1.5">
+                                <span className="text-[10px] font-bold uppercase text-slate-500 block">
+                                  Sugestões Rápidas de Destino:
+                                </span>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {zones.slice(0, 6).map((z) => (
+                                    <button
+                                      key={`quick-zone-${z.id}`}
+                                      type="button"
+                                      onClick={() => {
+                                        setDestLat(z.lat);
+                                        setDestLng(z.lng);
+                                        setDestAddress(`${z.name}, São Sebastião - SP`);
+                                        setDestSearchInput(`${z.name}, São Sebastião - SP`);
+                                        setDestinationZoneId(z.id);
+                                        setIsDestSuggestionsOpen(false);
+                                      }}
+                                      className="p-1.5 rounded-lg bg-slate-950 hover:bg-sky-500/20 border border-slate-800 text-left cursor-pointer"
+                                    >
+                                      <span className="text-[11px] font-bold text-white block truncate">{z.name}</span>
+                                      <span className="text-[9px] text-slate-500 block">Praia / Bairro</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3. Delivery Details (If DELIVERY mode) */}
+                  {serviceType === 'DELIVERY' && (
+                    <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-3 text-xs">
                       <div className="flex gap-2">
                         <button
                           type="button"
                           onClick={() => setDeliveryVehicle('MOTO')}
-                          className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all flex items-center justify-center gap-1.5 ${
+                          className={`flex-1 py-1.5 px-2 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
                             deliveryVehicle === 'MOTO'
                               ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
                               : 'bg-slate-900 border-slate-800 text-slate-400'
                           }`}
                         >
-                          🏍️ Motocicleta
+                          🏍️ Moto
                         </button>
                         <button
                           type="button"
                           onClick={() => setDeliveryVehicle('BIKE')}
-                          className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all flex items-center justify-center gap-1.5 ${
+                          className={`flex-1 py-1.5 px-2 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
                             deliveryVehicle === 'BIKE'
                               ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
                               : 'bg-slate-900 border-slate-800 text-slate-400'
@@ -1231,214 +1572,137 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                           🚲 Bicicleta
                         </button>
                       </div>
-                    </div>
 
-                    {/* Categoria do Item */}
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Descrição do Pacote</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Documentos, Pizza, Encomenda..."
+                          value={deliveryDescription}
+                          onChange={(e) => setDeliveryDescription(e.target.value)}
+                          required={serviceType === 'DELIVERY'}
+                          className="w-full bg-slate-900 text-white px-3 py-2 rounded-lg border border-slate-800 outline-none text-xs"
+                        />
+                      </div>
+
+                      <label className="flex items-start gap-2 text-[10px] text-slate-300 cursor-pointer pt-1">
+                        <input
+                          type="checkbox"
+                          checked={deliveryRulesAccepted}
+                          onChange={(e) => setDeliveryRulesAccepted(e.target.checked)}
+                          className="mt-0.5 rounded border-slate-800 text-emerald-500"
+                        />
+                        <span>Concordo com as regras de segurança e transporte de itens.</span>
+                      </label>
+                    </div>
+                  )}
+
+                  {/* 4. Passengers Quantity (When RIDE) */}
+                  {serviceType === 'RIDE' && (
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-300 uppercase">Categoria do Item</label>
-                      <select
-                        value={deliveryCategory}
-                        onChange={(e) => setDeliveryCategory(e.target.value)}
-                        className="w-full bg-slate-900 text-white font-medium px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs cursor-pointer"
-                      >
-                        <option value="ALIMENTOS">🍔 Alimentos / Refeições</option>
-                        <option value="DOCUMENTOS">📄 Documentos / Papéis</option>
-                        <option value="ELETRONICOS">⚡ Eletrônicos / Acessórios</option>
-                        <option value="VESTUARIO">👕 Vestuário / Roupas</option>
-                        <option value="MEDICAMENTOS">💊 Farmácia / Medicamentos</option>
-                        <option value="OUTROS">📦 Outros Objetos</option>
-                      </select>
+                      <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Users className="w-4 h-4 text-emerald-400" />
+                        Passageiros
+                      </label>
+                      <div className="grid grid-cols-4 gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                        {[1, 2, 3, 4].map((num) => (
+                          <button
+                            key={num}
+                            type="button"
+                            onClick={() => setPassengers(num)}
+                            className={`py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                              passengers === num
+                                ? 'bg-emerald-500 text-slate-950 shadow-md font-black'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {num} {num === 1 ? 'pessoa' : 'pessoas'}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {/* Descrição do Item */}
-                    <div className="space-y-1.5 sm:col-span-2">
-                      <label className="text-xs font-bold text-slate-300 uppercase">Descrição Completa</label>
-                      <input
-                        type="text"
-                        placeholder="Ex: Pizza Grande, Chave do Escritório, Documento Azul, etc."
-                        value={deliveryDescription}
-                        onChange={(e) => setDeliveryDescription(e.target.value)}
-                        required={serviceType === 'DELIVERY'}
-                        className="w-full bg-slate-900 text-white px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs"
-                      />
-                    </div>
-
-                    {/* Peso aproximado */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-300 uppercase">Peso Aproximado (kg)</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0.1"
-                        placeholder="Ex: 1.5"
-                        value={deliveryWeight}
-                        onChange={(e) => setDeliveryWeight(e.target.value)}
-                        required={serviceType === 'DELIVERY'}
-                        className="w-full bg-slate-900 text-white px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Tamanho / Dimensões */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-300 uppercase">Tamanho do Item</label>
-                      <select
-                        value={deliverySize}
-                        onChange={(e) => setDeliverySize(e.target.value)}
-                        className="w-full bg-slate-900 text-white font-medium px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs cursor-pointer"
-                      >
-                        <option value="PEQUENO">🎒 Pequeno (Cabe em mochila convencional)</option>
-                        <option value="MEDIO">📦 Médio (Exige baú de motocicleta)</option>
-                        <option value="GRANDE">⚠️ Grande (Limite de carga do entregador)</option>
-                      </select>
-                    </div>
-
-                    {/* Valor Declarado */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-300 uppercase">Valor Declarado (R$)</label>
-                      <input
-                        type="number"
-                        placeholder="Ex: 50.00"
-                        value={deliveryDeclaredValue}
-                        onChange={(e) => setDeliveryDeclaredValue(e.target.value)}
-                        required={serviceType === 'DELIVERY'}
-                        className="w-full bg-slate-900 text-white px-3 py-2.5 rounded-xl border border-slate-800 outline-none text-xs"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Safety and Regulations Checkbox */}
-                  <div className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 space-y-2">
-                    <span className="font-black text-rose-400 block text-[10px] uppercase tracking-wider">🔒 Normas de Segurança Obrigatórias</span>
-                    <ul className="text-[10px] text-slate-400 list-disc pl-3.5 space-y-1">
-                      <li>Não é permitido enviar inflamáveis, armas, entorpecentes ou itens ilícitos.</li>
-                      <li>O item real deve condizer perfeitamente com a descrição informada acima.</li>
-                      <li>O entregador tem autonomia para recusar caso o item seja inseguro ou diferente do descrito.</li>
-                    </ul>
-                    <label className="flex items-start gap-2 pt-2 text-[11px] text-white font-bold cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={deliveryRulesAccepted}
-                        onChange={(e) => setDeliveryRulesAccepted(e.target.checked)}
-                        className="mt-0.5 rounded border-slate-800 text-emerald-500 focus:ring-0"
-                      />
-                      <span>Declaro que li e concordo com todas as regras de segurança e os Termos de Uso.</span>
-                    </label>
-                  </div>
-                </div>
-              )}
-
-              {/* Schedule & Passenger Count (Only when RIDE) */}
-              {serviceType === 'RIDE' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                  {/* Passengers */}
+                  {/* 5. Schedule (Agora vs Agendar) */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                      <Users className="w-4 h-4 text-emerald-400" />
-                      Quantidade de Passageiros
+                      <Clock className="w-4 h-4 text-emerald-400" />
+                      Horário da Corrida
                     </label>
-                  <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-700/80">
-                    {[1, 2, 3, 4].map((num) => (
+                    <div className="flex items-center gap-2">
                       <button
-                        key={num}
                         type="button"
-                        onClick={() => setPassengers(num)}
-                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                          passengers === num
-                            ? 'bg-emerald-500 text-slate-950'
-                            : 'text-slate-400 hover:text-white'
+                        onClick={() => setScheduleType('NOW')}
+                        className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                          scheduleType === 'NOW'
+                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                            : 'bg-slate-950 border-slate-800 text-slate-400'
                         }`}
                       >
-                        {num} {num === 1 ? 'pessoa' : 'pessoas'}
+                        Agora (Imediato)
                       </button>
-                    ))}
+                      <button
+                        type="button"
+                        onClick={() => setScheduleType('LATER')}
+                        className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                          scheduleType === 'LATER'
+                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                            : 'bg-slate-950 border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        Agendar
+                      </button>
+                    </div>
                   </div>
-                </div>
 
-                {/* Schedule */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <Clock className="w-4 h-4 text-emerald-400" />
-                    Horário da Corrida
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setScheduleType('NOW')}
-                      className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
-                        scheduleType === 'NOW'
-                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
-                          : 'bg-slate-950 border-slate-700 text-slate-400'
-                      }`}
-                    >
-                      Agora (Imediato)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setScheduleType('LATER')}
-                      className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
-                        scheduleType === 'LATER'
-                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
-                          : 'bg-slate-950 border-slate-700 text-slate-400'
-                      }`}
-                    >
-                      Agendar
-                    </button>
+                  {/* Map notice */}
+                  <div className="text-[11px] text-emerald-400 bg-emerald-950/30 p-2.5 rounded-xl border border-emerald-500/30 flex items-center gap-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>Google Maps ativo • Coordenadas GPS em tempo real e cálculo de rotas pela SP-055.</span>
                   </div>
-                </div>
-              </div>
-            )}
 
-              {/* Map Service Notice */}
-              <div className="text-[11px] text-emerald-400/90 bg-emerald-950/30 p-2.5 rounded-lg border border-emerald-500/30 flex items-center justify-between">
-                <span className="flex items-center gap-1.5">
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Google Maps ativo • Coordenadas GPS em tempo real e cálculo de rotas pela SP-055.</span>
-                </span>
-                <span className="text-slate-400 font-semibold cursor-pointer hover:text-white" onClick={() => onOpenLegal('regulacao')}>
-                  Ver Regulação
-                </span>
+                  {/* Primary Action Button */}
+                  <button
+                    type="submit"
+                    disabled={isSearching}
+                    className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-black py-3.5 px-6 rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer text-sm"
+                  >
+                    {isSearching ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                        <span>Buscando motoristas cadastrados...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" />
+                        <span>Pesquisar Motoristas Disponíveis</span>
+                      </>
+                    )}
+                  </button>
+                </form>
               </div>
-
-              {/* Submit Button */}
-              <button
-                type="submit"
-                disabled={isSearching}
-                className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3.5 px-6 rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer text-sm"
-              >
-                {isSearching ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                    <span>Buscando motoristas cadastrados...</span>
-                  </>
-                ) : (
-                  <>
-                    <Search className="w-4 h-4" />
-                    <span>Pesquisar Motoristas Disponíveis</span>
-                  </>
-                )}
-              </button>
-            </form>
+            </div>
           </div>
 
-          {/* Search Results Area */}
+          {/* Search Results Area - MOTORISTAS DISPONÍVEIS */}
           {searchConcluded && searchResults && (
-            <div className="space-y-4">
+            <div className="space-y-4 pt-2">
               <div className="flex flex-col gap-1">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-lg font-black text-white flex items-center gap-2 uppercase tracking-wide">
                     <span>Motoristas Disponíveis</span>
-                    <span className="text-xs bg-emerald-950 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">
-                      {searchResults.totalFound} {searchResults.totalFound === 1 ? 'encontrado' : 'encontrados'}
+                    <span className="text-xs bg-emerald-950 text-emerald-400 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-bold">
+                      {searchResults.totalFound} {searchResults.totalFound === 1 ? 'disponível' : 'disponíveis'}
                     </span>
                   </h3>
-                  <span className="text-xs text-slate-400">
-                    Estimativa de trajeto: {searchResults.distanceKm} km • ~{searchResults.estimatedDurationMin} min
+                  <span className="text-xs text-slate-400 font-medium">
+                    Trajeto estimado: <strong>{searchResults.distanceKm} km</strong> • ~{searchResults.estimatedDurationMin} min
                   </span>
                 </div>
+
+                <p className="text-xs text-slate-400">
+                  Ordenado pelo menor preço estimado e menor tempo de chegada.
+                </p>
 
                 {/* Dynamic Pricing Alert */}
                 {searchResults.isDynamicActive && (
@@ -1466,7 +1730,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   </div>
                   <h4 className="text-base font-bold text-white">Nenhum motorista disponível no momento.</h4>
                   <p className="text-xs text-slate-400 max-w-md mx-auto">
-                    Não há motoristas cadastrados e online para esta rota no momento. Tente novamente em alguns minutos.
+                    Não há motoristas cadastrados e online para esta rota no momento. Tente novamente em alguns instantes.
                   </p>
                   <button
                     onClick={onGoToDriverSignup}
@@ -1476,70 +1740,95 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {searchResults.results.map((driver) => {
-                    const isDelivery = serviceType === 'DELIVERY';
-                    const displayVehicleText = isDelivery
-                      ? (deliveryVehicle === 'MOTO' ? '🏍️ Motocicleta Honda CG Titan 160 (Preta)' : '🚲 Bicicleta Caloi Vulcan (Vermelha)')
-                      : `${driver.vehicle.brand} ${driver.vehicle.model} • ${driver.vehicle.color}`;
-                    
-                    const labelRoleText = isDelivery ? 'Entregador Verificado' : 'Verificado';
-                    const priceLabel = isDelivery ? 'Preço da entrega' : 'Preço do motorista';
-                    const selectButtonText = isDelivery ? 'Escolher este Entregador' : 'Escolher este Motorista';
-                    const capacityLabel = isDelivery ? `Tipo: Envio por ${deliveryVehicle === 'MOTO' ? 'Moto' : 'Bike'}` : `Capacidade: ${driver.vehicle.capacity} passageiros`;
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {(showAllDrivers ? searchResults.results : searchResults.results.slice(0, 5)).map((driver) => {
+                      const isDelivery = serviceType === 'DELIVERY';
+                      const vehicleModel = driver.vehicle?.model ? `${driver.vehicle.brand} ${driver.vehicle.model}` : 'Veículo Cadastrado';
+                      const vehicleColor = driver.vehicle?.color || 'Cor padrão';
+                      const vehiclePlate = driver.vehicle?.licensePlate ? ` • Placa: ${driver.vehicle.licensePlate}` : '';
+                      const displayVehicleText = isDelivery
+                        ? (deliveryVehicle === 'MOTO' ? '🏍️ Moto Honda CG Titan 160 • Preta' : '🚲 Bicicleta Caloi Vulcan • Vermelha')
+                        : `${vehicleModel} • ${vehicleColor}${vehiclePlate}`;
+                      
+                      const distanceToPassenger = typeof driver.distanceToPickupKm === 'number' ? `${driver.distanceToPickupKm} km` : '1.2 km';
+                      const arrivalEtaText = `Chega em ~${driver.estimatedArrivalMinutes || driver.arrivalTimeMin || 4} min`;
+                      const priceFormatted = `R$ ${driver.fare.toFixed(2).replace('.', ',')}`;
 
-                    return (
-                      <div
-                        key={driver.driverId}
-                        className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 rounded-2xl p-5 space-y-4 transition-all shadow-lg relative group"
-                      >
-                        {/* Driver info header */}
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            <img
-                              src={driver.avatarUrl}
-                              alt={driver.name}
-                              className="w-12 h-12 rounded-xl object-cover border border-slate-700 shadow-md"
-                            />
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <h4 className="font-bold text-white text-sm">{driver.name}</h4>
-                                <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-500/30 px-1 rounded font-semibold">
-                                  {labelRoleText}
-                                </span>
+                      return (
+                        <div
+                          key={driver.driverId}
+                          className="bg-slate-900 border border-slate-800 hover:border-emerald-500/60 rounded-2xl p-4 sm:p-5 space-y-3.5 transition-all shadow-lg relative group flex flex-col justify-between"
+                        >
+                          {/* Driver header & price */}
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <img
+                                src={driver.avatarUrl}
+                                alt={driver.name}
+                                className="w-12 h-12 rounded-xl object-cover border border-slate-700 shadow-md shrink-0"
+                              />
+                              <div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <h4 className="font-bold text-white text-sm">{driver.name}</h4>
+                                  <div className="flex items-center gap-1 text-[11px] text-amber-400 font-black bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
+                                    <Star className="w-3 h-3 fill-amber-400" />
+                                    <span>{driver.ratingAverage.toFixed(1)}</span>
+                                  </div>
+                                </div>
+                                <p className="text-xs text-slate-300 font-medium mt-0.5">{displayVehicleText}</p>
                               </div>
-                              <p className="text-xs text-slate-400">{displayVehicleText}</p>
-                              <div className="flex items-center gap-1 text-[11px] text-amber-400 font-bold mt-0.5">
-                                <Star className="w-3 h-3 fill-amber-400" />
-                                <span>{driver.ratingAverage.toFixed(1)}</span>
-                                <span className="text-slate-500 font-normal">({driver.ratingCount} avaliações)</span>
-                              </div>
+                            </div>
+
+                            {/* Prominent Price */}
+                            <div className="text-right shrink-0">
+                              <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Valor Estimado</span>
+                              <span className="text-xl sm:text-2xl font-black text-emerald-400 block">{priceFormatted}</span>
                             </div>
                           </div>
 
-                          {/* Price badge */}
-                          <div className="text-right">
-                            <span className="text-xs text-slate-400 block">{priceLabel}</span>
-                            <span className="text-xl font-black text-emerald-400">R$ {driver.fare.toFixed(2)}</span>
+                          {/* Distance & Arrival ETA */}
+                          <div className="bg-slate-950/80 rounded-xl px-3 py-2 border border-slate-800 flex items-center justify-between text-xs text-slate-300">
+                            <div className="flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              <span>{distanceToPassenger} do embarque</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-sky-400 font-semibold">
+                              <Clock className="w-3.5 h-3.5 shrink-0" />
+                              <span>{arrivalEtaText}</span>
+                            </div>
                           </div>
-                        </div>
 
-                        <div className="border-t border-slate-800/80 pt-3 flex items-center justify-between text-xs text-slate-400">
-                          <span>Chegada em ~{driver.arrivalTimeMin} min</span>
-                          <span className="text-slate-400">{capacityLabel}</span>
+                          {/* Direct Solicitar Button */}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDriverForRequest(driver)}
+                            className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-emerald-500/10 hover:shadow-emerald-500/25 active:scale-[0.98]"
+                          >
+                            <Car className="w-4 h-4 text-slate-950" />
+                            <span>Solicitar</span>
+                          </button>
                         </div>
+                      );
+                    })}
+                  </div>
 
-                        {/* Select driver for ride button */}
-                        <button
-                          onClick={() => setSelectedDriverForRequest(driver)}
-                          className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-md"
-                        >
-                          <span>{selectButtonText}</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    );
-                  })}
+                  {/* "Ver mais motoristas" Toggle button if more than 5 */}
+                  {searchResults.results.length > 5 && (
+                    <div className="text-center pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowAllDrivers(!showAllDrivers)}
+                        className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-white text-xs font-bold border border-slate-700 transition-colors inline-flex items-center gap-2 cursor-pointer"
+                      >
+                        {showAllDrivers ? (
+                          <span>Mostrar menos motoristas</span>
+                        ) : (
+                          <span>Ver mais motoristas (+{searchResults.results.length - 5})</span>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -2522,6 +2811,28 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
         <ReportModal
           ride={activeRide}
           onClose={() => setIsReportModalOpen(false)}
+        />
+      )}
+
+      {/* User Profile & Receipts Modal */}
+      {isProfileModalOpen && (
+        <UserProfileModal
+          isOpen={isProfileModalOpen}
+          onClose={() => setIsProfileModalOpen(false)}
+          role="PASSENGER"
+          userId={passengerPhone}
+          name={passengerName}
+          phone={passengerPhone}
+          email={passengerEmail}
+          avatarUrl={passengerAvatarUrl}
+          rides={allRides}
+          onProfileUpdated={(updated) => {
+            setPassengerName(updated.name);
+            setPassengerPhone(updated.phone);
+            if (updated.email !== undefined) setPassengerEmail(updated.email);
+            if (updated.avatarUrl) setPassengerAvatarUrl(updated.avatarUrl);
+          }}
+          onDeleteAccount={handleDeleteOwnAccount}
         />
       )}
 

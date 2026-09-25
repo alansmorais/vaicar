@@ -459,36 +459,53 @@ export interface PlatformMetrics {
   whatsappContactEvents: number;
 }
 
+export interface DriverSearchResultItem {
+  driverId: string;
+  id?: string;
+  name: string;
+  avatarUrl: string;
+  phone?: string;
+  ratingAverage: number;
+  ratingCount: number;
+  ridesCompleted: number;
+  professionalCategory: string;
+  vehicle: {
+    brand: string;
+    model: string;
+    color: string;
+    capacity?: number;
+    passengerCapacity?: number;
+    category?: string;
+    licensePlate?: string;
+    year?: number;
+  };
+  fare: number;
+  estimatedFare?: number;
+  distanceKm: number;
+  tripDistanceKm?: number;
+  distanceToPickupKm?: number;
+  estimatedDurationMin: number;
+  arrivalTimeMin: number;
+  estimatedArrivalMinutes?: number;
+  currentLat?: number;
+  currentLng?: number;
+  lat?: number;
+  lng?: number;
+  isOnline: boolean;
+  pricingType: string;
+  pixKey?: string;
+  acceptedPaymentMethods?: PaymentMethod[] | string[];
+}
+
 export interface SearchDriversResponse {
   totalFound: number;
   distanceKm: number;
   estimatedDurationMin: number;
-  originZone: Zone;
-  destinationZone: Zone;
+  originZone?: Zone;
+  destinationZone?: Zone;
   dynamicMultiplier: number;
   isDynamicActive: boolean;
-  results: {
-    driverId: string;
-    name: string;
-    avatarUrl: string;
-    ratingAverage: number;
-    ratingCount: number;
-    ridesCompleted: number;
-    professionalCategory: string;
-    vehicle: {
-      brand: string;
-      model: string;
-      color: string;
-      capacity: number;
-      category: string;
-    };
-    fare: number;
-    distanceKm: number;
-    estimatedDurationMin: number;
-    arrivalTimeMin: number;
-    isOnline: boolean;
-    pricingType: string;
-  }[];
+  results: DriverSearchResultItem[];
 }
 
 export interface MobilityMapData {

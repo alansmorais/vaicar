@@ -16,6 +16,7 @@ import {
   Eye,
   EyeOff,
   Check,
+  Mail,
 } from 'lucide-react';
 import { Driver, Ride, PlatformMetrics, SubscriptionPlan } from '../types.ts';
 import {
@@ -23,6 +24,10 @@ import {
   setDevPassword,
   resetAllPasswords,
 } from '../lib/authSecurity.ts';
+import {
+  requestAdminPasswordPin,
+  verifyAndChangeAdminPassword,
+} from '../lib/api.ts';
 
 interface DevDashboardProps {
   metrics: PlatformMetrics;
@@ -53,36 +58,67 @@ export const DevDashboard: React.FC<DevDashboardProps> = ({
   const [showPasswordChangeModal, setShowPasswordChangeModal] = useState<boolean>(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [devPinCode, setDevPinCode] = useState('');
+  const [isSendingPin, setIsSendingPin] = useState(false);
+  const [pinSentMessage, setPinSentMessage] = useState('');
+  const [isSubmittingPwdChange, setIsSubmittingPwdChange] = useState(false);
   const [pwdChangeError, setPwdChangeError] = useState('');
   const [pwdChangeSuccess, setPwdChangeSuccess] = useState('');
 
   const [selectedInspectTab, setSelectedInspectTab] = useState<'METRICS' | 'DRIVERS' | 'RIDES' | 'RAW'>('METRICS');
   const [testResultMsg, setTestResultMsg] = useState<string | null>(null);
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError('');
-    const res = verifyDevPassword(devPin);
-    if (!res.success) {
-      setAuthError(res.errorMessage || 'Senha de desenvolvedor incorreta.');
-      return;
+  const handleRequestPin = async () => {
+    setIsSendingPin(true);
+    setPwdChangeError('');
+    setPinSentMessage('');
+    try {
+      const res = await requestAdminPasswordPin('DEV');
+      if (res.success) {
+        setPinSentMessage(res.message || 'PIN enviado para alanpkmorais@gmail.com');
+      } else {
+        setPwdChangeError(res.message || 'Falha ao enviar PIN');
+      }
+    } catch (err: any) {
+      setPwdChangeError(err.message || 'Erro ao conectar ao servidor para envio do PIN');
+    } finally {
+      setIsSendingPin(false);
     }
-
-    if (res.needsPasswordChange) {
-      setIsMandatoryFirstChange(true);
-      setAuthError('');
-      return;
-    }
-
-    setIsAuthenticated(true);
-    localStorage.setItem('vaicar_dev_auth', 'true');
-    setAuthError('');
   };
 
-  const handleSaveNewPassword = (e: React.FormEvent, isFirstTime: boolean) => {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      const res = await verifyDevPassword(devPin);
+      if (!res.success) {
+        setAuthError(res.errorMessage || 'Senha de desenvolvedor incorreta.');
+        return;
+      }
+
+      if (res.needsPasswordChange) {
+        setIsMandatoryFirstChange(true);
+        setAuthError('');
+        return;
+      }
+
+      setIsAuthenticated(true);
+      localStorage.setItem('vaicar_dev_auth', 'true');
+      setAuthError('');
+    } catch (err: any) {
+      setAuthError(err.message || 'Falha na autenticação.');
+    }
+  };
+
+  const handleSaveNewPassword = async (e: React.FormEvent, isFirstTime: boolean) => {
     e.preventDefault();
     setPwdChangeError('');
     setPwdChangeSuccess('');
+
+    if (!devPinCode.trim()) {
+      setPwdChangeError('Por favor, informe o código PIN de 6 dígitos enviado para alanpkmorais@gmail.com.');
+      return;
+    }
 
     if (newPassword.length < 6) {
       setPwdChangeError('A nova senha deve ter no mínimo 6 caracteres.');
@@ -93,27 +129,38 @@ export const DevDashboard: React.FC<DevDashboardProps> = ({
       return;
     }
 
-    const result = setDevPassword(newPassword);
-    if (!result.success) {
-      setPwdChangeError(result.message || 'Erro ao definir senha.');
-      return;
-    }
+    setIsSubmittingPwdChange(true);
+    try {
+      const result = await verifyAndChangeAdminPassword('DEV', devPinCode.trim(), newPassword);
+      if (!result.success) {
+        setPwdChangeError(result.message || 'Erro ao definir senha.');
+        return;
+      }
 
-    setNewPassword('');
-    setConfirmPassword('');
+      setDevPassword(newPassword);
+      setNewPassword('');
+      setConfirmPassword('');
+      setDevPinCode('');
+      setPinSentMessage('');
 
-    if (isFirstTime) {
-      setIsMandatoryFirstChange(false);
-      setIsAuthenticated(true);
-      localStorage.setItem('vaicar_dev_auth', 'true');
-    } else {
-      setPwdChangeSuccess('✅ Senha alterada com sucesso!');
-      setTimeout(() => {
-        setShowPasswordChangeModal(false);
-        setPwdChangeSuccess('');
-      }, 1500);
+      if (isFirstTime) {
+        setIsMandatoryFirstChange(false);
+        setIsAuthenticated(true);
+        localStorage.setItem('vaicar_dev_auth', 'true');
+      } else {
+        setPwdChangeSuccess('✅ Senha de desenvolvedor alterada com sucesso no servidor!');
+        setTimeout(() => {
+          setShowPasswordChangeModal(false);
+          setPwdChangeSuccess('');
+        }, 1500);
+      }
+    } catch (err: any) {
+      setPwdChangeError(err.message || 'Erro ao salvar nova senha no servidor.');
+    } finally {
+      setIsSubmittingPwdChange(false);
     }
   };
+
 
   const handleLogout = () => {
     setIsAuthenticated(false);
@@ -219,10 +266,7 @@ export const DevDashboard: React.FC<DevDashboardProps> = ({
               <span>Proteção de Console Dev</span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Acesso restrito: utilize a chave técnica de fábrica para o primeiro acesso.
-            </p>
-            <p className="text-[10px] text-amber-400/90 font-medium">
-              * A troca para sua senha pessoal será exigida na primeira ação.
+              Acesso exclusivo para desenvolvimento e engenharia de software.
             </p>
           </div>
 
@@ -236,7 +280,7 @@ export const DevDashboard: React.FC<DevDashboardProps> = ({
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-slate-300">Senha / PIN do Desenvolvedor</label>
+                <label className="text-xs font-bold text-slate-300">Senha de Desenvolvedor</label>
                 <button
                   type="button"
                   onClick={() => setShowDevPin(!showDevPin)}
@@ -251,7 +295,7 @@ export const DevDashboard: React.FC<DevDashboardProps> = ({
                   type={showDevPin ? "text" : "password"}
                   value={devPin}
                   onChange={(e) => setDevPin(e.target.value)}
-                  placeholder="Digite sua senha (padrão: Dev1989)"
+                  placeholder="Digite sua senha de desenvolvedor"
                   required
                   className="w-full bg-slate-950 text-white font-mono text-sm px-4 py-3 pr-10 rounded-xl border border-slate-700 outline-none focus:border-amber-500"
                 />
@@ -275,20 +319,19 @@ export const DevDashboard: React.FC<DevDashboardProps> = ({
           </form>
 
           <div className="pt-2 border-t border-slate-800/80 text-center flex flex-col gap-2">
-            <span className="text-[11px] text-slate-500 font-medium">
-              Credenciais genéricas como "demo" foram desativadas por segurança.
-            </span>
             <button
               type="button"
               onClick={() => {
-                resetAllPasswords();
-                setDevPin('Dev1989');
-                setAuthError('');
-                setResetSuccessMsg('✅ Senhas redefinidas com sucesso! O campo foi preenchido com Dev1989. Clique em "Acessar Console Dev".');
+                setShowPasswordChangeModal(true);
+                setPwdChangeError('');
+                setPwdChangeSuccess('');
+                setPinSentMessage('');
+                setDevPinCode('');
+                handleRequestPin();
               }}
               className="text-xs text-amber-400 hover:text-amber-300 underline font-semibold cursor-pointer py-1"
             >
-              🔄 Redefinir Todas as Senhas para Padrão de Fábrica (Dev1989 / Admin1989)
+              🔐 Esqueceu ou deseja alterar a senha? Enviar PIN por e-mail
             </button>
           </div>
         </div>
@@ -314,18 +357,52 @@ export const DevDashboard: React.FC<DevDashboardProps> = ({
                   setPwdChangeSuccess('');
                   setNewPassword('');
                   setConfirmPassword('');
+                  setDevPinCode('');
+                  setPinSentMessage('');
                 }}
-                className="text-slate-400 hover:text-white text-lg font-bold"
+                className="text-slate-400 hover:text-white text-lg font-bold cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Defina uma nova senha para proteger o console técnico e o inspetor de runtime.
-            </p>
+            <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Para alterar a senha, um código PIN de uso único é enviado para o e-mail do administrador: <span className="text-amber-400 font-mono font-semibold">alanpkmorais@gmail.com</span>
+              </p>
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleRequestPin}
+                  disabled={isSendingPin}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-slate-950 font-bold rounded-lg text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>{isSendingPin ? 'Enviando PIN...' : 'Enviar / Reenviar PIN'}</span>
+                </button>
+                {pinSentMessage && (
+                  <span className="text-[11px] text-amber-400 font-medium truncate">{pinSentMessage}</span>
+                )}
+              </div>
+            </div>
 
             <form onSubmit={(e) => handleSaveNewPassword(e, false)} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                  <span>Código PIN (6 dígitos)</span>
+                  <span className="text-[10px] text-slate-400">Verifique seu e-mail</span>
+                </label>
+                <input
+                  type="text"
+                  value={devPinCode}
+                  onChange={(e) => setDevPinCode(e.target.value)}
+                  placeholder="Ex: 123456"
+                  maxLength={6}
+                  required
+                  className="w-full bg-slate-950 text-amber-400 font-mono text-center text-lg tracking-widest font-black px-3.5 py-2 rounded-xl border border-slate-700 outline-none focus:border-amber-500"
+                />
+              </div>
+
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-300">Nova Senha</label>
                 <input
@@ -360,16 +437,29 @@ export const DevDashboard: React.FC<DevDashboardProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowPasswordChangeModal(false)}
+                  onClick={() => {
+                    setShowPasswordChangeModal(false);
+                    setPwdChangeError('');
+                    setPwdChangeSuccess('');
+                    setDevPinCode('');
+                  }}
                   className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white font-medium cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs cursor-pointer shadow"
+                  disabled={isSubmittingPwdChange}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-bold rounded-xl text-xs cursor-pointer shadow flex items-center gap-1.5"
                 >
-                  Salvar Nova Senha
+                  {isSubmittingPwdChange ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Validando...</span>
+                    </>
+                  ) : (
+                    <span>Salvar Nova Senha</span>
+                  )}
                 </button>
               </div>
             </form>

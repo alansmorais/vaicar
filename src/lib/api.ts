@@ -940,6 +940,61 @@ export async function fetchUserReports(contact: string): Promise<Report[]> {
   }
 }
 
+// --- ADMIN & DEV SECURE AUTHENTICATION APIs ---
+
+export async function loginAdminApi(password: string): Promise<{ success: boolean; message?: string }> {
+  return safeFetchJson<{ success: boolean; message?: string }>(
+    '/api/v1/auth/admin-login',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    },
+    'Falha ao autenticar administrador'
+  );
+}
+
+export async function loginDevApi(password: string): Promise<{ success: boolean; message?: string }> {
+  return safeFetchJson<{ success: boolean; message?: string }>(
+    '/api/v1/auth/dev-login',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    },
+    'Falha ao autenticar desenvolvedor'
+  );
+}
+
+export async function requestAdminPasswordPin(role: 'ADMIN' | 'DEV'): Promise<{ success: boolean; message: string }> {
+  return safeFetchJson<{ success: boolean; message: string }>(
+    '/api/v1/auth/request-password-change-pin',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role }),
+    },
+    'Falha ao solicitar PIN de alteração de senha'
+  );
+}
+
+export async function verifyAndChangeAdminPassword(
+  role: 'ADMIN' | 'DEV',
+  pin: string,
+  newPassword: string
+): Promise<{ success: boolean; message: string }> {
+  return safeFetchJson<{ success: boolean; message: string }>(
+    '/api/v1/auth/verify-and-change-password',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role, pin, newPassword }),
+    },
+    'Falha ao verificar PIN e alterar senha'
+  );
+}
+
+
 
 
 

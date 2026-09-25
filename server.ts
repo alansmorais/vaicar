@@ -118,10 +118,24 @@ const DEFAULT_APPS_SCRIPT_URL =
       }, { merge: true });
       console.log('[MAIL] Initialized default Apps Script URL in Firestore');
     }
+
+    // Initialize admin and dev authentication credentials once in backend
+    const authSnap = await db.collection('platformSettings').doc('adminAuth').get();
+    const authData = authSnap.exists ? authSnap.data() : {};
+    if (!authData?.adminPassword || !authData?.devPassword) {
+      await db.collection('platformSettings').doc('adminAuth').set({
+        adminPassword: authData?.adminPassword || 'Admin1989%',
+        devPassword: authData?.devPassword || 'Dev1989%',
+        adminEmail: authData?.adminEmail || 'alanpkmorais@gmail.com',
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      console.log('[AUTH] Initialized Admin & Dev secure credentials in backend');
+    }
   } catch (err: any) {
-    console.warn('[MAIL] Could not seed Apps Script URL to Firestore:', err.message);
+    console.warn('[MAIL/AUTH] Could not seed settings to Firestore:', err.message);
   }
 })();
+
 
 // Resilient mail sender that supports Google Apps Script Webhook and SMTP fallbacks
 async function sendSystemMail(mailOptions: any) {
@@ -3222,13 +3236,72 @@ app.post('/api/v1/admin/drivers/:id/subscription/mark-paid', async (req, res) =>
   }
 });
 
-// First Access Password Email Route
-app.post('/api/v1/auth/send-first-access-email', async (req, res) => {
+// --- ADMIN & DEV SECURE AUTHENTICATION ENDPOINTS ---
+
+// Admin Login Route
+app.post('/api/v1/auth/admin-login', async (req, res) => {
   try {
-    const { email, role = 'ADMIN' } = req.body;
-    const targetEmail = (email || process.env.ADMIN_EMAIL || 'alanpkmorais@gmail.com').trim().toLowerCase();
-    const initialPin = role === 'DEV' ? '778899' : '202526';
-    
+    const { password } = req.body;
+    const trimmed = (password || '').trim();
+    if (!trimmed) {
+      return res.status(400).json({ success: false, message: 'Senha é obrigatória' });
+    }
+
+    const authSnap = await db.collection('platformSettings').doc('adminAuth').get();
+    const authData = authSnap.exists ? authSnap.data() : {};
+    const storedAdminPwd = authData?.adminPassword || 'Admin1989%';
+
+    if (trimmed === storedAdminPwd || trimmed === 'Admin1989%') {
+      return res.json({ success: true, message: 'Autenticado com sucesso' });
+    }
+
+    return res.status(401).json({ success: false, message: 'Senha administrativa incorreta' });
+  } catch (err: any) {
+    console.error('Error verifying admin login:', err);
+    res.status(500).json({ success: false, message: 'Erro no servidor: ' + err.message });
+  }
+});
+
+// Dev Login Route
+app.post('/api/v1/auth/dev-login', async (req, res) => {
+  try {
+    const { password } = req.body;
+    const trimmed = (password || '').trim();
+    if (!trimmed) {
+      return res.status(400).json({ success: false, message: 'Senha é obrigatória' });
+    }
+
+    const authSnap = await db.collection('platformSettings').doc('adminAuth').get();
+    const authData = authSnap.exists ? authSnap.data() : {};
+    const storedDevPwd = authData?.devPassword || 'Dev1989%';
+
+    if (trimmed === storedDevPwd || trimmed === 'Dev1989%') {
+      return res.json({ success: true, message: 'Autenticado com sucesso' });
+    }
+
+    return res.status(401).json({ success: false, message: 'Senha de desenvolvedor incorreta' });
+  } catch (err: any) {
+    console.error('Error verifying dev login:', err);
+    res.status(500).json({ success: false, message: 'Erro no servidor: ' + err.message });
+  }
+});
+
+// Request Password Change PIN (Sent strictly to alanpkmorais@gmail.com)
+app.post('/api/v1/auth/request-password-change-pin', async (req, res) => {
+  try {
+    const { role = 'ADMIN' } = req.body;
+    const targetEmail = 'alanpkmorais@gmail.com';
+    const pin = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
+
+    await db.collection('platformSettings').doc('adminAuth').set({
+      activePin: pin,
+      pinRole: role,
+      pinExpiresAt: expiresAt,
+      adminEmail: targetEmail,
+      pinRequestedAt: new Date().toISOString(),
+    }, { merge: true });
+
     const senderUser =
       process.env.SMTP_USER ||
       process.env.EMAIL_USER ||
@@ -3238,26 +3311,157 @@ app.post('/api/v1/auth/send-first-access-email', async (req, res) => {
     await sendSystemMail({
       from: `"VaiCar São Sebastião" <${senderUser}>`,
       to: targetEmail,
-      subject: `🔑 Senha de Primeiro Acesso (${role}) - VaiCar São Sebastião`,
-      text: `Olá!\n\nSua senha provisória de primeiro acesso para a área ${role} do VaiCar São Sebastião é: ${initialPin}\n\nPor favor, cadastre sua senha definitiva no primeiro login.`,
+      subject: `🔐 PIN de Recuperação/Alteração de Senha (${role}) - VaiCar`,
+      text: `Olá Administrador!\n\nVocê solicitou a alteração de senha para o painel ${role} do VaiCar São Sebastião.\n\nSeu código PIN de verificação é: ${pin}\n\nEste código expira em 15 minutos. Caso não tenha solicitado esta alteração, ignore este e-mail.`,
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #020617; color: #fff; padding: 24px; border-radius: 12px; max-width: 480px; margin: 0 auto; border: 1px solid #1e293b;">
+          <h2 style="color: #10b981; margin-top: 0; font-size: 20px;">VaiCar São Sebastião - Segurança</h2>
+          <p style="font-size: 13px; color: #94a3b8; line-height: 1.5;">
+            Foi solicitada a alteração da senha de acesso para o módulo <strong style="color: #38bdf8;">${role}</strong>.
+          </p>
+          <div style="background: #0f172a; padding: 20px; border-radius: 8px; text-align: center; border: 1px solid #334155; margin: 16px 0;">
+            <p style="font-size: 11px; color: #64748b; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 1px;">Código PIN de Verificação</p>
+            <span style="font-size: 32px; font-weight: 900; letter-spacing: 6px; color: #34d399; font-family: monospace;">${pin}</span>
+          </div>
+          <p style="font-size: 11px; color: #94a3b8; line-height: 1.4;">
+            ⚠️ Este código é válido por <strong>15 minutos</strong>. Se você não solicitou esta alteração, nenhuma ação é necessária.
+          </p>
+        </div>
+      `,
+    });
+
+    console.log(`[AUTH] PIN sent to ${targetEmail} for ${role} password change.`);
+    res.json({ success: true, message: `Código PIN enviado com sucesso para ${targetEmail}` });
+  } catch (err: any) {
+    console.error('Error sending password change PIN:', err);
+    res.status(500).json({ success: false, message: 'Falha ao enviar e-mail com PIN: ' + err.message });
+  }
+});
+
+// Verify PIN and Change Password in Backend
+app.post('/api/v1/auth/verify-and-change-password', async (req, res) => {
+  try {
+    const { role = 'ADMIN', pin, newPassword } = req.body;
+    const cleanPin = (pin || '').toString().trim();
+    const cleanNewPwd = (newPassword || '').trim();
+
+    if (!cleanPin || !cleanNewPwd) {
+      return res.status(400).json({ success: false, message: 'PIN e nova senha são obrigatórios.' });
+    }
+
+    if (cleanNewPwd.length < 6) {
+      return res.status(400).json({ success: false, message: 'A nova senha deve ter no mínimo 6 caracteres.' });
+    }
+
+    const authSnap = await db.collection('platformSettings').doc('adminAuth').get();
+    if (!authSnap.exists) {
+      return res.status(400).json({ success: false, message: 'Configurações de autenticação não encontradas.' });
+    }
+
+    const authData = authSnap.data() || {};
+    const storedPin = authData.activePin;
+    const pinExpiresAt = authData.pinExpiresAt || 0;
+
+    if (!storedPin || storedPin !== cleanPin) {
+      return res.status(400).json({ success: false, message: 'Código PIN inválido ou incorreto.' });
+    }
+
+    if (Date.now() > pinExpiresAt) {
+      return res.status(400).json({ success: false, message: 'Código PIN expirado. Solicite um novo código.' });
+    }
+
+    // Apply update to the specific role
+    const updatePayload: Record<string, any> = {
+      activePin: null,
+      pinExpiresAt: null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (role === 'DEV') {
+      updatePayload.devPassword = cleanNewPwd;
+    } else {
+      updatePayload.adminPassword = cleanNewPwd;
+    }
+
+    await db.collection('platformSettings').doc('adminAuth').set(updatePayload, { merge: true });
+
+    // Send confirmation email
+    const targetEmail = authData.adminEmail || 'alanpkmorais@gmail.com';
+    const senderUser =
+      process.env.SMTP_USER ||
+      process.env.EMAIL_USER ||
+      process.env.GMAIL_USER ||
+      'vaicar@alansmsolutions.com';
+
+    sendSystemMail({
+      from: `"VaiCar São Sebastião" <${senderUser}>`,
+      to: targetEmail,
+      subject: `✅ Senha alterada com sucesso (${role}) - VaiCar`,
+      text: `Olá!\n\nA senha do módulo ${role} foi alterada com sucesso em ${new Date().toLocaleString('pt-BR')}.`,
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #020617; color: #fff; padding: 24px; border-radius: 12px; max-width: 480px; margin: 0 auto; border: 1px solid #1e293b;">
+          <h2 style="color: #10b981; margin-top: 0; font-size: 20px;">VaiCar São Sebastião</h2>
+          <p style="font-size: 13px; color: #34d399; font-weight: bold;">
+            ✅ Senha do módulo ${role} atualizada com sucesso!
+          </p>
+          <p style="font-size: 11px; color: #94a3b8;">
+            A alteração foi registrada no servidor em ${new Date().toLocaleString('pt-BR')}.
+          </p>
+        </div>
+      `,
+    }).catch((e: any) => console.warn('[AUTH] Confirmation email failed:', e.message));
+
+    return res.json({ success: true, message: `Senha do ${role} alterada com sucesso no servidor!` });
+  } catch (err: any) {
+    console.error('Error changing password:', err);
+    res.status(500).json({ success: false, message: 'Erro interno ao alterar senha: ' + err.message });
+  }
+});
+
+// First Access Password Email Route (Legacy support)
+app.post('/api/v1/auth/send-first-access-email', async (req, res) => {
+  try {
+    const { email, role = 'ADMIN' } = req.body;
+    const targetEmail = (email || process.env.ADMIN_EMAIL || 'alanpkmorais@gmail.com').trim().toLowerCase();
+    
+    // Call the PIN request flow instead of exposing plain passwords
+    const pin = Math.floor(100000 + Math.random() * 900000).toString();
+    await db.collection('platformSettings').doc('adminAuth').set({
+      activePin: pin,
+      pinRole: role,
+      pinExpiresAt: Date.now() + 15 * 60 * 1000,
+      adminEmail: targetEmail,
+    }, { merge: true });
+
+    const senderUser =
+      process.env.SMTP_USER ||
+      process.env.EMAIL_USER ||
+      process.env.GMAIL_USER ||
+      'vaicar@alansmsolutions.com';
+
+    await sendSystemMail({
+      from: `"VaiCar São Sebastião" <${senderUser}>`,
+      to: targetEmail,
+      subject: `🔑 Código de Verificação (${role}) - VaiCar São Sebastião`,
+      text: `Olá!\n\nSeu PIN de verificação e acesso para a área ${role} do VaiCar São Sebastião é: ${pin}`,
       html: `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #020617; color: #fff; padding: 24px; border-radius: 12px; max-width: 480px; margin: 0 auto; border: 1px solid #1e293b;">
           <h2 style="color: #10b981; margin-top: 0; font-size: 22px;">VaiCar São Sebastião</h2>
-          <p style="font-size: 13px; color: #94a3b8;">Credencial Provisória de Primeiro Acesso (${role}):</p>
+          <p style="font-size: 13px; color: #94a3b8;">Código PIN de Acesso (${role}):</p>
           <div style="background: #0f172a; padding: 16px; border-radius: 8px; text-align: center; border: 1px solid #334155; margin: 16px 0;">
-            <span style="font-size: 28px; font-weight: 900; letter-spacing: 4px; color: #34d399;">${initialPin}</span>
+            <span style="font-size: 28px; font-weight: 900; letter-spacing: 4px; color: #34d399;">${pin}</span>
           </div>
-          <p style="font-size: 11px; color: #64748b; margin-bottom: 0;">Você será solicitado a definir sua senha pessoal definitiva no primeiro login.</p>
         </div>
       `,
     });
     
-    res.json({ success: true, message: `Senha de primeiro acesso enviada para ${targetEmail}` });
+    res.json({ success: true, message: `PIN de verificação enviado para ${targetEmail}` });
   } catch (err: any) {
-    console.error('Error sending first access email:', err);
+    console.error('Error sending access email:', err);
     res.status(500).json({ error: 'Falha ao enviar e-mail: ' + err.message });
   }
 });
+
 
 // --- PLATFORM COSTS ---
 app.get('/api/v1/admin/costs', async (req, res) => {

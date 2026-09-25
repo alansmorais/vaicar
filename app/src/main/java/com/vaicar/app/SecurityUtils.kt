@@ -14,8 +14,8 @@ object SecurityUtils {
     private const val KEY_DEV_PWD_CHANGED = "dev_pwd_changed"
     
     // Default initial credentials
-    const val DEFAULT_ADMIN_PIN = "Admin1989"
-    const val DEFAULT_DEV_PIN = "Dev1989"
+    const val DEFAULT_ADMIN_PIN = "Admin1989%"
+    const val DEFAULT_DEV_PIN = "Dev1989%"
     
     // Banned passwords list
     private val BANNED_PASSWORDS = listOf("demo", "demo123", "teste", "123456", "senha")

@@ -33,6 +33,7 @@ import {
 import { Driver, Zone, Ride, RegulatoryRequirement, PaymentMethod, PlatformFareSettings } from '../types.ts';
 import { realtimeSync, broadcastLocalRideUpdate } from '../lib/realtimeSync.ts';
 import { LegalModal } from './LegalModal.tsx';
+import { UserProfileModal } from './UserProfileModal.tsx';
 import {
   updateDriverAvailability,
   updateDriverPricing,
@@ -106,6 +107,7 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
   const [activeTab, setActiveTab] = useState<'PANEL' | 'PRICING' | 'PAYMENTS' | 'ZONES' | 'DOCS'>('PANEL');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isSafetyModalOpen, setIsSafetyModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   // Payment settings state
   const [pixKey, setPixKey] = useState(driver.pixKey || driver.phone || '');
@@ -638,6 +640,14 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
               <span className="text-emerald-400 font-bold">
                 Plano: 10% ou R$ {driver.monthlyFeeBrl ?? monthlyPlanPrice}/mês
               </span>
+              <span>•</span>
+              <button
+                type="button"
+                onClick={() => setIsProfileModalOpen(true)}
+                className="text-emerald-400 hover:text-emerald-300 underline font-bold cursor-pointer"
+              >
+                Meu Perfil & Recibos
+              </button>
             </div>
           </div>
         </div>
@@ -2261,6 +2271,28 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Driver User Profile Modal */}
+      {isProfileModalOpen && (
+        <UserProfileModal
+          isOpen={isProfileModalOpen}
+          onClose={() => setIsProfileModalOpen(false)}
+          role="DRIVER"
+          userId={driver.id}
+          name={driver.name}
+          phone={driver.phone}
+          email={driver.email}
+          avatarUrl={driver.avatarUrl}
+          driverData={driver}
+          rides={rides}
+          onProfileUpdated={(updated) => {
+            onRefreshDriver({
+              ...driver,
+              ...updated,
+            });
+          }}
+        />
       )}
     </div>
   );

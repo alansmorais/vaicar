@@ -163,85 +163,171 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
 
       {/* MAIN HOMEPAGE CONTENT */}
       {currentPath === '/' ? (
-        <div className="space-y-20 sm:space-y-28 pb-20">
+        <div className="space-y-14 sm:space-y-20 pb-20">
           
           {/* ======================================================
               1. HERO SECTION
           ====================================================== */}
-          <section id="inicio" className="relative pt-8 sm:pt-14 pb-4 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto">
+          <section id="inicio" className="relative pt-6 sm:pt-10 pb-2 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto">
             {/* Subtle background glow */}
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[350px] sm:w-[600px] h-[350px] sm:h-[400px] bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
 
-            <div className="relative text-center space-y-6 sm:space-y-8 max-w-3xl mx-auto">
-              {/* Location & category tag */}
-              <div className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-400">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Mobilidade Urbana & Entregas</span>
-                <span className="text-slate-600">·</span>
-                <span className="text-slate-400">São Sebastião, SP</span>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center relative z-10">
+              {/* Left Column: Headline, Description, Trust Row, CTAs */}
+              <div className="lg:col-span-7 text-left space-y-5 sm:space-y-6">
+                {/* Category & Region Kicker */}
+                <div className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Mobilidade Urbana & Entregas</span>
+                  <span className="text-slate-600">·</span>
+                  <span className="text-slate-400">São Sebastião, SP</span>
+                </div>
+
+                {/* Exact Requested Headline */}
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight leading-[1.15] text-balance">
+                  A sua alternativa local para corridas e entregas em <span className="text-emerald-400">São Sebastião</span>
+                </h1>
+
+                {/* Exact Requested Supporting Text */}
+                <p className="text-slate-300 text-sm sm:text-base leading-relaxed max-w-xl text-balance">
+                  O VaiCar é uma plataforma tecnológica de intermediação que conecta passageiros, motoristas e entregadores parceiros em São Sebastião.
+                </p>
+
+                {/* Compact Factual Trust Row */}
+                <div className="pt-1 pb-1">
+                  <div className="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-2 sm:gap-x-4 sm:gap-y-2 text-xs text-slate-300">
+                    <div className="flex items-center gap-1.5">
+                      <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Motoristas com cadastro e documentação exigida</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Identificação prévia do motorista</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Atendimento e suporte da plataforma</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Hero Primary and Secondary CTAs */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1 max-w-lg">
+                  {/* Primary Hero CTA: Filled Green */}
+                  <button
+                    onClick={() => onSelectRole('PASSENGER', { mode: 'ride' })}
+                    className="flex-1 flex items-center justify-center gap-2.5 px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 font-black rounded-lg shadow-lg shadow-emerald-500/15 hover:shadow-emerald-500/25 transition-all cursor-pointer text-sm group"
+                  >
+                    <Car className="w-4 h-4 text-slate-950 shrink-0" />
+                    <span>Quero pedir uma corrida</span>
+                    <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+
+                  {/* Secondary Hero CTA: Outline Ghost */}
+                  <button
+                    onClick={() => onSelectRole('PASSENGER', { mode: 'delivery' })}
+                    className="flex-1 flex items-center justify-center gap-2.5 px-6 py-3.5 bg-slate-900/90 hover:bg-slate-850 active:scale-[0.99] border border-slate-700 hover:border-emerald-500/60 text-slate-100 font-bold rounded-lg transition-all cursor-pointer text-sm group"
+                  >
+                    <Package className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>Quero enviar uma entrega</span>
+                    <ChevronRight className="w-4 h-4 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+                </div>
               </div>
 
-              {/* Exact Requested Headline */}
-              <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-[1.15] text-balance">
-                A sua alternativa local para corridas e entregas em <span className="text-emerald-400">São Sebastião</span>
-              </h1>
+              {/* Right Column: Native VaiCar App Phone Mockup Visual */}
+              <div className="lg:col-span-5 flex justify-center">
+                <div className="relative w-full max-w-[320px] sm:max-w-[340px] bg-slate-900/90 rounded-[24px] border border-slate-800 shadow-2xl p-3.5 space-y-3 backdrop-blur-sm hover:border-slate-700 transition-all">
+                  {/* Phone Top Notch / Header */}
+                  <div className="flex items-center justify-between px-1.5 pt-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                      <span className="text-[10px] font-bold text-slate-300">VaiCar App</span>
+                    </div>
+                    <div className="w-10 h-1 bg-slate-800 rounded-full"></div>
+                    <span className="text-[10px] font-mono text-slate-400">São Sebastião</span>
+                  </div>
 
-              {/* Exact Requested Supporting Text */}
-              <p className="text-slate-300 text-base sm:text-lg leading-relaxed max-w-2xl mx-auto text-balance">
-                O VaiCar é uma plataforma tecnológica de intermediação que conecta passageiros, motoristas e entregadores parceiros em São Sebastião.
-              </p>
+                  {/* Simulated App Map & Route Interface */}
+                  <div className="relative h-44 rounded-xl bg-slate-950 border border-slate-800/90 overflow-hidden flex flex-col justify-between p-3">
+                    <div className="absolute inset-0 bg-[radial-gradient(#10b981_1px,transparent_1px)] [background-size:14px_14px] opacity-15"></div>
+                    <div className="absolute -right-6 top-6 w-20 h-20 bg-emerald-500/10 rounded-full blur-xl pointer-events-none"></div>
 
-              {/* Primary Actions (Prominent & Accessible) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 max-w-xl mx-auto pt-2">
-                <button
-                  onClick={() => onSelectRole('PASSENGER', { mode: 'ride' })}
-                  className="flex items-center justify-center gap-3 p-4 sm:p-5 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-black rounded-2xl shadow-xl shadow-emerald-500/15 hover:shadow-emerald-500/25 transition-all cursor-pointer text-sm sm:text-base group"
-                >
-                  <Car className="w-5 h-5 text-slate-950 shrink-0" />
-                  <span>Quero pedir uma corrida</span>
-                  <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-                </button>
+                    {/* Route Addresses */}
+                    <div className="relative z-10 space-y-1.5">
+                      <div className="flex items-center gap-2 bg-slate-900/95 border border-slate-800 px-2.5 py-1.5 rounded-lg shadow-sm">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[9px] text-slate-400 block leading-tight">Origem</span>
+                          <span className="text-[11px] font-bold text-white truncate block">Centro Histórico · São Sebastião</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 bg-slate-900/95 border border-slate-800 px-2.5 py-1.5 rounded-lg shadow-sm">
+                        <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[9px] text-slate-400 block leading-tight">Destino</span>
+                          <span className="text-[11px] font-bold text-white truncate block">Praia de Maresias</span>
+                        </div>
+                      </div>
+                    </div>
 
-                <button
-                  onClick={() => onSelectRole('PASSENGER', { mode: 'delivery' })}
-                  className="flex items-center justify-center gap-3 p-4 sm:p-5 bg-slate-900 hover:bg-slate-850 active:scale-[0.98] border border-slate-700 hover:border-emerald-500/60 text-white font-black rounded-2xl shadow-lg transition-all cursor-pointer text-sm sm:text-base group"
-                >
-                  <Package className="w-5 h-5 text-emerald-400 shrink-0" />
-                  <span>Quero enviar uma entrega</span>
-                  <ChevronRight className="w-4 h-4 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-              </div>
+                    {/* Mode selector strip inside mockup */}
+                    <div className="relative z-10 flex items-center justify-between text-[10px] bg-slate-900/95 border border-emerald-500/30 px-2.5 py-1.5 rounded-lg text-emerald-300">
+                      <span className="flex items-center gap-1.5 font-bold">
+                        <Car className="w-3.5 h-3.5 text-emerald-400" /> Corrida Direta
+                      </span>
+                      <span className="font-mono text-[10px] text-slate-300">Preço transparente</span>
+                    </div>
+                  </div>
 
-              {/* Secondary Actions */}
-              <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 pt-2 text-xs sm:text-sm font-semibold">
-                <button
-                  onClick={() => onSelectRole('DRIVER')}
-                  className="text-slate-300 hover:text-emerald-400 transition-colors inline-flex items-center gap-1 cursor-pointer py-1"
-                >
-                  <span>Quero ser motorista</span>
-                  <span aria-hidden="true">→</span>
-                </button>
-                <span className="text-slate-700 hidden sm:inline">·</span>
-                <button
-                  onClick={() => onSelectRole('DRIVER')}
-                  className="text-slate-300 hover:text-emerald-400 transition-colors inline-flex items-center gap-1 cursor-pointer py-1"
-                >
-                  <span>Quero ser entregador</span>
-                  <span aria-hidden="true">→</span>
-                </button>
+                  {/* Simulated Driver & Ride Details Card */}
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <img
+                          src="https://raw.githubusercontent.com/alansmorais/vaicar/refs/heads/main/images/vaicar_logo.png"
+                          alt="VaiCar"
+                          className="w-7 h-7 rounded-md object-cover border border-emerald-500/40 shrink-0"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-white block">Motorista Cadastrado</span>
+                          <span className="text-[10px] text-slate-400 block">Veículo identificado · Suporte local</span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/90 border border-emerald-500/30 px-2 py-0.5 rounded-md">
+                        Ativo
+                      </span>
+                    </div>
+
+                    {/* Interactive Button in Mockup */}
+                    <button
+                      onClick={() => onSelectRole('PASSENGER', { mode: 'ride' })}
+                      className="w-full py-2 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-lg text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <span>Solicitar Viagem</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </section>
 
           {/* ======================================================
-              8. USER JOURNEYS (Clear Pathways for the 4 Audiences)
+              2. USER JOURNEYS (The 4 Audiences with Enhanced Hierarchy)
           ====================================================== */}
           <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Audience 1: Passageiro */}
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-700 transition-all">
-                <div className="space-y-2">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Passageiro</div>
+              {/* Audience 1: Passageiro (Primary Audience) */}
+              <div className="bg-slate-900/90 border border-emerald-500/40 rounded-xl p-5 flex flex-col justify-between space-y-4 hover:border-emerald-500/60 shadow-lg shadow-emerald-500/5 transition-all">
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg">
+                      <Car className="w-5 h-5" />
+                    </div>
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Passageiro</div>
+                  </div>
                   <h3 className="text-base font-bold text-white">Precisa de transporte?</h3>
                   <p className="text-xs text-slate-400 leading-relaxed">
                     Solicite viagens individuais com transparência e identificação prévia do veículo.
@@ -249,17 +335,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                 </div>
                 <button
                   onClick={() => onSelectRole('PASSENGER', { mode: 'ride' })}
-                  className="w-full py-2.5 px-3 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-emerald-400 font-bold rounded-xl text-xs flex items-center justify-between cursor-pointer transition-colors"
+                  className="w-full py-2.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-lg text-xs flex items-center justify-between cursor-pointer transition-colors shadow-sm"
                 >
                   <span>Quero pedir uma corrida</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              {/* Audience 2: Cliente de Entrega */}
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-700 transition-all">
-                <div className="space-y-2">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Cliente de Entrega</div>
+              {/* Audience 2: Cliente de Entrega (Secondary Audience) */}
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-700 transition-all">
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-slate-800/80 text-emerald-400 rounded-lg">
+                      <Package className="w-5 h-5" />
+                    </div>
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Cliente de Entrega</div>
+                  </div>
                   <h3 className="text-base font-bold text-white">Precisa enviar algo?</h3>
                   <p className="text-xs text-slate-400 leading-relaxed">
                     Envie encomendas leves e documentos de moto ou bike em São Sebastião.
@@ -267,17 +358,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                 </div>
                 <button
                   onClick={() => onSelectRole('PASSENGER', { mode: 'delivery' })}
-                  className="w-full py-2.5 px-3 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-emerald-400 font-bold rounded-xl text-xs flex items-center justify-between cursor-pointer transition-colors"
+                  className="w-full py-2.5 px-3 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-emerald-400 font-bold rounded-lg text-xs flex items-center justify-between cursor-pointer transition-colors"
                 >
                   <span>Quero enviar uma entrega</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              {/* Audience 3: Motorista */}
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-700 transition-all">
-                <div className="space-y-2">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Motorista</div>
+              {/* Audience 3: Motorista (Primary Audience) */}
+              <div className="bg-slate-900/90 border border-emerald-500/40 rounded-xl p-5 flex flex-col justify-between space-y-4 hover:border-emerald-500/60 shadow-lg shadow-emerald-500/5 transition-all">
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg">
+                      <Car className="w-5 h-5" />
+                    </div>
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Motorista</div>
+                  </div>
                   <h3 className="text-base font-bold text-white">Tem veículo próprio?</h3>
                   <p className="text-xs text-slate-400 leading-relaxed">
                     Trabalhe com transporte de passageiros escolhendo 10% por corrida ou R$100/mês.
@@ -285,17 +381,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                 </div>
                 <button
                   onClick={() => onSelectRole('DRIVER')}
-                  className="w-full py-2.5 px-3 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-emerald-400 font-bold rounded-xl text-xs flex items-center justify-between cursor-pointer transition-colors"
+                  className="w-full py-2.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-lg text-xs flex items-center justify-between cursor-pointer transition-colors shadow-sm"
                 >
                   <span>Quero dirigir com o VaiCar</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              {/* Audience 4: Entregador */}
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-700 transition-all">
-                <div className="space-y-2">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Entregador</div>
+              {/* Audience 4: Entregador (Secondary Audience) */}
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 flex flex-col justify-between space-y-4 hover:border-slate-700 transition-all">
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-slate-800/80 text-emerald-400 rounded-lg">
+                      <Bike className="w-5 h-5" />
+                    </div>
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Entregador</div>
+                  </div>
                   <h3 className="text-base font-bold text-white">Tem moto ou bicicleta?</h3>
                   <p className="text-xs text-slate-400 leading-relaxed">
                     Faça entregas expressas com planos transparentes para bike (R$49/mês) ou moto (R$79/mês).
@@ -303,7 +404,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                 </div>
                 <button
                   onClick={() => onSelectRole('DRIVER')}
-                  className="w-full py-2.5 px-3 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-emerald-400 font-bold rounded-xl text-xs flex items-center justify-between cursor-pointer transition-colors"
+                  className="w-full py-2.5 px-3 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-emerald-400 font-bold rounded-lg text-xs flex items-center justify-between cursor-pointer transition-colors"
                 >
                   <span>Quero fazer entregas</span>
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -372,7 +473,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
 
                 <button
                   onClick={() => onSelectRole('PASSENGER', { mode: 'ride' })}
-                  className="w-full py-3.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-emerald-500/10 transition-all"
+                  className="w-full py-3.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-lg text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-emerald-500/10 transition-all"
                 >
                   <span>Quero pedir uma corrida</span>
                   <ChevronRight className="w-4 h-4" />
@@ -380,10 +481,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
               </div>
 
               {/* 4. ENTREGAS (Deliveries) */}
-              <div id="entregas" className="bg-slate-900/70 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6 flex flex-col justify-between shadow-xl relative overflow-hidden">
+              <div id="entregas" className="bg-slate-900/70 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-6 flex flex-col justify-between shadow-xl relative overflow-hidden">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl w-fit">
+                    <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl w-fit">
                       <Bike className="w-6 h-6" />
                     </div>
                     <span className="text-xs font-semibold text-slate-400">Exclusivo Moto & Bike</span>
@@ -398,7 +499,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
 
                   {/* Pricing Structure for Deliveries */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800/80 space-y-1.5">
+                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80 space-y-1.5">
                       <div className="flex items-center gap-2 text-xs font-bold text-white">
                         <span className="text-base">🚲</span>
                         <span>Bicicleta</span>
@@ -410,7 +511,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                       </div>
                     </div>
 
-                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800/80 space-y-1.5">
+                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80 space-y-1.5">
                       <div className="flex items-center gap-2 text-xs font-bold text-white">
                         <span className="text-base">🏍️</span>
                         <span>Motocicleta</span>
@@ -423,14 +524,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                     </div>
                   </div>
 
-                  <div className="text-[11px] text-slate-400 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                  <div className="text-[11px] text-slate-400 bg-slate-950/60 p-3 rounded-lg border border-slate-800">
                     <span className="font-semibold text-slate-300">Atenção:</span> Entregas realizadas exclusivamente por bicicletas e motocicletas (sem transporte de carga pesada ou carro).
                   </div>
                 </div>
 
                 <button
                   onClick={() => onSelectRole('PASSENGER', { mode: 'delivery' })}
-                  className="w-full py-3.5 px-4 bg-slate-900 hover:bg-slate-850 border border-slate-700 hover:border-emerald-500/50 text-white font-black rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  className="w-full py-3.5 px-4 bg-slate-900 hover:bg-slate-850 border border-slate-700 hover:border-emerald-500/50 text-white font-black rounded-lg text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer transition-all"
                 >
                   <span>Quero enviar uma entrega</span>
                   <ChevronRight className="w-4 h-4 text-emerald-400" />
@@ -454,7 +555,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
               {/* Step 01 */}
-              <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 space-y-3 relative hover:border-slate-700 transition-all">
+              <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 space-y-3 relative hover:border-slate-700 transition-all">
                 <div className="text-2xl font-black text-emerald-400 tabular-nums">01</div>
                 <h3 className="text-base font-bold text-white">Escolha</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
@@ -463,7 +564,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
               </div>
 
               {/* Step 02 */}
-              <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 space-y-3 relative hover:border-slate-700 transition-all">
+              <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 space-y-3 relative hover:border-slate-700 transition-all">
                 <div className="text-2xl font-black text-emerald-400 tabular-nums">02</div>
                 <h3 className="text-base font-bold text-white">Informe</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
@@ -472,7 +573,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
               </div>
 
               {/* Step 03 */}
-              <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 space-y-3 relative hover:border-slate-700 transition-all">
+              <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 space-y-3 relative hover:border-slate-700 transition-all">
                 <div className="text-2xl font-black text-emerald-400 tabular-nums">03</div>
                 <h3 className="text-base font-bold text-white">Conecte</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
@@ -481,7 +582,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
               </div>
 
               {/* Step 04 */}
-              <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 space-y-3 relative hover:border-slate-700 transition-all">
+              <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 space-y-3 relative hover:border-slate-700 transition-all">
                 <div className="text-2xl font-black text-emerald-400 tabular-nums">04</div>
                 <h3 className="text-base font-bold text-white">Finalize</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
@@ -506,9 +607,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Card 1: Motorista */}
-              <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-6 space-y-5 flex flex-col justify-between hover:border-slate-700 transition-all">
+              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-5 flex flex-col justify-between hover:border-slate-700 transition-all">
                 <div className="space-y-3">
-                  <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl w-fit">
+                  <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl w-fit">
                     <Car className="w-6 h-6" />
                   </div>
                   <h3 className="text-lg font-black text-white uppercase tracking-wide">Motorista</h3>
@@ -523,7 +624,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
 
                 <button
                   onClick={() => onSelectRole('DRIVER')}
-                  className="w-full py-3 px-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  className="w-full py-3 px-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
                 >
                   <span>Cadastrar como Motorista</span>
                   <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
@@ -531,9 +632,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
               </div>
 
               {/* Card 2: Entregador de Bicicleta */}
-              <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-6 space-y-5 flex flex-col justify-between hover:border-slate-700 transition-all">
+              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-5 flex flex-col justify-between hover:border-slate-700 transition-all">
                 <div className="space-y-3">
-                  <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl w-fit">
+                  <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl w-fit">
                     <Bike className="w-6 h-6" />
                   </div>
                   <h3 className="text-lg font-black text-white uppercase tracking-wide">Entregador de Bicicleta</h3>
@@ -548,7 +649,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
 
                 <button
                   onClick={() => onSelectRole('DRIVER')}
-                  className="w-full py-3 px-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  className="w-full py-3 px-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
                 >
                   <span>Cadastrar como Bike</span>
                   <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
@@ -556,9 +657,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
               </div>
 
               {/* Card 3: Entregador de Motocicleta */}
-              <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-6 space-y-5 flex flex-col justify-between hover:border-slate-700 transition-all">
+              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-5 flex flex-col justify-between hover:border-slate-700 transition-all">
                 <div className="space-y-3">
-                  <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl w-fit">
+                  <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl w-fit">
                     <Navigation className="w-6 h-6" />
                   </div>
                   <h3 className="text-lg font-black text-white uppercase tracking-wide">Entregador de Motocicleta</h3>
@@ -573,7 +674,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
 
                 <button
                   onClick={() => onSelectRole('DRIVER')}
-                  className="w-full py-3 px-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  className="w-full py-3 px-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-white font-bold rounded-lg text-xs flex items-center justify-center gap-2 cursor-pointer transition-all"
                 >
                   <span>Cadastrar como Moto</span>
                   <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
@@ -585,7 +686,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
             <div className="text-center pt-2">
               <button
                 onClick={() => onSelectRole('DRIVER')}
-                className="px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-2xl text-sm sm:text-base cursor-pointer shadow-lg shadow-emerald-500/15 transition-all"
+                className="px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-lg text-sm sm:text-base cursor-pointer shadow-lg shadow-emerald-500/15 transition-all"
               >
                 Quero trabalhar com o VaiCar
               </button>
@@ -675,42 +776,42 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
                 <button 
                   onClick={() => navigateTo('/uber-alternativa-sao-sebastiao')}
-                  className="p-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-xl text-left text-xs text-slate-300 font-medium transition-all cursor-pointer flex flex-col justify-between h-24"
+                  className="p-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-lg text-left text-xs text-slate-300 font-medium transition-all cursor-pointer flex flex-col justify-between h-24"
                 >
                   <span className="font-bold text-white">Alternativa à Uber</span>
                   <span className="text-[11px] text-slate-500">Conexão direta entre passageiros e motoristas locais</span>
                 </button>
                 <button 
                   onClick={() => navigateTo('/99-alternativa-sao-sebastiao')}
-                  className="p-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-xl text-left text-xs text-slate-300 font-medium transition-all cursor-pointer flex flex-col justify-between h-24"
+                  className="p-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-lg text-left text-xs text-slate-300 font-medium transition-all cursor-pointer flex flex-col justify-between h-24"
                 >
                   <span className="font-bold text-white">Alternativa à 99</span>
                   <span className="text-[11px] text-slate-500">Segurança, regras claras e transparência</span>
                 </button>
                 <button 
                   onClick={() => navigateTo('/entregas-sao-sebastiao')}
-                  className="p-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-xl text-left text-xs text-slate-300 font-medium transition-all cursor-pointer flex flex-col justify-between h-24"
+                  className="p-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-lg text-left text-xs text-slate-300 font-medium transition-all cursor-pointer flex flex-col justify-between h-24"
                 >
                   <span className="font-bold text-white">Entregas em São Sebastião</span>
                   <span className="text-[11px] text-slate-500">Serviço exclusivo de moto e bicicleta</span>
                 </button>
                 <button 
                   onClick={() => navigateTo('/entrega-moto-sao-sebastiao')}
-                  className="p-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-xl text-left text-xs text-slate-300 font-medium transition-all cursor-pointer flex flex-col justify-between h-24"
+                  className="p-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-lg text-left text-xs text-slate-300 font-medium transition-all cursor-pointer flex flex-col justify-between h-24"
                 >
                   <span className="font-bold text-white">Entrega de Moto (Motocicleta)</span>
                   <span className="text-[11px] text-slate-500">10% por entrega ou R$79/mês</span>
                 </button>
                 <button 
                   onClick={() => navigateTo('/entrega-bike-sao-sebastiao')}
-                  className="p-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-xl text-left text-xs text-slate-300 font-medium transition-all cursor-pointer flex flex-col justify-between h-24"
+                  className="p-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-lg text-left text-xs text-slate-300 font-medium transition-all cursor-pointer flex flex-col justify-between h-24"
                 >
                   <span className="font-bold text-white">Entrega de Bicicleta (Bike)</span>
                   <span className="text-[11px] text-slate-500">10% por entrega ou R$49/mês</span>
                 </button>
                 <button 
                   onClick={() => navigateTo('/motorista-sao-sebastiao')}
-                  className="p-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-xl text-left text-xs text-slate-300 font-medium transition-all cursor-pointer flex flex-col justify-between h-24"
+                  className="p-4 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-lg text-left text-xs text-slate-300 font-medium transition-all cursor-pointer flex flex-col justify-between h-24"
                 >
                   <span className="font-bold text-white">Seja Motorista ou Entregador</span>
                   <span className="text-[11px] text-slate-500">10% por serviço ou plano mensal</span>
@@ -730,7 +831,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
             SEO SUBPAGES (Preserving Content with Redesigned Presentation)
         ====================================================== */
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
-          <article className="bg-slate-900/40 border border-slate-800 rounded-3xl p-6 sm:p-10 space-y-6">
+          <article className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6 sm:p-10 space-y-6">
             {currentPath === '/uber-alternativa-sao-sebastiao' && (
               <div className="space-y-6">
                 <div className="space-y-2">
@@ -748,7 +849,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                  <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-2">
+                  <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-2">
                     <h2 className="font-bold text-white text-sm">Para o Passageiro</h2>
                     <ul className="text-xs text-slate-400 space-y-1.5">
                       <li>• Identificação do motorista e veículo antes de embarcar</li>
@@ -756,7 +857,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                       <li>• Comunicação direta e suporte para ocorrências</li>
                     </ul>
                   </div>
-                  <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-2">
+                  <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-2">
                     <h2 className="font-bold text-white text-sm">Para o Motorista</h2>
                     <ul className="text-xs text-slate-400 space-y-1.5">
                       <li>• Escolha entre 10% por corrida ou R$100/mês</li>
@@ -769,13 +870,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                 <div className="pt-4 flex flex-col sm:flex-row gap-3">
                   <button
                     onClick={() => onSelectRole('PASSENGER', { mode: 'ride' })}
-                    className="flex-1 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs sm:text-sm text-center cursor-pointer transition-all"
+                    className="flex-1 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-lg text-xs sm:text-sm text-center cursor-pointer transition-all"
                   >
                     Quero pedir uma corrida
                   </button>
                   <button
                     onClick={() => onSelectRole('DRIVER')}
-                    className="flex-1 py-3.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-white font-bold rounded-xl text-xs sm:text-sm text-center cursor-pointer transition-all"
+                    className="flex-1 py-3.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-white font-bold rounded-lg text-xs sm:text-sm text-center cursor-pointer transition-all"
                   >
                     Quero ser motorista parceiro
                   </button>
@@ -799,14 +900,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                   </p>
                 </div>
 
-                <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="bg-slate-950 p-6 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
                   <div className="space-y-1">
                     <h2 className="font-bold text-white text-sm">Precisa se deslocar pela cidade?</h2>
                     <p className="text-xs text-slate-400">Consulte viagens e motoristas disponíveis pelo app.</p>
                   </div>
                   <button
                     onClick={() => onSelectRole('PASSENGER', { mode: 'ride' })}
-                    className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-5 py-3 rounded-xl text-xs shrink-0 cursor-pointer transition-colors"
+                    className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-5 py-3 rounded-lg text-xs shrink-0 cursor-pointer transition-colors"
                   >
                     Quero pedir uma corrida
                   </button>
@@ -830,7 +931,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                   </p>
                 </div>
 
-                <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-3">
+                <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-3">
                   <h2 className="font-bold text-white text-xs flex items-center gap-1.5">
                     <Shield className="w-4 h-4 text-emerald-400" />
                     Regras de Segurança para Envio de Itens
@@ -845,7 +946,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                 <div className="pt-2">
                   <button
                     onClick={() => onSelectRole('PASSENGER', { mode: 'delivery' })}
-                    className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs sm:text-sm cursor-pointer transition-all"
+                    className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-lg text-xs sm:text-sm cursor-pointer transition-all"
                   >
                     Quero enviar uma entrega
                   </button>
@@ -872,13 +973,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <button
                     onClick={() => onSelectRole('PASSENGER', { mode: 'delivery' })}
-                    className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold p-4 rounded-xl text-xs cursor-pointer transition-colors"
+                    className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold p-4 rounded-lg text-xs cursor-pointer transition-colors"
                   >
                     Quero enviar uma entrega 🏍️
                   </button>
                   <button
                     onClick={() => onSelectRole('DRIVER')}
-                    className="bg-slate-950 hover:bg-slate-900 border border-slate-800 text-white font-bold p-4 rounded-xl text-xs cursor-pointer transition-colors"
+                    className="bg-slate-950 hover:bg-slate-900 border border-slate-800 text-white font-bold p-4 rounded-lg text-xs cursor-pointer transition-colors"
                   >
                     Quero ser entregador de moto
                   </button>
@@ -902,7 +1003,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                   </p>
                 </div>
 
-                <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-2">
+                <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-2">
                   <h2 className="font-bold text-white text-xs">Limites sugeridos para entregas de bicicleta</h2>
                   <ul className="text-xs text-slate-400 space-y-1.5">
                     <li>• Peso máximo recomendado: 5 kg</li>
@@ -914,7 +1015,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                 <div className="pt-2">
                   <button
                     onClick={() => onSelectRole('PASSENGER', { mode: 'delivery' })}
-                    className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs sm:text-sm cursor-pointer transition-all"
+                    className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-lg text-xs sm:text-sm cursor-pointer transition-all"
                   >
                     Quero enviar uma entrega de bike
                   </button>
@@ -945,7 +1046,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
 
                 <button
                   onClick={() => onSelectRole('DRIVER')}
-                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-4 px-4 rounded-xl text-xs sm:text-sm cursor-pointer transition-all"
+                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-4 px-4 rounded-lg text-xs sm:text-sm cursor-pointer transition-all"
                 >
                   Quero trabalhar com o VaiCar
                 </button>

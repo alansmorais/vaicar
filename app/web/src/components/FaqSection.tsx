@@ -206,7 +206,7 @@ export const FaqSection: React.FC = () => {
     <section id="duvidas-frequentes" className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8" aria-labelledby="faq-heading">
       {/* Header */}
       <div className="text-center space-y-3">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-xs font-semibold tracking-wide">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-xs font-semibold tracking-wide">
           <HelpCircle className="w-3.5 h-3.5" />
           <span>Central de Informações</span>
         </div>
@@ -311,11 +311,11 @@ export const FaqSection: React.FC = () => {
         <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
 
         <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-2xl">
+          <div className="p-2.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl">
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-500/30">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-500/30">
               Início das Operações
             </span>
             <h3 className="text-lg sm:text-xl font-black text-white mt-1">

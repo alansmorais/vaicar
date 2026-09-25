@@ -80,6 +80,8 @@ import {
   togglePassengerBlock,
   updatePassengerProfile,
   deletePassenger,
+  requestAdminPasswordPin,
+  verifyAndChangeAdminPassword,
 } from '../lib/api.ts';
 import { DynamicPricingSettings } from '../types.ts';
 
@@ -126,6 +128,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [showPasswordChangeModal, setShowPasswordChangeModal] = useState<boolean>(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [adminPinCode, setAdminPinCode] = useState('');
+  const [isSendingPin, setIsSendingPin] = useState(false);
+  const [pinSentMessage, setPinSentMessage] = useState('');
+  const [isSubmittingPwdChange, setIsSubmittingPwdChange] = useState(false);
   const [pwdChangeError, setPwdChangeError] = useState('');
   const [pwdChangeSuccess, setPwdChangeSuccess] = useState('');
 
@@ -460,31 +466,58 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError('');
-    const res = verifyAdminPassword(adminPin);
-    if (!res.success) {
-      setAuthError(res.errorMessage || 'Senha administrativa incorreta.');
-      return;
+  const handleRequestPin = async () => {
+    setIsSendingPin(true);
+    setPwdChangeError('');
+    setPinSentMessage('');
+    try {
+      const res = await requestAdminPasswordPin('ADMIN');
+      if (res.success) {
+        setPinSentMessage(res.message || 'PIN enviado para alanpkmorais@gmail.com');
+      } else {
+        setPwdChangeError(res.message || 'Falha ao enviar PIN');
+      }
+    } catch (err: any) {
+      setPwdChangeError(err.message || 'Erro ao conectar ao servidor para envio do PIN');
+    } finally {
+      setIsSendingPin(false);
     }
-
-    if (res.needsPasswordChange) {
-      // First access: force setting a new custom password
-      setIsMandatoryFirstChange(true);
-      setAuthError('');
-      return;
-    }
-
-    setIsAuthenticated(true);
-    localStorage.setItem('vaicar_admin_auth', 'true');
-    setAuthError('');
   };
 
-  const handleSaveNewPassword = (e: React.FormEvent, isFirstTime: boolean) => {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      const res = await verifyAdminPassword(adminPin);
+      if (!res.success) {
+        setAuthError(res.errorMessage || 'Senha administrativa incorreta.');
+        return;
+      }
+
+      if (res.needsPasswordChange) {
+        // First access: force setting a new custom password
+        setIsMandatoryFirstChange(true);
+        setAuthError('');
+        return;
+      }
+
+      setIsAuthenticated(true);
+      localStorage.setItem('vaicar_admin_auth', 'true');
+      setAuthError('');
+    } catch (err: any) {
+      setAuthError(err.message || 'Falha na autenticação.');
+    }
+  };
+
+  const handleSaveNewPassword = async (e: React.FormEvent, isFirstTime: boolean) => {
     e.preventDefault();
     setPwdChangeError('');
     setPwdChangeSuccess('');
+
+    if (!adminPinCode.trim()) {
+      setPwdChangeError('Por favor, informe o código PIN de 6 dígitos enviado para alanpkmorais@gmail.com.');
+      return;
+    }
 
     if (newPassword.length < 6) {
       setPwdChangeError('A nova senha deve ter no mínimo 6 caracteres.');
@@ -495,25 +528,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return;
     }
 
-    const result = setAdminPassword(newPassword);
-    if (!result.success) {
-      setPwdChangeError(result.message || 'Erro ao definir senha.');
-      return;
-    }
+    setIsSubmittingPwdChange(true);
+    try {
+      const result = await verifyAndChangeAdminPassword('ADMIN', adminPinCode.trim(), newPassword);
+      if (!result.success) {
+        setPwdChangeError(result.message || 'Erro ao alterar senha.');
+        return;
+      }
 
-    setNewPassword('');
-    setConfirmPassword('');
+      setAdminPassword(newPassword);
+      setNewPassword('');
+      setConfirmPassword('');
+      setAdminPinCode('');
+      setPinSentMessage('');
 
-    if (isFirstTime) {
-      setIsMandatoryFirstChange(false);
-      setIsAuthenticated(true);
-      localStorage.setItem('vaicar_admin_auth', 'true');
-    } else {
-      setPwdChangeSuccess('✅ Senha alterada com sucesso!');
-      setTimeout(() => {
-        setShowPasswordChangeModal(false);
-        setPwdChangeSuccess('');
-      }, 1500);
+      if (isFirstTime) {
+        setIsMandatoryFirstChange(false);
+        setIsAuthenticated(true);
+        localStorage.setItem('vaicar_admin_auth', 'true');
+      } else {
+        setPwdChangeSuccess('✅ Senha alterada com sucesso no servidor!');
+        setTimeout(() => {
+          setShowPasswordChangeModal(false);
+          setPwdChangeSuccess('');
+        }, 1500);
+      }
+    } catch (err: any) {
+      setPwdChangeError(err.message || 'Erro ao salvar nova senha no servidor.');
+    } finally {
+      setIsSubmittingPwdChange(false);
     }
   };
 
@@ -771,13 +814,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="bg-slate-950/70 border border-slate-800 p-3 rounded-xl text-xs text-slate-300 space-y-1">
             <div className="flex items-center gap-1.5 text-emerald-400 font-semibold text-[11px]">
               <Lock className="w-3.5 h-3.5" />
-              <span>Autenticação Segura</span>
+              <span>Autenticação Administrativa</span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Acesso restrito: utilize a chave padrão de fábrica para o primeiro login.
-            </p>
-            <p className="text-[10px] text-amber-400/90 font-medium">
-              * A troca para sua senha pessoal será exigida na primeira ação.
+              Acesso exclusivo para administradores e auditores credenciados.
             </p>
           </div>
 
@@ -791,7 +831,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-slate-300">Senha / PIN de Acesso</label>
+                <label className="text-xs font-bold text-slate-300">Senha de Acesso</label>
                 <button
                   type="button"
                   onClick={() => setShowAdminPin(!showAdminPin)}
@@ -806,7 +846,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   type={showAdminPin ? "text" : "password"}
                   value={adminPin}
                   onChange={(e) => setAdminPin(e.target.value)}
-                  placeholder="Digite sua senha (padrão: Admin1989)"
+                  placeholder="Digite sua senha de administrador"
                   required
                   className="w-full bg-slate-950 text-white font-mono text-sm px-4 py-3 pr-10 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
                 />
@@ -830,20 +870,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </form>
 
           <div className="pt-2 border-t border-slate-800/80 text-center flex flex-col gap-2">
-            <span className="text-[11px] text-slate-500 font-medium">
-              Acessos de teste "demo" foram desativados para segurança dos dados municipais.
-            </span>
             <button
               type="button"
               onClick={() => {
-                resetAllPasswords();
-                setAdminPin('Admin1989');
-                setAuthError('');
-                setResetSuccessMsg('✅ Senhas redefinidas com sucesso! O campo foi preenchido com Admin1989. Clique em "Acessar Painel".');
+                setShowPasswordChangeModal(true);
+                setPwdChangeError('');
+                setPwdChangeSuccess('');
+                setPinSentMessage('');
+                setAdminPinCode('');
+                handleRequestPin();
               }}
-              className="text-xs text-amber-400 hover:text-amber-300 underline font-semibold cursor-pointer py-1"
+              className="text-xs text-sky-400 hover:text-sky-300 underline font-semibold cursor-pointer py-1"
             >
-              🔄 Redefinir Todas as Senhas para Padrão de Fábrica (Admin1989 / Dev1989)
+              🔐 Esqueceu ou deseja alterar a senha? Enviar PIN por e-mail
             </button>
           </div>
         </div>
@@ -868,7 +907,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   return (
     <div className="w-full max-w-6xl mx-auto px-4 py-6 space-y-6">
-      {/* Password Change Modal (Inside Dashboard) */}
+      {/* Password Change Modal (Inside Dashboard or Recovery) */}
       {showPasswordChangeModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl animate-in zoom-in-95">
@@ -884,18 +923,52 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   setPwdChangeSuccess('');
                   setNewPassword('');
                   setConfirmPassword('');
+                  setAdminPinCode('');
+                  setPinSentMessage('');
                 }}
-                className="text-slate-400 hover:text-white text-lg font-bold"
+                className="text-slate-400 hover:text-white text-lg font-bold cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Defina uma nova senha para proteger o acesso às aprovações de motoristas e aos relatórios financeiros.
-            </p>
+            <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Para alterar a senha, um código PIN de verificação de uso único é enviado para o e-mail seguro do administrador: <span className="text-emerald-400 font-mono font-semibold">alanpkmorais@gmail.com</span>
+              </p>
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleRequestPin}
+                  disabled={isSendingPin}
+                  className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-bold rounded-lg text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>{isSendingPin ? 'Enviando PIN...' : 'Enviar / Reenviar PIN'}</span>
+                </button>
+                {pinSentMessage && (
+                  <span className="text-[11px] text-emerald-400 font-medium truncate">{pinSentMessage}</span>
+                )}
+              </div>
+            </div>
 
             <form onSubmit={(e) => handleSaveNewPassword(e, false)} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                  <span>Código PIN (6 dígitos)</span>
+                  <span className="text-[10px] text-slate-400">Verifique sua caixa de entrada</span>
+                </label>
+                <input
+                  type="text"
+                  value={adminPinCode}
+                  onChange={(e) => setAdminPinCode(e.target.value)}
+                  placeholder="Ex: 123456"
+                  maxLength={6}
+                  required
+                  className="w-full bg-slate-950 text-emerald-400 font-mono text-center text-lg tracking-widest font-black px-3.5 py-2 rounded-xl border border-slate-700 outline-none focus:border-emerald-500"
+                />
+              </div>
+
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-300">Nova Senha</label>
                 <input
@@ -930,16 +1003,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowPasswordChangeModal(false)}
+                  onClick={() => {
+                    setShowPasswordChangeModal(false);
+                    setPwdChangeError('');
+                    setPwdChangeSuccess('');
+                    setAdminPinCode('');
+                  }}
                   className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white font-medium cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs cursor-pointer shadow"
+                  disabled={isSubmittingPwdChange}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-bold rounded-xl text-xs cursor-pointer shadow flex items-center gap-1.5"
                 >
-                  Salvar Nova Senha
+                  {isSubmittingPwdChange ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Validando...</span>
+                    </>
+                  ) : (
+                    <span>Salvar Nova Senha</span>
+                  )}
                 </button>
               </div>
             </form>
