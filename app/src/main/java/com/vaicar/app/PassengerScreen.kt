@@ -235,14 +235,14 @@ fun NativeInteractivePassengerMap(
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
-            properties = MapProperties(
-                isMyLocationEnabled = true
-            ),
             uiSettings = MapUiSettings(
-                zoomControlsEnabled = false,
-                myLocationButtonEnabled = false,
                 scrollGesturesEnabled = true,
-                zoomGesturesEnabled = true
+                zoomGesturesEnabled = true,
+                zoomControlsEnabled = false,
+                myLocationButtonEnabled = false
+            ),
+            properties = MapProperties(
+                isMyLocationEnabled = false
             )
         ) {
             if (pickupLat != 0.0 && pickupLng != 0.0 && destLat != null) {
