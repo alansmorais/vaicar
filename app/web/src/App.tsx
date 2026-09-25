@@ -303,7 +303,7 @@ export default function App() {
       )}
 
       {/* Main Content Area */}
-      <main className="flex-1 pb-16">
+      <main className="flex-1 pb-8">
         {isLoading ? (
           <div className="flex items-center justify-center min-h-[50vh]">
             <div className="flex flex-col items-center gap-4">

@@ -163,60 +163,60 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
 
       {/* MAIN HOMEPAGE CONTENT */}
       {currentPath === '/' ? (
-        <div className="space-y-14 sm:space-y-20 pb-20">
+        <div className="space-y-10 sm:space-y-12 pb-12">
           
           {/* ======================================================
-              1. HERO SECTION
+               1. HERO SECTION
           ====================================================== */}
-          <section id="inicio" className="relative pt-6 sm:pt-10 pb-2 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto">
+          <section id="inicio" className="relative pt-3 sm:pt-5 pb-1 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto">
             {/* Subtle background glow */}
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[350px] sm:w-[600px] h-[350px] sm:h-[400px] bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center relative z-10">
               {/* Left Column: Headline, Description, Trust Row, CTAs */}
-              <div className="lg:col-span-7 text-left space-y-5 sm:space-y-6">
+              <div className="lg:col-span-7 text-left space-y-3.5 sm:space-y-4">
                 {/* Category & Region Kicker */}
-                <div className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-400">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   <span>Mobilidade Urbana & Entregas</span>
                   <span className="text-slate-600">·</span>
                   <span className="text-slate-400">São Sebastião, SP</span>
                 </div>
 
-                {/* Exact Requested Headline */}
-                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight leading-[1.15] text-balance">
+                {/* Headline - Sophisticated, Balanced & Compact */}
+                <h1 className="text-[32px] sm:text-[42px] lg:text-[48px] xl:text-[54px] font-black text-white tracking-tight leading-[1.12] max-w-3xl">
                   A sua alternativa local para corridas e entregas em <span className="text-emerald-400">São Sebastião</span>
                 </h1>
 
-                {/* Exact Requested Supporting Text */}
-                <p className="text-slate-300 text-sm sm:text-base leading-relaxed max-w-xl text-balance">
+                {/* Supporting Text - Compact & Clear */}
+                <p className="text-slate-300 text-sm sm:text-base leading-relaxed max-w-xl">
                   O VaiCar é uma plataforma tecnológica de intermediação que conecta passageiros, motoristas e entregadores parceiros em São Sebastião.
                 </p>
 
                 {/* Compact Factual Trust Row */}
-                <div className="pt-1 pb-1">
-                  <div className="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-2 sm:gap-x-4 sm:gap-y-2 text-xs text-slate-300">
+                <div className="pt-0.5 pb-0.5">
+                  <div className="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-1.5 sm:gap-x-3.5 sm:gap-y-1 text-xs text-slate-300">
                     <div className="flex items-center gap-1.5">
-                      <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                       <span>Motoristas com cadastro e documentação exigida</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                       <span>Identificação prévia do motorista</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                       <span>Atendimento e suporte da plataforma</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Hero Primary and Secondary CTAs */}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1 max-w-lg">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 pt-0.5 max-w-lg">
                   {/* Primary Hero CTA: Filled Green */}
                   <button
                     onClick={() => onSelectRole('PASSENGER', { mode: 'ride' })}
-                    className="flex-1 flex items-center justify-center gap-2.5 px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 font-black rounded-lg shadow-lg shadow-emerald-500/15 hover:shadow-emerald-500/25 transition-all cursor-pointer text-sm group"
+                    className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.99] text-slate-950 font-black rounded-lg shadow-md shadow-emerald-500/15 hover:shadow-emerald-500/25 transition-all cursor-pointer text-xs sm:text-sm group"
                   >
                     <Car className="w-4 h-4 text-slate-950 shrink-0" />
                     <span>Quero pedir uma corrida</span>
@@ -226,7 +226,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
                   {/* Secondary Hero CTA: Outline Ghost */}
                   <button
                     onClick={() => onSelectRole('PASSENGER', { mode: 'delivery' })}
-                    className="flex-1 flex items-center justify-center gap-2.5 px-6 py-3.5 bg-slate-900/90 hover:bg-slate-850 active:scale-[0.99] border border-slate-700 hover:border-emerald-500/60 text-slate-100 font-bold rounded-lg transition-all cursor-pointer text-sm group"
+                    className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-slate-900/90 hover:bg-slate-850 active:scale-[0.99] border border-slate-700 hover:border-emerald-500/60 text-slate-100 font-bold rounded-lg transition-all cursor-pointer text-xs sm:text-sm group"
                   >
                     <Package className="w-4 h-4 text-emerald-400 shrink-0" />
                     <span>Quero enviar uma entrega</span>
@@ -317,7 +317,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSelectRole, onOpenLe
           {/* ======================================================
               2. USER JOURNEYS (The 4 Audiences with Enhanced Hierarchy)
           ====================================================== */}
-          <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
+            <div className="flex flex-col gap-1 text-left">
+              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight max-w-4xl">
+                Escolha como deseja interagir com a <span className="text-emerald-400">VaiCar</span>
+              </h2>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Audience 1: Passageiro (Primary Audience) */}
               <div className="bg-slate-900/90 border border-emerald-500/40 rounded-xl p-5 flex flex-col justify-between space-y-4 hover:border-emerald-500/60 shadow-lg shadow-emerald-500/5 transition-all">
