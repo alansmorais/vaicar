@@ -79,6 +79,7 @@ import {
   fetchPassengers,
   togglePassengerBlock,
   updatePassengerProfile,
+  deletePassenger,
 } from '../lib/api.ts';
 import { DynamicPricingSettings } from '../types.ts';
 
@@ -211,6 +212,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [editPassengerPhone, setEditPassengerPhone] = useState<string>('');
   const [editPassengerError, setEditPassengerError] = useState<string>('');
   const [isSavingPassenger, setIsSavingPassenger] = useState<boolean>(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deletingPassenger, setDeletingPassenger] = useState<any | null>(null);
+
+  const handleDeletePassenger = async () => {
+    if (!deletingPassenger || deleteConfirmation !== 'EXCLUIR') return;
+    try {
+      setIsUpdating(true);
+      await deletePassenger(deletingPassenger.id);
+      setPassengers(prev => prev.filter(p => p.id !== deletingPassenger.id));
+      setDeletingPassenger(null);
+      setDeleteConfirmation('');
+    } catch (err: any) {
+      alert(err.message || 'Erro ao excluir passageiro');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   useEffect(() => {
     loadCosts();
@@ -2521,6 +2539,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <th className="p-4">Cadastro em</th>
                       <th className="p-4">Status</th>
                       <th className="p-4 text-right">Ações</th>
+                      <th className="p-4 text-right">Excluir</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
@@ -2584,6 +2603,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               {p.isBlocked ? 'Desbloquear Acesso' : 'Bloquear / Banir'}
                             </button>
                           </div>
+                        </td>
+                        <td className="p-4 text-right">
+                          <button
+                            onClick={() => setDeletingPassenger(p)}
+                            className="px-2.5 py-1.5 rounded-lg font-bold text-[11px] bg-rose-950/50 hover:bg-rose-900 text-rose-400 transition-all cursor-pointer border border-rose-900"
+                          >
+                            Excluir
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -2658,6 +2685,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* Delete Confirmation Modal */}
+          {deletingPassenger && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95">
+                <h4 className="text-base font-bold text-white flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-rose-400" />
+                  <span>Excluir Passageiro</span>
+                </h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Tem certeza que deseja excluir permanentemente o passageiro <strong>{deletingPassenger.name}</strong>? Esta ação é irreversível.
+                </p>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Digite "EXCLUIR" para confirmar</label>
+                  <input
+                    type="text"
+                    value={deleteConfirmation}
+                    onChange={(e) => setDeleteConfirmation(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-rose-500"
+                  />
+                </div>
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    onClick={() => { setDeletingPassenger(null); setDeleteConfirmation(''); }}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleDeletePassenger}
+                    disabled={deleteConfirmation !== 'EXCLUIR' || isUpdating}
+                    className="flex-1 bg-rose-600 hover:bg-rose-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer shadow-md"
+                  >
+                    Excluir permanentemente
+                  </button>
+                </div>
               </div>
             </div>
           )}

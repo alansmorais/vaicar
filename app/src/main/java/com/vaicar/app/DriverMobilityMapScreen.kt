@@ -26,6 +26,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.MapStyleOptions
+import com.google.maps.android.compose.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -126,64 +130,20 @@ fun DriverMobilityMapScreen(
                 .weight(1f)
                 .background(Color(0xFF020617))
         ) {
-            // Native Canvas Map Rendering
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val canvasWidth = size.width
-                val canvasHeight = size.height
-
-                // Draw Coastal Road Connecting Nodes (SP-055 Highway)
-                if (zones.isNotEmpty()) {
-                    val sortedZones = zones.sortedBy { it.distanceFromCenterKm }
-                    val roadPath = Path()
-                    var first = true
-                    sortedZones.forEach { z ->
-                        val pos = projectToCanvas(z.lat, z.lng, canvasWidth, canvasHeight)
-                        if (first) {
-                            roadPath.moveTo(pos.x, pos.y)
-                            first = false
-                        } else {
-                            roadPath.lineTo(pos.x, pos.y)
-                        }
-                    }
-                    drawPath(
-                        path = roadPath,
-                        color = Color(0xFF1E293B),
-                        style = Stroke(width = 6f)
-                    )
-                    drawPath(
-                        path = roadPath,
-                        color = Color(0xFF334155),
-                        style = Stroke(width = 2f)
-                    )
-                }
-
-                // Draw Zones & Demand Heat Rings
-                zones.forEach { zone ->
-                    val pos = projectToCanvas(zone.lat, zone.lng, canvasWidth, canvasHeight)
-                    val demand = demandsMap[zone.id]
-                    val isSurge = demand?.isSurgeActive == true
-                    val isSelected = zone.id == selectedZoneId
-
-                    // Outer pulse ring if surge or selected
-                    if (isSurge || isSelected) {
-                        drawCircle(
-                            color = if (isSurge) Color(0xFFF59E0B).copy(alpha = pulseAlpha) else EmeraldGreen.copy(alpha = pulseAlpha),
-                            radius = pulseRadius,
-                            center = pos
-                        )
-                    }
-
-                    // Zone Center Marker Circle
-                    drawCircle(
-                        color = if (isSurge) Color(0xFFD97706) else if (isSelected) EmeraldGreen else Color(0xFF0284C7),
-                        radius = if (isSelected) 14f else 10f,
-                        center = pos
-                    )
-                    drawCircle(
-                        color = Color.White,
-                        radius = 4f,
-                        center = pos
-                    )
+            val cameraPositionState = rememberCameraPositionState {
+                position = CameraPosition.fromLatLngZoom(LatLng(-23.8078, -45.4058), 12f)
+            }
+            GoogleMap(
+                modifier = Modifier.fillMaxSize(),
+                cameraPositionState = cameraPositionState,
+                properties = MapProperties(
+                    mapStyleOptions = MapStyleOptions("""[{"elementType":"geometry","stylers":[{"color":"#212121"}]},{"elementType":"labels.icon","stylers":[{"visibility":"off"}]},{"elementType":"labels.text.fill","stylers":[{"color":"#757575"}]},{"elementType":"labels.text.stroke","stylers":[{"color":"#212121"}]},{"featureType":"administrative","elementType":"geometry","stylers":[{"color":"#757575"}]},{"featureType":"administrative.country","elementType":"labels.text.fill","stylers":[{"color":"#9e9e9e"}]},{"featureType":"administrative.land_parcel","stylers":[{"visibility":"off"}]},{"featureType":"administrative.locality","elementType":"labels.text.fill","stylers":[{"color":"#bdbdbd"}]},{"featureType":"poi","elementType":"labels.text.fill","stylers":[{"color":"#757575"}]},{"featureType":"poi.park","elementType":"geometry","stylers":[{"color":"#181818"}]},{"featureType":"poi.park","elementType":"labels.text.fill","stylers":[{"color":"#616161"}]},{"featureType":"poi.park","elementType":"labels.text.stroke","stylers":[{"color":"#1b1b1b"}]},{"featureType":"road","elementType":"geometry.fill","stylers":[{"color":"#2c2c2c"}]},{"featureType":"road","elementType":"labels.text.fill","stylers":[{"color":"#8a8a8a"}]},{"featureType":"road.arterial","elementType":"geometry","stylers":[{"color":"#373737"}]},{"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#3c3c3c"}]},{"featureType":"road.highway.controlled_access","elementType":"geometry","stylers":[{"color":"#4e4e4e"}]},{"featureType":"road.local","elementType":"labels.text.fill","stylers":[{"color":"#616161"}]},{"featureType":"transit","elementType":"labels.text.fill","stylers":[{"color":"#757575"}]},{"featureType":"water","elementType":"geometry","stylers":[{"color":"#000000"}]},{"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#3d3d3d"}]}]"""),
+                    isMyLocationEnabled = true
+                )
+            ) {
+                // Marker drawing logic here if needed based on selectedZone
+                if (selectedZone != null) {
+                    Marker(state = MarkerState(position = LatLng(selectedZone.lat, selectedZone.lng)))
                 }
             }
 
@@ -208,6 +168,7 @@ fun DriverMobilityMapScreen(
                                 .padding(top = 16.dp, start = 16.dp, end = 16.dp)
                                 .fillMaxWidth()
                         ) {
+                            // ... existing card content ...
                             Row(
                                 modifier = Modifier
                                     .padding(14.dp)

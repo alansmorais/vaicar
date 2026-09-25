@@ -669,6 +669,15 @@ export async function updatePassengerProfile(id: string, data: { name?: string; 
   }, 'Falha ao salvar dados do passageiro');
 }
 
+export async function deletePassenger(id: string): Promise<{ success: boolean }> {
+  const res = await fetch(`/api/v1/admin/passengers/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Falha ao excluir passageiro');
+  }
+  return res.json();
+}
+
 // --- RIDE RECEIPTS (COMPROVANTE DA CORRIDA) ---
 export async function fetchRideReceipt(rideId: string): Promise<RideReceipt> {
   return safeFetchJson<RideReceipt>(`/api/v1/rides/${rideId}/receipt`, undefined, 'Falha ao buscar comprovante da corrida');

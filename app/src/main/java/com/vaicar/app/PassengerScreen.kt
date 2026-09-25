@@ -43,6 +43,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.MapStyleOptions
+import com.google.maps.android.compose.*
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
@@ -206,175 +210,43 @@ fun NativeInteractivePassengerMap(
     onCenterOnGps: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Map Zoom scale (pixels per geographic degree)
-    var zoomScale by remember { mutableStateOf(44000f) }
-    var currentCenterLat by remember(centerLat) { mutableStateOf(centerLat) }
-    var currentCenterLng by remember(centerLng) { mutableStateOf(centerLng) }
+    val cameraPositionState = rememberCameraPositionState {
+        position = CameraPosition.fromLatLngZoom(LatLng(centerLat, centerLng), 14f)
+    }
 
-    // Pulsing radar animation for pickup
-    val infiniteTransition = rememberInfiniteTransition(label = "mapPulse")
-    val pulseRadius by infiniteTransition.animateFloat(
-        initialValue = 12f,
-        targetValue = 34f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "pulseRadius"
-    )
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.8f,
-        targetValue = 0.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "pulseAlpha"
-    )
+    // Update camera when center changes
+    LaunchedEffect(centerLat, centerLng) {
+        cameraPositionState.position = CameraPosition.fromLatLngZoom(LatLng(centerLat, centerLng), cameraPositionState.position.zoom)
+    }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color(0xFF0F172A))
-    ) {
-        Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectDragGestures(
-                        onDragEnd = {
-                            onMapCenterChanged(currentCenterLat, currentCenterLng)
-                        }
-                    ) { change, dragAmount ->
-                        change.consume()
-                        val latCos = cos(Math.toRadians(currentCenterLat)).coerceAtLeast(0.1)
-                        val deltaLat = (dragAmount.y / zoomScale).toDouble()
-                        val deltaLng = -(dragAmount.x / (zoomScale * latCos)).toDouble()
-                        currentCenterLat = (currentCenterLat + deltaLat).coerceIn(-24.5, -23.0)
-                        currentCenterLng = (currentCenterLng + deltaLng).coerceIn(-46.5, -44.5)
-                    }
-                }
+    Box(modifier = modifier.fillMaxSize()) {
+        GoogleMap(
+            modifier = Modifier.fillMaxSize(),
+            cameraPositionState = cameraPositionState,
+            properties = MapProperties(
+                mapStyleOptions = MapStyleOptions(
+                    """[{"elementType":"geometry","stylers":[{"color":"#212121"}]},{"elementType":"labels.icon","stylers":[{"visibility":"off"}]},{"elementType":"labels.text.fill","stylers":[{"color":"#757575"}]},{"elementType":"labels.text.stroke","stylers":[{"color":"#212121"}]},{"featureType":"administrative","elementType":"geometry","stylers":[{"color":"#757575"}]},{"featureType":"administrative.country","elementType":"labels.text.fill","stylers":[{"color":"#9e9e9e"}]},{"featureType":"administrative.land_parcel","stylers":[{"visibility":"off"}]},{"featureType":"administrative.locality","elementType":"labels.text.fill","stylers":[{"color":"#bdbdbd"}]},{"featureType":"poi","elementType":"labels.text.fill","stylers":[{"color":"#757575"}]},{"featureType":"poi.park","elementType":"geometry","stylers":[{"color":"#181818"}]},{"featureType":"poi.park","elementType":"labels.text.fill","stylers":[{"color":"#616161"}]},{"featureType":"poi.park","elementType":"labels.text.stroke","stylers":[{"color":"#1b1b1b"}]},{"featureType":"road","elementType":"geometry.fill","stylers":[{"color":"#2c2c2c"}]},{"featureType":"road","elementType":"labels.text.fill","stylers":[{"color":"#8a8a8a"}]},{"featureType":"road.arterial","elementType":"geometry","stylers":[{"color":"#373737"}]},{"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#3c3c3c"}]},{"featureType":"road.highway.controlled_access","elementType":"geometry","stylers":[{"color":"#4e4e4e"}]},{"featureType":"road.local","elementType":"labels.text.fill","stylers":[{"color":"#616161"}]},{"featureType":"transit","elementType":"labels.text.fill","stylers":[{"color":"#757575"}]},{"featureType":"water","elementType":"geometry","stylers":[{"color":"#000000"}]},{"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#3d3d3d"}]}]"""
+                ),
+                isMyLocationEnabled = true
+            ),
+            uiSettings = MapUiSettings(
+                zoomControlsEnabled = false,
+                myLocationButtonEnabled = false
+            ),
+            onMapLoaded = {
+                onMapCenterChanged(cameraPositionState.position.target.latitude, cameraPositionState.position.target.longitude)
+            }
         ) {
-            val width = size.width
-            val height = size.height
-            val centerX = width / 2f
-            val centerY = height / 2f
-            val latCos = cos(Math.toRadians(currentCenterLat)).toFloat()
-
-            fun projectToScreen(lat: Double, lng: Double): Offset {
-                val x = centerX + ((lng - currentCenterLng) * zoomScale * latCos).toFloat()
-                val y = centerY - ((lat - currentCenterLat) * zoomScale).toFloat()
-                return Offset(x, y)
-            }
-
-            // 1. Ocean Background (Canal de São Sebastião)
-            drawRect(color = Color(0xFF090D16))
-            val oceanPath = Path().apply {
-                val p1 = projectToScreen(-23.65, -45.35)
-                val p2 = projectToScreen(-23.75, -45.38)
-                val p3 = projectToScreen(-23.82, -45.41)
-                val p4 = projectToScreen(-23.88, -45.50)
-                val p5 = projectToScreen(-23.85, -45.85)
-                moveTo(p1.x, p1.y)
-                lineTo(p2.x, p2.y)
-                lineTo(p3.x, p3.y)
-                lineTo(p4.x, p4.y)
-                lineTo(p5.x, p5.y)
-                lineTo(width + 250f, height + 250f)
-                lineTo(width + 250f, -250f)
-                close()
-            }
-            drawPath(path = oceanPath, color = Color(0xFF031A30))
-
-            // 2. Real SP-055 Highway corridor
-            val highwayWaypoints = listOf(
-                Pair(-23.715, -45.435), // Canto do Mar
-                Pair(-23.722, -45.429), // Enseada
-                Pair(-23.740, -45.398), // Cigarras
-                Pair(-23.766, -45.416), // São Francisco
-                Pair(-23.785, -45.398), // Pontal da Cruz
-                Pair(-23.807, -45.405), // Centro Histórico
-                Pair(-23.815, -45.418), // Topolândia
-                Pair(-23.834, -45.438), // Barequeçaba
-                Pair(-23.829, -45.465), // Guaecá
-                Pair(-23.837, -45.513), // Toque-Toque Grande
-                Pair(-23.830, -45.535), // Toque-Toque Pequeno
-                Pair(-23.793, -45.545), // Santiago
-                Pair(-23.795, -45.556), // Paúba
-                Pair(-23.791, -45.568), // Maresias
-                Pair(-23.782, -45.617), // Boiçucanga
-                Pair(-23.774, -45.642), // Camburi
-                Pair(-23.766, -45.727), // Juquehy
-                Pair(-23.768, -45.760), // Barra do Una
-                Pair(-23.765, -45.850)  // Boracéia
-            )
-
-            val highwayPath = Path()
-            highwayWaypoints.forEachIndexed { i, pt ->
-                val pos = projectToScreen(pt.first, pt.second)
-                if (i == 0) highwayPath.moveTo(pos.x, pos.y) else highwayPath.lineTo(pos.x, pos.y)
-            }
-            drawPath(highwayPath, color = Color(0xFF1E293B), style = Stroke(width = 12f))
-            drawPath(highwayPath, color = Color(0xFF334155), style = Stroke(width = 6f))
-
-            // 3. Official Municipal Zones as subtle landmarks
-            zones.forEach { z ->
-                val pos = projectToScreen(z.lat, z.lng)
-                if (pos.x in -50f..(width + 50f) && pos.y in -50f..(height + 50f)) {
-                    drawCircle(color = Color(0xFF334155), radius = 4f, center = pos)
-                }
-            }
-
-            // 4. Draw Active Route Line between Pickup and Destination
-            if (destLat != null && destLng != null) {
-                val pPos = projectToScreen(pickupLat, pickupLng)
-                val dPos = projectToScreen(destLat, destLng)
-
-                val routePath = Path().apply {
-                    moveTo(pPos.x, pPos.y)
-                    val midX = (pPos.x + dPos.x) / 2f
-                    val midY = (pPos.y + dPos.y) / 2f - 25f
-                    quadraticBezierTo(midX, midY, dPos.x, dPos.y)
-                }
-
-                drawPath(
-                    path = routePath,
-                    color = Color(0xFF10B981).copy(alpha = 0.35f),
-                    style = Stroke(width = 16f, cap = StrokeCap.Round)
+            // Draw markers here
+            if (pickupLat != 0.0 && pickupLng != 0.0) {
+                 Marker(
+                    state = MarkerState(position = LatLng(pickupLat, pickupLng)),
+                    title = "Embarque"
                 )
-                drawPath(
-                    path = routePath,
-                    color = Color(0xFF10B981),
-                    style = Stroke(width = 5f, cap = StrokeCap.Round)
-                )
-            }
-
-            // 5. Draw Destination Pin (🏁) when chosen
-            if (destLat != null && destLng != null) {
-                val dPos = projectToScreen(destLat, destLng)
-                drawCircle(color = Color(0xFF06B6D4).copy(alpha = 0.25f), radius = 26f, center = dPos)
-                drawCircle(color = Color(0xFF06B6D4), radius = 14f, center = dPos)
-                drawCircle(color = Color.White, radius = 5f, center = dPos)
-            }
-
-            // 6. Draw Pickup Marker (📍) when destination is active (fixed position)
-            if (destLat != null && destLng != null) {
-                val pPos = projectToScreen(pickupLat, pickupLng)
-                drawCircle(color = Color(0xFF10B981).copy(alpha = pulseAlpha), radius = pulseRadius, center = pPos)
-                drawCircle(color = Color(0xFF10B981), radius = 14f, center = pPos)
-                drawCircle(color = Color.White, radius = 5f, center = pPos)
-            }
-
-            // 7. Draw Real Driver Marker when ride is accepted and active
-            if (activeRide != null && liveDriverLocation != null) {
-                val livePos = projectToScreen(liveDriverLocation.lat, liveDriverLocation.lng)
-                drawCircle(color = Color(0xFFF59E0B).copy(alpha = 0.35f), radius = 30f, center = livePos)
-                drawCircle(color = Color(0xFFF59E0B), radius = 16f, center = livePos)
-                drawCircle(color = Color(0xFF0F172A), radius = 10f, center = livePos)
-                drawCircle(color = Color.White, radius = 4f, center = livePos)
             }
         }
-
+        
+        
         // Centered Pickup Pin Overlay (Active when user is adjusting pickup location)
         if (destLat == null) {
             Box(
@@ -437,24 +309,6 @@ fun NativeInteractivePassengerMap(
                     tint = Color(0xFF10B981),
                     modifier = Modifier.size(24.dp)
                 )
-            }
-
-            // Zoom In (+)
-            FilledIconButton(
-                onClick = { zoomScale = (zoomScale * 1.35f).coerceAtMost(160000f) },
-                colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF1E293B)),
-                modifier = Modifier.size(42.dp)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Aumentar zoom", tint = Color.White)
-            }
-
-            // Zoom Out (-)
-            FilledIconButton(
-                onClick = { zoomScale = (zoomScale * 0.74f).coerceAtLeast(14000f) },
-                colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF1E293B)),
-                modifier = Modifier.size(42.dp)
-            ) {
-                Icon(Icons.Default.Remove, contentDescription = "Diminuir zoom", tint = Color.White)
             }
         }
     }
