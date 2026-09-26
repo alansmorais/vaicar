@@ -392,6 +392,8 @@ export const PassengerInteractiveMap: React.FC<PassengerInteractiveMapProps> = (
                   <AdvancedMarker
                     key={`driver-${drv.id || drv.driverId}`}
                     position={{ lat: dLat, lng: dLng }}
+                    anchorPoint="CENTER"
+                    anchorTop="-50%"
                     title={`${drv.name} (${drv.vehicle?.brand || 'Carro'})`}
                     onClick={() => onSelectDriver && onSelectDriver(drv)}
                   >
@@ -411,6 +413,8 @@ export const PassengerInteractiveMap: React.FC<PassengerInteractiveMapProps> = (
             {liveDriverPos && (
               <AdvancedMarker
                 position={{ lat: liveDriverPos.lat, lng: liveDriverPos.lng }}
+                anchorPoint="CENTER"
+                anchorTop="-50%"
                 title={`Motorista: ${activeRide?.driverName || 'VaiCar'}`}
               >
                 <div className="flex flex-col items-center animate-pulse">

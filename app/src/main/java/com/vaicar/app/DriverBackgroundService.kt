@@ -171,6 +171,17 @@ class DriverBackgroundService : Service() {
                         ApiService.fetchRides(
                             onSuccess = { rides ->
                                 handleIncomingRides(rides, driverId, driverPhone)
+                                val ongoingRide = rides.firstOrNull { ride ->
+                                    val matches = (driverId.isNotBlank() && (
+                                        ride.driverId == driverId ||
+                                        ride.matchedDriverId == driverId
+                                    )) || (driverPhone.isNotBlank() && (
+                                        ride.driverPhone == driverPhone ||
+                                        ride.driverPhone?.replace("+", "") == driverPhone.replace("+", "")
+                                    ))
+                                    matches && ride.status in listOf("ACCEPTED", "EN_ROUTE", "DRIVER_ARRIVING", "ARRIVED", "IN_PROGRESS")
+                                }
+                                DriverLocationManager.updateActiveRide(ongoingRide?.id)
                             },
                             onError = { err ->
                                 Log.w(TAG, "Polling rides error: ${err.message}")

@@ -31,6 +31,8 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
   const [progress, setProgress] = useState(0.1);
   const [simulatedEtaMin, setSimulatedEtaMin] = useState(ride.estimatedDurationMin);
   const [simulatedDistanceKm, setSimulatedDistanceKm] = useState(ride.estimatedDistanceKm);
+  const [realEtaMin, setRealEtaMin] = useState<number | null>(null);
+  const [realDistanceKm, setRealDistanceKm] = useState<number | null>(null);
   const [isContesting, setIsContesting] = useState(false);
   const [contestReason, setContestReason] = useState('');
   const [isSubmittingContest, setIsSubmittingContest] = useState(false);
@@ -97,9 +99,11 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
               speedKmh: data.driverLocation.speedKmh || 30,
             });
             if (data.driverLocation.etaMinutes !== undefined) {
+              setRealEtaMin(data.driverLocation.etaMinutes);
               setSimulatedEtaMin(data.driverLocation.etaMinutes);
             }
             if (data.driverLocation.distanceKm !== undefined) {
+              setRealDistanceKm(data.driverLocation.distanceKm);
               setSimulatedDistanceKm(data.driverLocation.distanceKm);
             }
           }
@@ -424,9 +428,9 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
           <div className="text-right shrink-0">
             <div className="flex items-center justify-end gap-1 text-emerald-400 font-black text-sm">
               <Clock className="w-4 h-4" />
-              <span>~{simulatedEtaMin} min</span>
+              <span>~{realEtaMin !== null ? realEtaMin : simulatedEtaMin} min</span>
             </div>
-            <span className="text-[10px] text-slate-400 block font-bold">{simulatedDistanceKm} km restantes</span>
+            <span className="text-[10px] text-slate-400 block font-bold">{realDistanceKm !== null ? realDistanceKm : simulatedDistanceKm} km restantes</span>
           </div>
         </div>
 

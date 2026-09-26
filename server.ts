@@ -2127,6 +2127,7 @@ app.post(['/api/v1/drivers/:id/location', '/api/v1/rides/:rideId/driver-location
       lng: Number(lng),
       heading: typeof heading === 'number' ? heading : 0,
       speed: typeof speed === 'number' ? speed : 0,
+      speedKmh: typeof speed === 'number' ? Math.round(speed * 3.6) : 0,
       accuracy: typeof accuracy === 'number' ? accuracy : 0,
       updatedAt: timestamp,
       isStale: false,
@@ -2149,8 +2150,25 @@ app.post(['/api/v1/drivers/:id/location', '/api/v1/rides/:rideId/driver-location
     }
 
     // 2. If an active ride is associated, compute real distance and ETA to pickup / destination
-    if (rideId) {
-      const rideRef = db.collection('rides').doc(rideId);
+    let resolvedRideId = rideId;
+    if (!resolvedRideId && driverId) {
+      try {
+        const activeRidesSnap = await db.collection('rides')
+          .where('driverId', '==', driverId)
+          .where('status', 'in', ['ACCEPTED', 'EN_ROUTE', 'ARRIVED', 'DRIVER_ARRIVING', 'IN_PROGRESS'])
+          .limit(1)
+          .get();
+        
+        if (!activeRidesSnap.empty) {
+          resolvedRideId = activeRidesSnap.docs[0].id;
+        }
+      } catch (err) {
+        console.error('Error looking up active ride for driver:', err);
+      }
+    }
+
+    if (resolvedRideId) {
+      const rideRef = db.collection('rides').doc(resolvedRideId);
       const rideDoc = await rideRef.get();
       if (rideDoc.exists) {
         const ride = rideDoc.data() as Ride;

@@ -667,8 +667,18 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                     rideId = currentRideId,
                     onSuccess = { updated ->
                         currentRide = updated
-                        if (updated.driverLocation != null) {
-                            liveDriverLocation = updated.driverLocation
+                        val incoming = updated.driverLocation
+                        if (incoming != null) {
+                            val currentLoc = liveDriverLocation
+                            if (currentLoc == null) {
+                                liveDriverLocation = incoming
+                            } else {
+                                val incomingTime = incoming.updatedAt ?: ""
+                                val currentTime = currentLoc.updatedAt ?: ""
+                                if (incomingTime >= currentTime) {
+                                    liveDriverLocation = incoming
+                                }
+                            }
                         }
                     },
                     onError = {}
@@ -678,7 +688,18 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                         rideId = currentRideId,
                         passengerPhone = passengerPhone,
                         onSuccess = { loc, _, _ ->
-                            if (loc != null) liveDriverLocation = loc
+                            if (loc != null) {
+                                val currentLoc = liveDriverLocation
+                                if (currentLoc == null) {
+                                    liveDriverLocation = loc
+                                } else {
+                                    val incomingTime = loc.updatedAt ?: ""
+                                    val currentTime = currentLoc.updatedAt ?: ""
+                                    if (incomingTime >= currentTime) {
+                                        liveDriverLocation = loc
+                                    }
+                                }
+                            }
                         },
                         onError = {}
                     )
@@ -1414,6 +1435,16 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 13.sp
                                     )
+                                    val dist = liveDriverLocation?.distanceKm
+                                    val eta = liveDriverLocation?.etaMinutes
+                                    if (currentRide!!.status in listOf("ACCEPTED", "EN_ROUTE", "DRIVER_ARRIVING", "ARRIVED") && dist != null && eta != null) {
+                                        Text(
+                                            text = "A caminho: ${"%.1f".format(dist)} km • Chegada em ~$eta min",
+                                            color = Color(0xFF67E8F9),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
 
                                 Text(

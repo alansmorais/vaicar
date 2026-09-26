@@ -176,6 +176,13 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
         }
     }
 
+    LaunchedEffect(activeRidesList) {
+        val ongoingRide = activeRidesList.firstOrNull { 
+            it.status in listOf("ACCEPTED", "EN_ROUTE", "DRIVER_ARRIVING", "ARRIVED", "IN_PROGRESS") 
+        }
+        DriverLocationManager.updateActiveRide(ongoingRide?.id)
+    }
+
     LaunchedEffect(selectedTab) {
         if (selectedTab == 3) {
             isLoadingMobility = true
@@ -960,6 +967,20 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                 color = Color.White,
                                                 fontSize = 13.sp
                                             )
+                                        }
+                                        val dist = ride.driverLocation?.distanceKm
+                                        val eta = ride.driverLocation?.etaMinutes
+                                        if (ride.status in listOf("ACCEPTED", "DRIVER_ARRIVING", "EN_ROUTE") && dist != null && eta != null) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = "Distância até passageiro: ${"%.1f".format(dist)} km • ETA real: ~$eta min",
+                                                    color = Color(0xFFF59E0B),
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                         }
                                     }
 
