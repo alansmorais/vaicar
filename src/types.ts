@@ -344,6 +344,22 @@ export interface Ride {
     timestamp: string;
     label: string;
   }[];
+  originalFare?: number;
+  originalFareBrl?: number;
+  isPromotionApplied?: boolean;
+  promotionApplied?: boolean;
+  discountPercentage?: number;
+  discountRate?: number;
+  discountAmount?: number;
+  passengerFinalAmount?: number;
+  driverTariffAmount?: number;
+  vaiCarCommission?: number;
+  vaiCarCommissionBrl?: number;
+  promotionStartAt?: string;
+  promotionEndAt?: string;
+  category?: string;
+  serviceType?: string;
+  isDelivery?: boolean;
 }
 
 export interface Review {

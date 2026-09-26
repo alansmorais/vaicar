@@ -42,6 +42,7 @@ import {
   RideReceipt,
 } from './src/types.ts';
 import { generateRideReceiptPdf } from './src/lib/receiptGenerator.ts';
+import { calculatePassengerPromotion } from './src/lib/promotionService.ts';
 
 async function createMailer(cleanPass: string, user: string, port = 587, secure = false) {
   return nodemailer.createTransport({
@@ -1807,6 +1808,11 @@ const handleRideStatusUpdate = async (req: express.Request, res: express.Respons
       }
     }
 
+    // Duplicate completion idempotency: if ride is already COMPLETED and request is COMPLETED, return current ride
+    if (ride.status === 'COMPLETED' && status === 'COMPLETED') {
+      return res.status(200).json(ride);
+    }
+
     const allowed = validTransitions[ride.status];
     if (!allowed || !allowed.includes(status)) {
       return res.status(400).json({
@@ -1879,10 +1885,83 @@ const handleRideStatusUpdate = async (req: express.Request, res: express.Respons
       }
 
       // Calculate final authoritative ride total (including waiting fees)
-      const waitCalc = calculateRideWaitingFee({ ...ride, ...updates });
-      const finalTotal = Number((waitCalc.fareBrl !== undefined ? waitCalc.fareBrl : (ride.fareBrl || ride.estimatedPrice || 0)).toFixed(2));
-      updates.fareBrl = finalTotal;
-      updates.estimatedPrice = finalTotal;
+      const baseFare = ride.originalFareBrl !== undefined ? ride.originalFareBrl : (ride.originalFare !== undefined ? ride.originalFare : (ride.fareBrl || ride.estimatedPrice || 0));
+      const waitCalc = calculateRideWaitingFee({ ...ride, ...updates, estimatedPrice: baseFare, fareBrl: baseFare });
+      const finalTotal = Number((waitCalc.fareBrl !== undefined ? waitCalc.fareBrl : baseFare).toFixed(2));
+
+      // Find passenger account to retrieve authoritative registration timestamp
+      let passengerCreatedAt: string | null = null;
+      if (ride.passengerId) {
+        try {
+          const pDoc = await db.collection('passengers').doc(ride.passengerId).get();
+          if (pDoc.exists) {
+            passengerCreatedAt = pDoc.data()?.createdAt || null;
+          }
+        } catch (e) {}
+      }
+
+      if (!passengerCreatedAt && ride.passengerPhone) {
+        try {
+          const rawPhone = ride.passengerPhone.trim();
+          const cleanPhone = rawPhone.replace(/\D/g, '');
+          const pSnap = await db.collection('passengers').where('phone', '==', rawPhone).get();
+          if (!pSnap.empty) {
+            passengerCreatedAt = pSnap.docs[0].data()?.createdAt || null;
+          } else if (cleanPhone) {
+            const cleanSnap = await db.collection('passengers').where('phone', '==', cleanPhone).get();
+            if (!cleanSnap.empty) {
+              passengerCreatedAt = cleanSnap.docs[0].data()?.createdAt || null;
+            } else {
+              const allPassengers = await db.collection('passengers').get();
+              const found = allPassengers.docs.find((d: any) => {
+                const dp = (d.data()?.phone || '').replace(/\D/g, '');
+                return dp && (dp === cleanPhone || dp.endsWith(cleanPhone) || cleanPhone.endsWith(dp));
+              });
+              if (found) {
+                passengerCreatedAt = found.data()?.createdAt || null;
+              }
+            }
+          }
+        } catch (pErr) {
+          console.error('Error finding passenger for promotion eligibility:', pErr);
+        }
+      }
+
+      // Authoritative Promotion Calculation: 5% off for newly registered passengers (first 30 calendar days)
+      // Funded entirely from VaiCar's 10% platform commission; driver's tariff is 100% protected
+      const isDelivery = ride.category === 'DELIVERY' || ride.serviceType === 'DELIVERY' || ride.isDelivery === true;
+      const promoResult = calculatePassengerPromotion({
+        calculatedRideFare: finalTotal,
+        passengerCreatedAt,
+        rideCompletedAt: updates.completedAt,
+        isDelivery,
+        existingPromotionApplied: ride.promotionApplied !== undefined ? ride.promotionApplied : ride.isPromotionApplied,
+        existingOriginalFare: ride.originalFareBrl !== undefined ? ride.originalFareBrl : ride.originalFare,
+        existingDiscountRate: ride.discountRate,
+        existingDiscountAmount: ride.discountAmount,
+        existingPassengerFinalAmount: ride.passengerFinalAmount,
+        existingDriverTariffAmount: ride.driverTariffAmount,
+        existingVaiCarCommission: ride.vaiCarCommissionBrl !== undefined ? ride.vaiCarCommissionBrl : ride.vaiCarCommission,
+        existingPromotionStartAt: ride.promotionStartAt,
+        existingPromotionEndAt: ride.promotionEndAt,
+      });
+
+      updates.isPromotionApplied = promoResult.isPromotionApplied;
+      updates.promotionApplied = promoResult.promotionApplied;
+      updates.originalFare = promoResult.originalFare;
+      updates.originalFareBrl = promoResult.originalFareBrl;
+      updates.discountRate = promoResult.discountRate;
+      updates.discountPercentage = promoResult.discountPercentage;
+      updates.discountAmount = promoResult.discountAmount;
+      updates.passengerFinalAmount = promoResult.passengerFinalAmount;
+      updates.driverTariffAmount = promoResult.driverTariffAmount;
+      updates.vaiCarCommission = promoResult.vaiCarCommission;
+      updates.vaiCarCommissionBrl = promoResult.vaiCarCommissionBrl;
+      updates.promotionStartAt = promoResult.promotionStartAt;
+      updates.promotionEndAt = promoResult.promotionEndAt;
+
+      updates.fareBrl = promoResult.passengerFinalAmount;
+      updates.estimatedPrice = promoResult.passengerFinalAmount;
 
       // Handle driver payment confirmation
       const isPaymentNotReceived =
@@ -1892,7 +1971,7 @@ const handleRideStatusUpdate = async (req: express.Request, res: express.Respons
 
       if (isPaymentNotReceived) {
         updates.paymentStatus = 'PAYMENT_PENDING';
-        updates.amountDue = finalTotal;
+        updates.amountDue = promoResult.passengerFinalAmount;
         updates.paymentPendingReason =
           req.body.paymentPendingReason || req.body.reason || 'Pagamento não recebido pelo motorista ao término da viagem';
         updates.unpaidReportedAt = new Date().toISOString();
@@ -1912,7 +1991,8 @@ const handleRideStatusUpdate = async (req: express.Request, res: express.Respons
     const updatedRide = {
       ...ride,
       ...updates,
-      fareBrl: ride.fareBrl !== undefined ? ride.fareBrl : (ride.estimatedPrice ?? 0),
+      fareBrl: updates.fareBrl !== undefined ? updates.fareBrl : (ride.fareBrl !== undefined ? ride.fareBrl : (ride.estimatedPrice ?? 0)),
+      amountDue: updates.amountDue !== undefined ? updates.amountDue : (ride.amountDue !== undefined ? ride.amountDue : updates.passengerFinalAmount),
       driverId: updates.driverId || ride.driverId,
       requestedDriverId: updates.requestedDriverId || ride.requestedDriverId || ride.driverId,
       matchedDriverId: updates.matchedDriverId || ride.matchedDriverId || ride.driverId,
@@ -1987,6 +2067,7 @@ const handleRideStatusUpdate = async (req: express.Request, res: express.Respons
 app.patch('/api/v1/rides/:id/status', handleRideStatusUpdate);
 app.put('/api/v1/rides/:id/status', handleRideStatusUpdate);
 app.post('/api/v1/rides/:id/status', handleRideStatusUpdate);
+app.patch('/api/v1/rides/:id', handleRideStatusUpdate);
 
 // --- PAYMENT RESOLUTION & UNPAID RIDE ENDPOINTS ---
 
