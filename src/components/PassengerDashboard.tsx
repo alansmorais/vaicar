@@ -1914,76 +1914,58 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                   </div>
                 </div>
 
-                {/* Route Summary */}
-                <div className="text-xs space-y-1 text-slate-300 bg-slate-950/50 p-3 rounded-xl border border-slate-800">
-                  <div className="flex items-center gap-2">
-                    <span className="text-emerald-400 font-bold">{serviceType === 'RIDE' ? 'Origem:' : 'Coleta:'}</span>
-                    <span>{originZone?.name}</span>
+                {/* Unified Polish Route and Address Review */}
+                <div className="space-y-3.5 bg-slate-950/50 p-4 rounded-xl border border-slate-800 text-xs">
+                  <div className="flex items-center justify-between border-b border-slate-800/60 pb-2">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Revisão do Itinerário
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDriverForRequest(null)}
+                      className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 hover:underline transition-all cursor-pointer bg-transparent border-none"
+                    >
+                      Alterar local de embarque
+                    </button>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-cyan-400 font-bold">{serviceType === 'RIDE' ? 'Destino:' : 'Entrega:'}</span>
-                    <span>{destinationZone?.name}</span>
+
+                  <div className="space-y-3 pt-0.5">
+                    {/* Exact Pickup Address */}
+                    <div className="flex gap-2.5 items-start">
+                      <span className="text-base leading-none mt-0.5 select-none" aria-hidden="true">📍</span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest block mb-0.5">
+                          {serviceType === 'RIDE' ? 'Embarque' : 'Coleta'}
+                        </span>
+                        <p className="text-white font-semibold leading-relaxed break-words">
+                          {pickupAddress || `${originZone?.name || 'Local de Origem'}, São Sebastião - SP`}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Exact Destination Address */}
+                    <div className="flex gap-2.5 items-start">
+                      <span className="text-base leading-none mt-0.5 select-none" aria-hidden="true">🏁</span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest block mb-0.5">
+                          {serviceType === 'RIDE' ? 'Destino' : 'Entrega'}
+                        </span>
+                        <p className="text-white font-semibold leading-relaxed break-words">
+                          {destAddress || `${destinationZone?.name || 'Local de Destino'}, São Sebastião - SP`}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-slate-400">
+
+                  {/* Distance and Mode Metadata */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-slate-800/60 text-[11px] text-slate-400 font-medium">
                     {serviceType === 'DELIVERY' ? (
                       <span>Modalidade: Envio por {deliveryVehicle === 'MOTO' ? 'MOTO' : 'BIKE'}</span>
                     ) : (
                       <span>Passageiros: {passengers}</span>
                     )}
-                    <span>•</span>
+                    <span className="text-slate-600">•</span>
                     <span>Distância estimada: {searchResults?.distanceKm || 12} km</span>
-                  </div>
-                </div>
-
-                {/* Localização Exata para Embarque */}
-                <div className="space-y-2.5 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
-                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
-                    {serviceType === 'RIDE' ? 'Localização Exata de Embarque *' : 'Instruções para Retirada / Detalhes de Acesso *'}
-                  </label>
-                  <div className="space-y-2">
-                    <div>
-                      <span className="text-[10px] font-semibold text-slate-400 block mb-1">
-                        {serviceType === 'RIDE' 
-                          ? 'Ponto de Referência / Número / Instrução específica:' 
-                          : 'Ponto de coleta exato, nome do responsável ou número do local:'}
-                      </span>
-                      <input
-                        type="text"
-                        placeholder={serviceType === 'RIDE' ? 'Ex: Em frente à Padaria Maresias, portão branco' : 'Ex: Retirar com Maria no Apt 42, Bloco B'}
-                        value={pickupLandmark}
-                        onChange={(e) => setPickupLandmark(e.target.value)}
-                        required
-                        className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-lg border border-slate-700 outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] font-semibold text-slate-400">Ponto de Localização GPS exato:</span>
-                        <button
-                          type="button"
-                          onClick={handleCapturePickupGps}
-                          disabled={isLocatingGps}
-                          className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-950/70 hover:bg-emerald-900/60 border border-emerald-500/30 px-2 py-0.5 rounded transition-all cursor-pointer disabled:opacity-50"
-                        >
-                          <Navigation className={`w-2.5 h-2.5 ${isLocatingGps ? 'animate-spin' : ''}`} />
-                          <span>{isLocatingGps ? 'Obtendo GPS...' : '📍 Usar Meu GPS Atual'}</span>
-                        </button>
-                      </div>
-
-                      {gpsCaptureSuccess && (
-                        <div className="mb-1.5 text-[10px] font-semibold text-emerald-300 bg-emerald-950/60 border border-emerald-500/30 px-2 py-1 rounded">
-                          {gpsCaptureSuccess}
-                        </div>
-                      )}
-
-                      <input
-                        type="url"
-                        placeholder="Ex: https://maps.google.com/?q=-23.79... ou clique em 'Usar Meu GPS'"
-                        value={pickupMapsLink}
-                        onChange={(e) => setPickupMapsLink(e.target.value)}
-                        className="w-full bg-slate-950 text-white text-xs px-3 py-2 rounded-lg border border-slate-700 outline-none focus:border-emerald-500 font-mono"
-                      />
-                    </div>
                   </div>
                 </div>
 
