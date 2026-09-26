@@ -276,7 +276,8 @@ export const PassengerInteractiveMap: React.FC<PassengerInteractiveMapProps> = (
 
     const pollDriverLocation = async () => {
       try {
-        const res = await fetch(`/api/v1/rides/${activeRide.id}/driver-location`);
+        const phoneParam = activeRide.passengerPhone ? `?passengerPhone=${encodeURIComponent(activeRide.passengerPhone)}` : '';
+        const res = await fetch(`/api/v1/rides/${activeRide.id}/driver-location${phoneParam}`);
         if (res.ok) {
           const data = await res.json();
           if (data && data.driverLocation && data.driverLocation.lat) {

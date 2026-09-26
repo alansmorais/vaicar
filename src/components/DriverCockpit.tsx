@@ -1127,26 +1127,43 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
 
                       {/* GPS Navigation shortcuts for Driver */}
                       <div className="pt-2 flex flex-wrap items-center gap-2">
-                        <a
-                          href={activeRide.status === 'ACCEPTED' || activeRide.status === 'DRIVER_ARRIVING'
-                            ? (activeRide.originMapsLink || `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(activeRide.originAddress)}&travelmode=driving`)
-                            : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(activeRide.destinationAddress)}&travelmode=driving`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="bg-slate-900 hover:bg-slate-800 text-sky-400 hover:text-sky-300 font-bold text-xs py-1.5 px-3 rounded-lg border border-slate-800 hover:border-sky-500/30 transition-all flex items-center gap-1.5"
-                        >
-                          <MapPin className="w-3.5 h-3.5" />
-                          <span>Navegar Google Maps ({activeRide.status === 'ACCEPTED' || activeRide.status === 'DRIVER_ARRIVING' ? 'Embarque' : 'Destino'}) ↗</span>
-                        </a>
-                        <a
-                          href={`https://waze.com/ul?q=${encodeURIComponent(activeRide.status === 'ACCEPTED' || activeRide.status === 'DRIVER_ARRIVING' ? activeRide.originAddress : activeRide.destinationAddress)}&navigate=yes`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="bg-slate-900 hover:bg-slate-800 text-cyan-400 hover:text-cyan-300 font-bold text-xs py-1.5 px-3 rounded-lg border border-slate-800 hover:border-cyan-500/30 transition-all flex items-center gap-1.5"
-                        >
-                          <Navigation className="w-3.5 h-3.5" />
-                          <span>Waze ({activeRide.status === 'ACCEPTED' || activeRide.status === 'DRIVER_ARRIVING' ? 'Embarque' : 'Destino'}) ↗</span>
-                        </a>
+                        {(() => {
+                          const isGoingToPickup = activeRide.status === 'ACCEPTED' || activeRide.status === 'DRIVER_ARRIVING';
+                          const lat = isGoingToPickup ? activeRide.originLat : activeRide.destinationLat;
+                          const lng = isGoingToPickup ? activeRide.originLng : activeRide.destinationLng;
+                          const address = isGoingToPickup ? activeRide.originAddress : activeRide.destinationAddress;
+                          
+                          const googleMapsHref = lat && lng && Number(lat) !== 0 && Number(lng) !== 0
+                            ? `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`
+                            : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address || '')}&travelmode=driving`;
+                          
+                          const wazeHref = lat && lng && Number(lat) !== 0 && Number(lng) !== 0
+                            ? `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`
+                            : `https://waze.com/ul?q=${encodeURIComponent(address || '')}&navigate=yes`;
+                          
+                          return (
+                            <>
+                              <a
+                                href={googleMapsHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bg-slate-900 hover:bg-slate-800 text-sky-400 hover:text-sky-300 font-bold text-xs py-1.5 px-3 rounded-lg border border-slate-800 hover:border-sky-500/30 transition-all flex items-center gap-1.5"
+                              >
+                                <MapPin className="w-3.5 h-3.5" />
+                                <span>ABRIR GOOGLE MAPS ↗</span>
+                              </a>
+                              <a
+                                href={wazeHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bg-slate-900 hover:bg-slate-800 text-cyan-400 hover:text-cyan-300 font-bold text-xs py-1.5 px-3 rounded-lg border border-slate-800 hover:border-cyan-500/30 transition-all flex items-center gap-1.5"
+                              >
+                                <Navigation className="w-3.5 h-3.5" />
+                                <span>ABRIR WAZE ↗</span>
+                              </a>
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -1240,19 +1257,24 @@ export const DriverCockpit: React.FC<DriverCockpitProps> = ({
                     <button
                       onClick={() => handleAdvanceActiveRide('DRIVER_ARRIVING')}
                       disabled={isUpdating}
-                      className="flex-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs py-3 rounded-xl cursor-pointer"
+                      className="flex-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs py-3 rounded-xl cursor-pointer animate-pulse"
                     >
-                      Avisar: Estou Chegando ao Ponto
+                      Avisar: Cheguei ao local
                     </button>
                   )}
                   {activeRide.status === 'DRIVER_ARRIVING' && (
-                    <button
-                      onClick={() => handleAdvanceActiveRide('PASSENGER_PICKED_UP')}
-                      disabled={isUpdating}
-                      className="flex-1 bg-indigo-500 hover:bg-indigo-400 text-white font-bold text-xs py-3 rounded-xl cursor-pointer"
-                    >
-                      Confirmar Embarque do Passageiro
-                    </button>
+                    <div className="w-full space-y-2">
+                      <p className="text-center text-emerald-400 font-extrabold text-sm py-1 animate-pulse">
+                        Você chegou ao local de embarque
+                      </p>
+                      <button
+                        onClick={() => handleAdvanceActiveRide('IN_PROGRESS')}
+                        disabled={isUpdating}
+                        className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm py-3.5 rounded-xl cursor-pointer shadow-lg shadow-emerald-500/10"
+                      >
+                        INICIAR CORRIDA 🚀
+                      </button>
+                    </div>
                   )}
                   {activeRide.status === 'PASSENGER_PICKED_UP' && (
                     <button

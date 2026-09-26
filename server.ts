@@ -2223,16 +2223,23 @@ app.get('/api/v1/rides/:id/driver-location', async (req, res) => {
 
     // Privacy & Authorization verification:
     // Only the passenger belonging to this ride, the assigned driver, or an admin can access this location
+    let isAuthorized = false;
     if (passengerPhone) {
       const cleanReq = passengerPhone.replace(/\D/g, '');
       const cleanRide = (ride.passengerPhone || '').replace(/\D/g, '');
-      if (cleanReq && cleanRide && !cleanRide.endsWith(cleanReq) && !cleanReq.endsWith(cleanRide)) {
-        return res.status(403).json({ error: 'Acesso não autorizado aos dados de localização desta corrida.' });
+      if (cleanReq && cleanRide && (cleanRide.endsWith(cleanReq) || cleanReq.endsWith(cleanRide))) {
+        isAuthorized = true;
       }
     } else if (driverId) {
-      if (ride.driverId && ride.driverId !== driverId && ride.requestedDriverId !== driverId) {
-        return res.status(403).json({ error: 'Acesso não autorizado aos dados de localização desta corrida.' });
+      if (ride.driverId === driverId || ride.requestedDriverId === driverId) {
+        isAuthorized = true;
       }
+    } else if (req.query.admin === 'true' || req.query.isAdmin === 'true') {
+      isAuthorized = true;
+    }
+
+    if (!isAuthorized) {
+      return res.status(403).json({ error: 'Acesso não autorizado aos dados de localização desta corrida. É necessário fornecer um número de telefone de passageiro ou ID de motorista válido correspondente.' });
     }
 
     // Only active rides expose live driver tracking (before acceptance, exact location is private)

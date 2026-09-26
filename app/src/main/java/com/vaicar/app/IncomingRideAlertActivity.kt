@@ -281,10 +281,10 @@ fun IncomingRidePopUpScreen(
                     )
 
                     Text(
-                        text = "ACORDE! UM PASSAGEIRO ESTÁ SOLICITANDO SUA VIAGEM",
+                        text = "Nova solicitação de corrida disponível",
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )

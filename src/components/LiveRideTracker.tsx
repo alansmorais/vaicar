@@ -85,7 +85,8 @@ export function LiveRideTracker({ ride, onDismiss }: LiveRideTrackerProps) {
   useEffect(() => {
     const poll = async () => {
       try {
-        const res = await fetch(`/api/v1/rides/${ride.id}/driver-location`);
+        const phoneParam = ride.passengerPhone ? `?passengerPhone=${encodeURIComponent(ride.passengerPhone)}` : '';
+        const res = await fetch(`/api/v1/rides/${ride.id}/driver-location${phoneParam}`);
         if (res.ok) {
           const data = await res.json();
           if (data?.driverLocation?.lat) {

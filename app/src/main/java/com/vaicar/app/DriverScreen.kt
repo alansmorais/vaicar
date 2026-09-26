@@ -967,48 +967,78 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                         Text("Obs: ${ride.notes}", color = TextSecondary, fontSize = 12.sp)
                                     }
 
-                                    // Google Maps GPS Navigation Button
-                                    Button(
-                                        onClick = {
-                                            val targetAddress = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") {
-                                                ride.originAddress
-                                            } else {
-                                                ride.destinationAddress
-                                            }
-                                            val targetLat = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") {
-                                                ride.originLat ?: originZone?.lat
-                                            } else {
-                                                ride.destinationLat ?: destZone?.lat
-                                            }
-                                            val targetLng = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") {
-                                                ride.originLng ?: originZone?.lng
-                                            } else {
-                                                ride.destinationLng ?: destZone?.lng
-                                            }
-                                            val navUri = if (targetLat != null && targetLng != null && targetLat != 0.0 && targetLng != 0.0) {
-                                                Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$targetLat,$targetLng&travelmode=driving")
-                                            } else if (!targetAddress.isNullOrBlank() && targetAddress != "Origem" && targetAddress != "Destino") {
-                                                val cleanTarget = if (targetAddress.contains("São Sebastião", ignoreCase = true)) targetAddress else "$targetAddress, São Sebastião - SP"
-                                                Uri.parse("https://www.google.com/maps/dir/?api=1&destination=${Uri.encode(cleanTarget)}&travelmode=driving")
-                                            } else {
-                                                Uri.parse("https://www.google.com/maps/dir/?api=1&destination=-23.8078,-45.4058&travelmode=driving")
-                                            }
-                                            val navIntent = Intent(Intent.ACTION_VIEW, navUri)
-                                            context.startActivity(navIntent)
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
-                                        border = BorderStroke(1.dp, Color(0xFF38BDF8)),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.fillMaxWidth()
+                                    // Google Maps and Waze GPS Navigation Buttons
+                                    val isGoingToPickup = ride.status == "REQUESTED" || ride.status == "ACCEPTED" || ride.status == "DRIVER_ARRIVING"
+                                    val targetAddress = if (isGoingToPickup) ride.originAddress else ride.destinationAddress
+                                    val targetLat = if (isGoingToPickup) (ride.originLat ?: originZone?.lat) else (ride.destinationLat ?: destZone?.lat)
+                                    val targetLng = if (isGoingToPickup) (ride.originLng ?: originZone?.lng) else (ride.destinationLng ?: destZone?.lng)
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Icon(Icons.Default.Place, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") "Navegar até Embarque (Google Maps) 🗺" else "Navegar até Destino (Google Maps) 🏁",
-                                            color = Color(0xFF38BDF8),
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 13.sp
-                                        )
+                                        // ABRIR GOOGLE MAPS
+                                        Button(
+                                            onClick = {
+                                                val navUri = if (targetLat != null && targetLng != null && targetLat != 0.0 && targetLng != 0.0) {
+                                                    Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$targetLat,$targetLng&travelmode=driving")
+                                                } else if (!targetAddress.isNullOrBlank() && targetAddress != "Origem" && targetAddress != "Destino") {
+                                                    val cleanTarget = if (targetAddress.contains("São Sebastião", ignoreCase = true)) targetAddress else "$targetAddress, São Sebastião - SP"
+                                                    Uri.parse("https://www.google.com/maps/dir/?api=1&destination=${Uri.encode(cleanTarget)}&travelmode=driving")
+                                                } else {
+                                                    Uri.parse("https://www.google.com/maps/dir/?api=1&destination=-23.8078,-45.4058&travelmode=driving")
+                                                }
+                                                val navIntent = Intent(Intent.ACTION_VIEW, navUri)
+                                                context.startActivity(navIntent)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                            border = BorderStroke(1.dp, Color(0xFF38BDF8)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.weight(1f),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Default.Place, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(12.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "ABRIR GOOGLE MAPS",
+                                                color = Color(0xFF38BDF8),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+
+                                        // ABRIR WAZE
+                                        Button(
+                                            onClick = {
+                                                val wazeUri = if (targetLat != null && targetLng != null && targetLat != 0.0 && targetLng != 0.0) {
+                                                    Uri.parse("waze://?ll=$targetLat,$targetLng&navigate=yes")
+                                                } else if (!targetAddress.isNullOrBlank() && targetAddress != "Origem" && targetAddress != "Destino") {
+                                                    val cleanTarget = if (targetAddress.contains("São Sebastião", ignoreCase = true)) targetAddress else "$targetAddress, São Sebastião - SP"
+                                                    Uri.parse("waze://?q=${Uri.encode(cleanTarget)}&navigate=yes")
+                                                } else {
+                                                    Uri.parse("waze://?ll=-23.8078,-45.4058&navigate=yes")
+                                                }
+                                                try {
+                                                    val navIntent = Intent(Intent.ACTION_VIEW, wazeUri)
+                                                    context.startActivity(navIntent)
+                                                } catch (e: Exception) {
+                                                    val playStoreIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=com.waze"))
+                                                    context.startActivity(playStoreIntent)
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                            border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.weight(1f),
+                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = "🚙 ABRIR WAZE",
+                                                color = Color(0xFFF59E0B),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp
+                                            )
+                                        }
                                     }
 
                                     // Action Buttons
@@ -1135,6 +1165,15 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                             val activeFee = if (isFree) 0.0 else (elapsedMinutes - 4) * 0.50
 
                                             Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Text(
+                                                    text = "Você chegou ao local de embarque",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 16.sp,
+                                                    textAlign = TextAlign.Center,
+                                                    modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp)
+                                                )
+
                                                 Card(
                                                     colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E2E)),
                                                     border = BorderStroke(1.dp, if (isFree) EmeraldGreen else AccentRed),
@@ -1160,7 +1199,7 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                         )
                                                     }
                                                 }
-
+ 
                                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                                     Button(
                                                         onClick = {
@@ -1181,7 +1220,7 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                         shape = RoundedCornerShape(8.dp),
                                                         modifier = Modifier.weight(1.5f)
                                                     ) {
-                                                        Text("Iniciar Viagem 🚀", color = Color.Black, fontWeight = FontWeight.Bold)
+                                                        Text("INICIAR CORRIDA", color = Color.Black, fontWeight = FontWeight.Bold)
                                                     }
 
                                                     Button(
