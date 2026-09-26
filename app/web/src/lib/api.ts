@@ -733,8 +733,15 @@ export async function fetchMobilityMapData(): Promise<MobilityMapData> {
 // --- GOOGLE MAPS SERVICES ---
 export interface ReverseGeocodeResult {
   address: string;
+  formattedAddress?: string;
+  street?: string;
+  number?: string;
   neighborhood?: string;
+  city?: string;
+  state?: string;
   placeId?: string;
+  lat?: number;
+  lng?: number;
   fallback?: boolean;
 }
 
@@ -749,6 +756,8 @@ export async function reverseGeocode(lat: number, lng: number): Promise<ReverseG
     console.warn('Reverse geocode error:', err);
     return {
       address: `Localização (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+      lat,
+      lng,
       fallback: true,
     };
   }
@@ -825,6 +834,12 @@ export function decodePolyline(encoded: string): { lat: number; lng: number }[] 
 export interface PlaceSearchResult {
   title: string;
   subtitle: string;
+  formattedAddress?: string;
+  street?: string;
+  number?: string;
+  neighborhood?: string;
+  city?: string;
+  state?: string;
   lat: number;
   lng: number;
   placeId?: string;

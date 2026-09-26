@@ -10,7 +10,19 @@ interface AddressSearchModalProps {
   placeholder?: string;
   type: 'ORIGIN' | 'DESTINATION';
   zones: Zone[];
-  onSelectPlace: (place: { title: string; subtitle: string; lat: number; lng: number }) => void;
+  onSelectPlace: (place: {
+    title: string;
+    subtitle: string;
+    formattedAddress?: string;
+    street?: string;
+    number?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    lat: number;
+    lng: number;
+    placeId?: string;
+  }) => void;
   onUseGps?: () => void;
   isLocatingUser?: boolean;
 }
@@ -183,8 +195,15 @@ export const AddressSearchModal: React.FC<AddressSearchModalProps> = ({
                     onSelectPlace({
                       title: item.title,
                       subtitle: item.subtitle,
+                      formattedAddress: item.formattedAddress,
+                      street: item.street,
+                      number: item.number,
+                      neighborhood: item.neighborhood,
+                      city: item.city,
+                      state: item.state,
                       lat: item.lat,
                       lng: item.lng,
+                      placeId: item.placeId,
                     });
                     onClose();
                   }}

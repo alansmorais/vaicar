@@ -947,7 +947,7 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                             Icon(Icons.Default.Place, contentDescription = null, tint = EmeraldGreen, modifier = Modifier.size(16.dp))
                                             Spacer(modifier = Modifier.width(4.dp))
                                             Text(
-                                                text = "Embarque: ${originZone?.name ?: ride.originAddress ?: "Origem"}",
+                                                text = "Embarque: ${if (!ride.originAddress.isNullOrBlank()) ride.originAddress else originZone?.name ?: "Origem"}",
                                                 color = Color.White,
                                                 fontSize = 13.sp
                                             )
@@ -956,7 +956,7 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                             Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(16.dp))
                                             Spacer(modifier = Modifier.width(4.dp))
                                             Text(
-                                                text = "Destino: ${destZone?.name ?: ride.destinationAddress ?: "Destino"}",
+                                                text = "Destino: ${if (!ride.destinationAddress.isNullOrBlank()) ride.destinationAddress else destZone?.name ?: "Destino"}",
                                                 color = Color.White,
                                                 fontSize = 13.sp
                                             )
@@ -975,21 +975,23 @@ fun DriverScreen(zones: List<Zone>, onBack: () -> Unit) {
                                             } else {
                                                 ride.destinationAddress
                                             }
-                                            val navUri = if (!targetAddress.isNullOrBlank() && targetAddress != "Origem" && targetAddress != "Destino") {
+                                            val targetLat = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") {
+                                                ride.originLat ?: originZone?.lat
+                                            } else {
+                                                ride.destinationLat ?: destZone?.lat
+                                            }
+                                            val targetLng = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") {
+                                                ride.originLng ?: originZone?.lng
+                                            } else {
+                                                ride.destinationLng ?: destZone?.lng
+                                            }
+                                            val navUri = if (targetLat != null && targetLng != null && targetLat != 0.0 && targetLng != 0.0) {
+                                                Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$targetLat,$targetLng&travelmode=driving")
+                                            } else if (!targetAddress.isNullOrBlank() && targetAddress != "Origem" && targetAddress != "Destino") {
                                                 val cleanTarget = if (targetAddress.contains("São Sebastião", ignoreCase = true)) targetAddress else "$targetAddress, São Sebastião - SP"
                                                 Uri.parse("https://www.google.com/maps/dir/?api=1&destination=${Uri.encode(cleanTarget)}&travelmode=driving")
                                             } else {
-                                                val targetLat = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") {
-                                                    ride.originLat ?: originZone?.lat ?: -23.8078
-                                                } else {
-                                                    ride.destinationLat ?: destZone?.lat ?: -23.8078
-                                                }
-                                                val targetLng = if (ride.status == "REQUESTED" || ride.status == "ACCEPTED") {
-                                                    ride.originLng ?: originZone?.lng ?: -45.4058
-                                                } else {
-                                                    ride.destinationLng ?: destZone?.lng ?: -45.4058
-                                                }
-                                                Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$targetLat,$targetLng&travelmode=driving")
+                                                Uri.parse("https://www.google.com/maps/dir/?api=1&destination=-23.8078,-45.4058&travelmode=driving")
                                             }
                                             val navIntent = Intent(Intent.ACTION_VIEW, navUri)
                                             context.startActivity(navIntent)

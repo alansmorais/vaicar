@@ -270,6 +270,34 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
   const [routeDistanceKm, setRouteDistanceKm] = useState<number | null>(null);
   const [routeDurationMin, setRouteDurationMin] = useState<number | null>(null);
 
+  // Auto-detect real passenger GPS location on mount if permitted
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setPickupLat(lat);
+          setPickupLng(lng);
+          const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+          setPickupMapsLink(mapsUrl);
+          reverseGeocode(lat, lng)
+            .then((geo) => {
+              if (geo.address) {
+                setPickupAddress(geo.address);
+                setPickupSearchInput(geo.address);
+              }
+              const nearest = findNearestZone(lat, lng, zones);
+              if (nearest) setOriginZoneId(nearest.id);
+            })
+            .catch(() => {});
+        },
+        () => {},
+        { enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 }
+      );
+    }
+  }, [zones]);
+
   // Real-time Places & Address Search for Pickup
   useEffect(() => {
     if (!pickupSearchInput.trim() || pickupSearchInput.trim().length < 2) {
@@ -1387,7 +1415,7 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                                 onClick={() => {
                                   setPickupLat(place.lat);
                                   setPickupLng(place.lng);
-                                  const formatted = `${place.title}${place.subtitle ? ' - ' + place.subtitle : ''}`;
+                                  const formatted = place.formattedAddress || `${place.title}${place.subtitle ? ' - ' + place.subtitle : ''}`;
                                   setPickupAddress(formatted);
                                   setPickupSearchInput(formatted);
                                   setIsPickupSuggestionsOpen(false);
@@ -1493,8 +1521,9 @@ export const PassengerDashboard: React.FC<PassengerDashboardProps> = ({
                                   onClick={() => {
                                     setDestLat(place.lat);
                                     setDestLng(place.lng);
-                                    setDestAddress(`${place.title} - ${place.subtitle}`);
-                                    setDestSearchInput(`${place.title} - ${place.subtitle}`);
+                                    const formatted = place.formattedAddress || (place.subtitle ? `${place.title} - ${place.subtitle}` : place.title);
+                                    setDestAddress(formatted);
+                                    setDestSearchInput(formatted);
                                     setIsDestSuggestionsOpen(false);
                                     const nearest = findNearestZone(place.lat, place.lng, zones);
                                     if (nearest) setDestinationZoneId(nearest.id);

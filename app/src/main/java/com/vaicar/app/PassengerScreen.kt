@@ -54,7 +54,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.net.URLEncoder
 import java.util.*
+import java.util.concurrent.TimeUnit
 import kotlin.math.*
 
 // ==============================================================================
@@ -83,6 +88,7 @@ fun findClosestZone(lat: Double, lng: Double, zones: List<Zone>): Zone? {
 
 suspend fun reverseGeocodeCoordinate(context: Context, lat: Double, lng: Double, fallbackZoneName: String): String {
     return withContext(Dispatchers.IO) {
+        var resolvedAddress: String? = null
         try {
             val geocoder = Geocoder(context, Locale("pt", "BR"))
             val addresses = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -107,19 +113,45 @@ suspend fun reverseGeocodeCoordinate(context: Context, lat: Double, lng: Double,
             if (addr != null) {
                 val street = addr.thoroughfare ?: ""
                 val number = addr.subThoroughfare ?: ""
-                val neighborhood = addr.subLocality ?: addr.locality ?: fallbackZoneName
-                val parts = listOf(
-                    if (street.isNotBlank() && number.isNotBlank()) "$street, $number" else street,
-                    neighborhood,
-                    "São Sebastião - SP"
-                ).filter { it.isNotBlank() }
-                if (parts.isNotEmpty()) parts.joinToString(", ") else "$fallbackZoneName, São Sebastião - SP"
-            } else {
-                "$fallbackZoneName, São Sebastião - SP"
+                val neighborhood = addr.subLocality ?: addr.locality ?: ""
+                val city = addr.subAdminArea ?: addr.adminArea ?: "São Sebastião"
+                val state = "SP"
+                val line = addr.getAddressLine(0) ?: ""
+
+                if (street.isNotBlank()) {
+                    val streetPart = if (number.isNotBlank()) "$street, $number" else street
+                    val parts = listOf(streetPart, neighborhood, "$city - $state").filter { it.isNotBlank() }
+                    resolvedAddress = parts.joinToString(" - ")
+                } else if (line.isNotBlank()) {
+                    resolvedAddress = line.replace(", Brasil", "").trim()
+                }
             }
-        } catch (_: Exception) {
-            "$fallbackZoneName, São Sebastião - SP"
+        } catch (_: Exception) {}
+
+        // Fallback: Query backend's Google Maps reverse geocode API if local geocoder didn't yield street address
+        if (resolvedAddress.isNullOrBlank()) {
+            try {
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(5, TimeUnit.SECONDS)
+                    .readTimeout(5, TimeUnit.SECONDS)
+                    .build()
+                val req = Request.Builder()
+                    .url("${NetworkConfig.apiBaseUrl}/maps/reverse-geocode?lat=$lat&lng=$lng")
+                    .get()
+                    .build()
+                val resp = client.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: ""
+                    val json = JSONObject(body)
+                    val addr = json.optString("address", "")
+                    if (addr.isNotBlank() && !json.optBoolean("fallback", false)) {
+                        resolvedAddress = addr
+                    }
+                }
+            } catch (_: Exception) {}
         }
+
+        resolvedAddress ?: "$fallbackZoneName, São Sebastião - SP"
     }
 }
 
@@ -128,24 +160,65 @@ suspend fun geocodePlaceQuery(context: Context, query: String, zones: List<Zone>
     val cleanQuery = query.trim().lowercase(Locale.ROOT)
     if (cleanQuery.isBlank()) return results
 
-    // 1. Match from official São Sebastião municipal zones
-    zones.filter { z ->
-        z.name.lowercase(Locale.ROOT).contains(cleanQuery) ||
-                z.slug.lowercase(Locale.ROOT).contains(cleanQuery)
-    }.forEach { z ->
-        results.add(
-            PlaceSearchResult(
-                title = z.name,
-                subtitle = "Região / Bairro de São Sebastião • SP",
-                lat = z.lat,
-                lng = z.lng,
-                zone = z,
-                isZone = true
-            )
-        )
+    // 1. Query backend Google Maps Places / Geocoding search for exact addresses & streets
+    withContext(Dispatchers.IO) {
+        try {
+            val client = OkHttpClient.Builder()
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(5, TimeUnit.SECONDS)
+                .build()
+            val req = Request.Builder()
+                .url("${NetworkConfig.apiBaseUrl}/maps/places-search?query=${URLEncoder.encode(query, "UTF-8")}")
+                .get()
+                .build()
+            val resp = client.newCall(req).execute()
+            if (resp.isSuccessful) {
+                val body = resp.body?.string() ?: ""
+                val json = JSONObject(body)
+                val jsonResults = json.optJSONArray("results")
+                if (jsonResults != null) {
+                    for (i in 0 until jsonResults.length()) {
+                        val obj = jsonResults.getJSONObject(i)
+                        val title = obj.optString("title", "")
+                        val subtitle = obj.optString("subtitle", "")
+                        val formatted = obj.optString("formattedAddress", "")
+                        val street = obj.optString("street", "")
+                        val number = obj.optString("number", "")
+                        val neighborhood = obj.optString("neighborhood", "")
+                        val city = obj.optString("city", "São Sebastião")
+                        val state = obj.optString("state", "SP")
+                        val lat = obj.optDouble("lat", 0.0)
+                        val lng = obj.optDouble("lng", 0.0)
+                        val placeId = if (obj.has("placeId") && !obj.isNull("placeId")) obj.optString("placeId") else null
+                        val isZone = obj.optBoolean("isZone", false)
+                        val matchingZone = findClosestZone(lat, lng, zones)
+
+                        if (lat != 0.0 && lng != 0.0 && results.none { Math.abs(it.lat - lat) < 0.0005 && Math.abs(it.lng - lng) < 0.0005 }) {
+                            results.add(
+                                PlaceSearchResult(
+                                    title = title,
+                                    subtitle = subtitle,
+                                    formattedAddress = formatted.ifBlank { if (street.isNotBlank()) "$title - $subtitle" else "$title, São Sebastião - SP" },
+                                    street = street,
+                                    number = number,
+                                    neighborhood = neighborhood,
+                                    city = city,
+                                    state = state,
+                                    lat = lat,
+                                    lng = lng,
+                                    placeId = placeId,
+                                    zone = matchingZone,
+                                    isZone = isZone
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
     }
 
-    // 2. Query Android Geocoder for street/establishment results
+    // 2. Query Android Geocoder for additional street/establishment results
     withContext(Dispatchers.IO) {
         try {
             val geocoder = Geocoder(context, Locale("pt", "BR"))
@@ -158,13 +231,48 @@ suspend fun geocodePlaceQuery(context: Context, query: String, zones: List<Zone>
             val addrs = geocoder.getFromLocationName(fullQuery, 5)
             addrs?.forEach { addr ->
                 val line = addr.getAddressLine(0) ?: ""
-                val feature = addr.featureName ?: addr.thoroughfare ?: line
-                if (feature.isNotBlank() && results.none { it.lat == addr.latitude && it.lng == addr.longitude }) {
+                val street = addr.thoroughfare ?: ""
+                val number = addr.subThoroughfare ?: ""
+                val neighborhood = addr.subLocality ?: addr.locality ?: ""
+                val city = addr.subAdminArea ?: addr.adminArea ?: "São Sebastião"
+                val state = "SP"
+                val feature = addr.featureName ?: street
+
+                val title = if (street.isNotBlank()) {
+                    if (number.isNotBlank()) "$street, $number" else street
+                } else if (feature.isNotBlank()) {
+                    feature
+                } else {
+                    line.split(",").firstOrNull() ?: "Local"
+                }
+
+                val subtitleParts = listOf(neighborhood, city, state).filter { it.isNotBlank() }
+                val subtitle = if (subtitleParts.isNotEmpty()) subtitleParts.joinToString(" - ") else line
+
+                val formatted = if (street.isNotBlank()) {
+                    val p = mutableListOf<String>()
+                    p.add(if (number.isNotBlank()) "$street, $number" else street)
+                    if (neighborhood.isNotBlank()) p.add(neighborhood)
+                    p.add("$city - $state")
+                    p.joinToString(" - ")
+                } else if (line.isNotBlank()) {
+                    line.replace(", Brasil", "").trim()
+                } else {
+                    "$title - $subtitle"
+                }
+
+                if (results.none { Math.abs(it.lat - addr.latitude) < 0.0005 && Math.abs(it.lng - addr.longitude) < 0.0005 }) {
                     val matchingZone = findClosestZone(addr.latitude, addr.longitude, zones)
                     results.add(
                         PlaceSearchResult(
-                            title = feature,
-                            subtitle = line.ifBlank { "São Sebastião - SP" },
+                            title = title,
+                            subtitle = subtitle,
+                            formattedAddress = formatted,
+                            street = street,
+                            number = number,
+                            neighborhood = neighborhood,
+                            city = city,
+                            state = state,
                             lat = addr.latitude,
                             lng = addr.longitude,
                             zone = matchingZone,
@@ -176,16 +284,46 @@ suspend fun geocodePlaceQuery(context: Context, query: String, zones: List<Zone>
         } catch (_: Exception) {}
     }
 
+    // 3. Match from official São Sebastião municipal zones (if not already found)
+    zones.filter { z ->
+        z.name.lowercase(Locale.ROOT).contains(cleanQuery) ||
+                z.slug.lowercase(Locale.ROOT).contains(cleanQuery)
+    }.forEach { z ->
+        if (results.none { Math.abs(it.lat - z.lat) < 0.001 && Math.abs(it.lng - z.lng) < 0.001 }) {
+            results.add(
+                PlaceSearchResult(
+                    title = z.name,
+                    subtitle = "Bairro / Praia de São Sebastião • SP",
+                    formattedAddress = "${z.name}, São Sebastião - SP",
+                    neighborhood = z.name,
+                    city = "São Sebastião",
+                    state = "SP",
+                    lat = z.lat,
+                    lng = z.lng,
+                    zone = z,
+                    isZone = true
+                )
+            )
+        }
+    }
+
     return results
 }
 
 data class PlaceSearchResult(
     val title: String,
     val subtitle: String,
+    val formattedAddress: String = "",
+    val street: String = "",
+    val number: String = "",
+    val neighborhood: String = "",
+    val city: String = "São Sebastião",
+    val state: String = "SP",
     val lat: Double,
     val lng: Double,
-    val zone: Zone?,
-    val isZone: Boolean
+    val placeId: String? = null,
+    val zone: Zone? = null,
+    val isZone: Boolean = false
 )
 
 // ==============================================================================
@@ -215,20 +353,41 @@ fun NativeInteractivePassengerMap(
         position = CameraPosition.fromLatLngZoom(LatLng(centerLat, centerLng), 15f)
     }
 
-    // Track when user stops dragging to update center coordinates
+    var isFollowingDriver by remember { mutableStateOf(false) }
+    var isProgrammaticMove by remember { mutableStateOf(false) }
+
+    // Follow driver when enabled and liveDriverLocation updates
+    LaunchedEffect(liveDriverLocation?.lat, liveDriverLocation?.lng, isFollowingDriver) {
+        if (isFollowingDriver && liveDriverLocation != null) {
+            isProgrammaticMove = true
+            cameraPositionState.position = CameraPosition.fromLatLngZoom(LatLng(liveDriverLocation.lat, liveDriverLocation.lng), 17f)
+            delay(100)
+            isProgrammaticMove = false
+        }
+    }
+
+    // Track user drag/gesture: if moving and not programmatic move, turn off follow mode
     LaunchedEffect(cameraPositionState.isMoving) {
+        if (cameraPositionState.isMoving && !isProgrammaticMove) {
+            isFollowingDriver = false
+        }
         if (!cameraPositionState.isMoving) {
             val target = cameraPositionState.position.target
             onMapCenterChanged(target.latitude, target.longitude)
         }
     }
 
-    // Reposition camera only when external center changes significantly (e.g., GPS button or initial load)
+    // Reposition camera only when external center changes significantly and not following driver
     LaunchedEffect(centerLat, centerLng) {
-        val currentTarget = cameraPositionState.position.target
-        val distance = abs(currentTarget.latitude - centerLat) + abs(currentTarget.longitude - centerLng)
-        if (distance > 0.0001) {
-            cameraPositionState.position = CameraPosition.fromLatLngZoom(LatLng(centerLat, centerLng), cameraPositionState.position.zoom)
+        if (!isFollowingDriver) {
+            val currentTarget = cameraPositionState.position.target
+            val distance = abs(currentTarget.latitude - centerLat) + abs(currentTarget.longitude - centerLng)
+            if (distance > 0.0001) {
+                isProgrammaticMove = true
+                cameraPositionState.position = CameraPosition.fromLatLngZoom(LatLng(centerLat, centerLng), cameraPositionState.position.zoom)
+                delay(100)
+                isProgrammaticMove = false
+            }
         }
     }
 
@@ -333,7 +492,10 @@ fun NativeInteractivePassengerMap(
         ) {
             // "Minha Localização" GPS Center Button
             FilledIconButton(
-                onClick = onCenterOnGps,
+                onClick = {
+                    isFollowingDriver = false
+                    onCenterOnGps()
+                },
                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF1E293B)),
                 modifier = Modifier.size(46.dp)
             ) {
@@ -343,6 +505,31 @@ fun NativeInteractivePassengerMap(
                     tint = Color(0xFF10B981),
                     modifier = Modifier.size(24.dp)
                 )
+            }
+
+            // "Seguir Motorista" Button (Active Ride Only)
+            if (activeRide != null && liveDriverLocation != null) {
+                FilledIconButton(
+                    onClick = {
+                        isFollowingDriver = !isFollowingDriver
+                        if (isFollowingDriver && liveDriverLocation != null) {
+                            isProgrammaticMove = true
+                            cameraPositionState.position = CameraPosition.fromLatLngZoom(LatLng(liveDriverLocation.lat, liveDriverLocation.lng), 17f)
+                            isProgrammaticMove = false
+                        }
+                    },
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = if (isFollowingDriver) Color(0xFF10B981) else Color(0xFF1E293B)
+                    ),
+                    modifier = Modifier.size(46.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Navigation,
+                        contentDescription = "Seguir motorista",
+                        tint = if (isFollowingDriver) Color.Black else Color(0xFF10B981),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         }
     }
@@ -1213,6 +1400,8 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                             "DRIVER_ARRIVING", "ARRIVED" -> "Motorista Chegou ao Local! 📍"
                                             "IN_PROGRESS" -> "Viagem em Andamento 🛣️"
                                             "COMPLETED" -> "Viagem Finalizada com Sucesso! 🏁"
+                                            "CANCELLED_BY_PASSENGER" -> "Corrida Cancelada pelo Passageiro ❌"
+                                            "CANCELLED_BY_DRIVER" -> "Corrida Cancelada pelo Motorista ❌"
                                             else -> currentRide!!.status
                                         },
                                         color = Color(0xFF10B981),
@@ -1309,21 +1498,56 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                 ) {
                                     Text("Fazer Nova Viagem", color = Color.White, fontWeight = FontWeight.Bold)
                                 }
-                            } else {
+                            } else if (currentRide!!.status.startsWith("CANCELLED")) {
                                 Button(
                                     onClick = {
+                                        currentRide = null
+                                        destAddress = null
+                                        destLat = null
+                                        destLng = null
+                                        rideBookingStep = 1
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Fazer Nova Viagem", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                var isCancellingRide by remember { mutableStateOf(false) }
+                                Button(
+                                    onClick = {
+                                        if (isCancellingRide || currentRide?.status == "CANCELLED_BY_PASSENGER") return@Button
+                                        isCancellingRide = true
                                         ApiService.updateRideStatus(
                                             rideId = currentRide!!.id,
                                             status = "CANCELLED_BY_PASSENGER",
-                                            onSuccess = { currentRide = it },
-                                            onError = { message = "Falha ao cancelar corrida." }
+                                            onSuccess = { updated ->
+                                                isCancellingRide = false
+                                                currentRide = updated
+                                            },
+                                            onError = { err ->
+                                                isCancellingRide = false
+                                                if (currentRide?.status == "CANCELLED_BY_PASSENGER") {
+                                                    // Idempotent success - backend successfully updated ride to CANCELLED_BY_PASSENGER
+                                                } else {
+                                                    message = "Falha ao cancelar corrida."
+                                                }
+                                            }
                                         )
                                     },
+                                    enabled = !isCancellingRide && currentRide?.status != "CANCELLED_BY_PASSENGER",
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text("Cancelar Corrida", color = Color.White, fontWeight = FontWeight.Bold)
+                                    if (isCancellingRide) {
+                                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Cancelando...", color = Color.White, fontWeight = FontWeight.Bold)
+                                    } else {
+                                        Text("Cancelar Corrida", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }
@@ -1534,7 +1758,13 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                 onClick = {
                                                     pickupLat = place.lat
                                                     pickupLng = place.lng
-                                                    pickupAddress = "${place.title}, São Sebastião - SP"
+                                                    pickupAddress = if (place.formattedAddress.isNotBlank()) {
+                                                        place.formattedAddress
+                                                    } else if (place.isZone) {
+                                                        "${place.title}, São Sebastião - SP"
+                                                    } else {
+                                                        "${place.title} - ${place.subtitle}"
+                                                    }
                                                     originZone = place.zone ?: findClosestZone(place.lat, place.lng, zones)
                                                     mapCenterLat = place.lat
                                                     mapCenterLng = place.lng
@@ -1689,7 +1919,13 @@ fun PassengerScreen(zones: List<Zone>, onBack: () -> Unit) {
                                                 onClick = {
                                                     destLat = place.lat
                                                     destLng = place.lng
-                                                    destAddress = "${place.title}, São Sebastião - SP"
+                                                    destAddress = if (place.formattedAddress.isNotBlank()) {
+                                                        place.formattedAddress
+                                                    } else if (place.isZone) {
+                                                        "${place.title}, São Sebastião - SP"
+                                                    } else {
+                                                        "${place.title} - ${place.subtitle}"
+                                                    }
                                                     destZone = place.zone ?: findClosestZone(place.lat, place.lng, zones)
                                                     mapCenterLat = (pickupLat + place.lat) / 2.0
                                                     mapCenterLng = (pickupLng + place.lng) / 2.0

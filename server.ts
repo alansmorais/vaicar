@@ -1359,11 +1359,15 @@ app.post('/api/v1/rides', async (req, res) => {
     const dynamic = await calculateCurrentDynamicMultiplier(originZoneId);
 
     const id = `ride-${Date.now()}`;
-    const originAddressResolved = originAddress || req.body.originAddress || originZone?.name || 'Origem';
-    const destAddressResolved = destinationAddress || req.body.destAddress || req.body.destinationAddress || destinationZone?.name || 'Destino';
-    const cleanOriginForMaps = originAddressResolved.includes('São Sebastião') ? originAddressResolved : `${originAddressResolved}, São Sebastião - SP`;
-    const cleanDestForMaps = destAddressResolved.includes('São Sebastião') ? destAddressResolved : `${destAddressResolved}, São Sebastião - SP`;
-    const directRouteMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(cleanOriginForMaps)}&destination=${encodeURIComponent(cleanDestForMaps)}&travelmode=driving`;
+    const originAddressResolved = originAddress || req.body.originAddress || (originZone ? `${originZone.name}, São Sebastião - SP` : 'Origem');
+    const destAddressResolved = destinationAddress || req.body.destAddress || req.body.destinationAddress || (destinationZone ? `${destinationZone.name}, São Sebastião - SP` : 'Destino');
+    
+    const oLat = req.body.originLat !== undefined && req.body.originLat !== null ? Number(req.body.originLat) : (originZone ? originZone.lat : -23.8078);
+    const oLng = req.body.originLng !== undefined && req.body.originLng !== null ? Number(req.body.originLng) : (originZone ? originZone.lng : -45.4058);
+    const dLat = req.body.destinationLat !== undefined && req.body.destinationLat !== null ? Number(req.body.destinationLat) : (destinationZone ? destinationZone.lat : -23.8078);
+    const dLng = req.body.destinationLng !== undefined && req.body.destinationLng !== null ? Number(req.body.destinationLng) : (destinationZone ? destinationZone.lng : -45.4058);
+
+    const directRouteMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${oLat},${oLng}&destination=${dLat},${dLng}&travelmode=driving`;
 
     const newRide: any = {
       id,
@@ -1379,16 +1383,16 @@ app.post('/api/v1/rides', async (req, res) => {
       driverAvatar: driver.avatarUrl,
       originZoneId,
       originAddress: originAddressResolved,
-      originLat: req.body.originLat !== undefined && req.body.originLat !== null ? Number(req.body.originLat) : (originZone ? originZone.lat : -23.8078),
-      originLng: req.body.originLng !== undefined && req.body.originLng !== null ? Number(req.body.originLng) : (originZone ? originZone.lng : -45.4058),
+      originLat: oLat,
+      originLng: oLng,
       originLandmark: originLandmark || '',
-      originMapsLink: originMapsLink || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanOriginForMaps)}`,
+      originMapsLink: originMapsLink || `https://www.google.com/maps/search/?api=1&query=${oLat},${oLng}`,
       destinationZoneId,
       destinationAddress: destAddressResolved,
-      destinationLat: req.body.destinationLat !== undefined && req.body.destinationLat !== null ? Number(req.body.destinationLat) : (destinationZone ? destinationZone.lat : -23.8078),
-      destinationLng: req.body.destinationLng !== undefined && req.body.destinationLng !== null ? Number(req.body.destinationLng) : (destinationZone ? destinationZone.lng : -45.4058),
+      destinationLat: dLat,
+      destinationLng: dLng,
       destinationLandmark: destinationLandmark || '',
-      destinationMapsLink: destinationMapsLink || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanDestForMaps)}`,
+      destinationMapsLink: destinationMapsLink || `https://www.google.com/maps/search/?api=1&query=${dLat},${dLng}`,
       mapsUrl: directRouteMapsUrl,
       passengerCount: Number(passengerCount) || 1,
       scheduledTime: scheduledTime || null,
@@ -2318,7 +2322,7 @@ app.get('/api/v1/maps/reverse-geocode', async (req, res) => {
       return res.status(400).json({ error: 'Parâmetros lat e lng são obrigatórios.' });
     }
 
-    const mapsKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    const mapsKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyAqF4zL02-t-Im_cItTvUj-gPeDs4mmGK4';
     if (mapsKey) {
       try {
         const response = await fetch(
@@ -2327,13 +2331,50 @@ app.get('/api/v1/maps/reverse-geocode', async (req, res) => {
         if (response.ok) {
           const data: any = await response.json();
           if (data.status === 'OK' && data.results && data.results.length > 0) {
-            const first = data.results[0];
-            const neighborhood = first.address_components?.find((c: any) =>
-              c.types.includes('sublocality') || c.types.includes('neighborhood')
-            )?.long_name || '';
+            // Prefer the most detailed street-level result
+            const first = data.results.find((r: any) =>
+              r.types?.includes('street_address') || r.types?.includes('premise') || r.types?.includes('route')
+            ) || data.results[0];
+
+            let street = '';
+            let number = '';
+            let neighborhood = '';
+            let city = '';
+            let state = '';
+
+            for (const comp of (first.address_components || [])) {
+              if (comp.types.includes('route')) street = comp.long_name;
+              if (comp.types.includes('street_number')) number = comp.long_name;
+              if (comp.types.includes('sublocality') || comp.types.includes('sublocality_level_1') || comp.types.includes('neighborhood')) {
+                neighborhood = comp.long_name;
+              }
+              if (comp.types.includes('administrative_area_level_2') || comp.types.includes('locality')) {
+                city = comp.long_name;
+              }
+              if (comp.types.includes('administrative_area_level_1')) {
+                state = comp.short_name;
+              }
+            }
+
+            let preciseAddress = '';
+            if (street) {
+              const streetPart = number ? `${street}, ${number}` : street;
+              const subParts = [neighborhood, city || 'São Sebastião', state || 'SP'].filter(Boolean);
+              preciseAddress = subParts.length > 0 ? `${streetPart} - ${subParts.join(', ')}` : streetPart;
+            } else if (first.formatted_address) {
+              preciseAddress = first.formatted_address.replace(/,\s*\d{5}-\d{3}.*$/, '').replace(/,\s*Brasil$/i, '');
+            }
+
             return res.json({
-              address: first.formatted_address,
+              address: preciseAddress || first.formatted_address,
+              formattedAddress: first.formatted_address,
+              street,
+              number,
               neighborhood,
+              city: city || 'São Sebastião',
+              state: state || 'SP',
+              lat,
+              lng,
               placeId: first.place_id
             });
           }
@@ -2357,7 +2398,12 @@ app.get('/api/v1/maps/reverse-geocode', async (req, res) => {
     const zoneName = closestZone ? closestZone.name : 'São Sebastião';
     return res.json({
       address: `${zoneName}, São Sebastião - SP`,
+      formattedAddress: `${zoneName}, São Sebastião - SP`,
       neighborhood: zoneName,
+      city: 'São Sebastião',
+      state: 'SP',
+      lat,
+      lng,
       fallback: true
     });
   } catch (err: any) {
@@ -2379,28 +2425,20 @@ app.get('/api/v1/maps/places-search', async (req, res) => {
     const results: Array<{
       title: string;
       subtitle: string;
+      formattedAddress?: string;
+      street?: string;
+      number?: string;
+      neighborhood?: string;
+      city?: string;
+      state?: string;
       lat: number;
       lng: number;
       placeId?: string;
       isZone?: boolean;
     }> = [];
 
-    // 1. Check official São Sebastião zones & beaches matching query
-    zones.filter(z => 
-      z.name.toLowerCase().includes(cleanQuery) || 
-      z.slug.toLowerCase().includes(cleanQuery)
-    ).forEach(z => {
-      results.push({
-        title: z.name,
-        subtitle: 'Bairro / Praia de São Sebastião • SP',
-        lat: z.lat,
-        lng: z.lng,
-        isZone: true
-      });
-    });
-
-    // 2. Query Google Geocoding API if key available
-    const mapsKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+    // 1. Query Google Geocoding API if key available for real street/address autocomplete
+    const mapsKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyAqF4zL02-t-Im_cItTvUj-gPeDs4mmGK4';
     if (mapsKey) {
       try {
         const fullQuery = (!cleanQuery.includes('são sebastião') && !cleanQuery.includes('sao sebastiao'))
@@ -2413,15 +2451,52 @@ app.get('/api/v1/maps/places-search', async (req, res) => {
         if (response.ok) {
           const data: any = await response.json();
           if (data.status === 'OK' && data.results) {
-            data.results.slice(0, 6).forEach((r: any) => {
+            data.results.slice(0, 8).forEach((r: any) => {
               const rLat = r.geometry?.location?.lat;
               const rLng = r.geometry?.location?.lng;
-              if (rLat && rLng && !results.some(existing => Math.abs(existing.lat - rLat) < 0.001 && Math.abs(existing.lng - rLng) < 0.001)) {
-                const formatted = r.formatted_address || '';
-                const mainName = r.address_components?.[0]?.long_name || formatted.split(',')[0];
+              if (rLat && rLng && !results.some(existing => Math.abs(existing.lat - rLat) < 0.0005 && Math.abs(existing.lng - rLng) < 0.0005)) {
+                let street = '';
+                let number = '';
+                let neighborhood = '';
+                let city = '';
+                let state = '';
+
+                for (const comp of (r.address_components || [])) {
+                  if (comp.types.includes('route')) street = comp.long_name;
+                  if (comp.types.includes('street_number')) number = comp.long_name;
+                  if (comp.types.includes('sublocality') || comp.types.includes('sublocality_level_1') || comp.types.includes('neighborhood')) {
+                    neighborhood = comp.long_name;
+                  }
+                  if (comp.types.includes('administrative_area_level_2') || comp.types.includes('locality')) {
+                    city = comp.long_name;
+                  }
+                  if (comp.types.includes('administrative_area_level_1')) {
+                    state = comp.short_name;
+                  }
+                }
+
+                let title = '';
+                if (street) {
+                  title = number ? `${street}, ${number}` : street;
+                } else {
+                  title = r.address_components?.[0]?.long_name || r.formatted_address?.split(',')[0] || rawQuery;
+                }
+
+                const subParts = [neighborhood, city || 'São Sebastião', state || 'SP'].filter(Boolean);
+                const subtitle = subParts.join(' - ');
+                const formattedAddress = street
+                  ? `${title} - ${subtitle}`
+                  : (r.formatted_address ? r.formatted_address.replace(/,\s*\d{5}-\d{3}.*$/, '').replace(/,\s*Brasil$/i, '') : `${title} - ${subtitle}`);
+
                 results.push({
-                  title: mainName,
-                  subtitle: formatted || 'São Sebastião - SP',
+                  title,
+                  subtitle: subtitle || 'São Sebastião - SP',
+                  formattedAddress,
+                  street,
+                  number,
+                  neighborhood,
+                  city: city || 'São Sebastião',
+                  state: state || 'SP',
                   lat: rLat,
                   lng: rLng,
                   placeId: r.place_id,
@@ -2435,6 +2510,26 @@ app.get('/api/v1/maps/places-search', async (req, res) => {
         console.warn('Geocoding search API error:', geoErr);
       }
     }
+
+    // 2. Check official São Sebastião zones & beaches matching query
+    zones.filter(z => 
+      z.name.toLowerCase().includes(cleanQuery) || 
+      z.slug.toLowerCase().includes(cleanQuery)
+    ).forEach(z => {
+      if (!results.some(existing => Math.abs(existing.lat - z.lat) < 0.001 && Math.abs(existing.lng - z.lng) < 0.001)) {
+        results.push({
+          title: z.name,
+          subtitle: 'Bairro / Região de São Sebastião • SP',
+          formattedAddress: `${z.name}, São Sebastião - SP`,
+          neighborhood: z.name,
+          city: 'São Sebastião',
+          state: 'SP',
+          lat: z.lat,
+          lng: z.lng,
+          isZone: true
+        });
+      }
+    });
 
     res.json({ results });
   } catch (err: any) {

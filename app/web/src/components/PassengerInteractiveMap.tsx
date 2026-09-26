@@ -646,7 +646,8 @@ export const PassengerInteractiveMap: React.FC<PassengerInteractiveMapProps> = (
                       key={`place-${idx}-${place.lat}-${place.lng}`}
                       type="button"
                       onClick={() => {
-                        onSelectDestination(place.lat, place.lng, `${place.title} - ${place.subtitle}`);
+                        const exactDest = place.formattedAddress || (place.subtitle ? `${place.title} - ${place.subtitle}` : place.title);
+                        onSelectDestination(place.lat, place.lng, exactDest);
                         setIsSearchOpen(false);
                       }}
                       className="w-full p-2.5 rounded-xl border border-slate-800 bg-slate-900/90 hover:bg-sky-500/20 hover:border-sky-500/50 text-left transition-all cursor-pointer flex items-start gap-2.5 group"
